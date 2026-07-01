@@ -49,6 +49,13 @@ export interface LocalChild {
   archived_at: ISODateTime | null;
 }
 
+export interface LocalChildOnboardingToken {
+  childId: UUID;
+  childName: string;
+  childToken: string;
+  createdAt: ISODateTime;
+}
+
 export interface LocalTask {
   id: UUID;
   family_id: UUID;
@@ -417,6 +424,7 @@ export interface LocalDatabaseState {
   current_user_id: UUID;
   active_child_id: UUID | null;
   children: LocalChild[];
+  child_onboarding_tokens?: LocalChildOnboardingToken[];
   tasks: LocalTask[];
   stars: LocalStarTransaction[];
   dreams: LocalDream[];

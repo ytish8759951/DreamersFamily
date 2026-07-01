@@ -128,6 +128,11 @@ export function Children() {
           theme_color: form.theme_color,
           notes: form.notes || null
         });
+        console.log('[child onboarding] created childToken', {
+          childId: child.id,
+          childName: child.display_name,
+          childToken: child.child_token
+        });
         setCreatedChildId(child.id);
         setExpandedDeviceId(child.id);
       } else if (editingId) {
@@ -161,6 +166,11 @@ export function Children() {
     const confirmed = window.confirm(`重新產生「${child.display_name}」的孩子專屬網址？舊網址會立即失效，已綁定裝置也會解除。`);
     if (!confirmed) return;
     const next = childrenRepository.regenerateChildToken(child.id);
+    console.log('[child onboarding] regenerated childToken', {
+      childId: next.id,
+      childName: next.display_name,
+      childToken: next.child_token
+    });
     setExpandedDeviceId(next.id);
   };
 
@@ -393,6 +403,7 @@ export function Children() {
             <div className="child-created-content">
               <strong>{createdChild.display_name} 的孩子專屬入口已建立</strong>
               <img src={qrCodeUrl(childDeviceUrl(createdChild))} alt={`${createdChild.display_name} 孩子專屬網址 QR Code`} />
+              <small>childToken: {createdChild.child_token || '(empty)'}</small>
               <code>{childDeviceUrl(createdChild)}</code>
             </div>
             <footer className="child-created-actions">
@@ -432,6 +443,7 @@ function ChildDeviceSettings({
       <div className="child-device-url">
         <small>孩子專屬網址</small>
         <code>{url}</code>
+        <small>childToken: {child.child_token || '(empty)'}</small>
       </div>
       <div className="child-device-qr">
         <img src={qrCodeUrl(url)} alt={`${child.display_name} 孩子專屬網址 QR Code`} />

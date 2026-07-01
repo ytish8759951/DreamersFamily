@@ -12,6 +12,7 @@ import type {
   LocalBadge,
   LocalChildBadge,
   LocalChild,
+  LocalChildOnboardingToken,
   LocalDatabaseState,
   LocalDream,
   LocalDreamFund,
@@ -86,6 +87,24 @@ function requireChild(state: LocalDatabaseState, childId: UUID, includeArchived 
     throw new LocalDataError('Child not found', 'CHILD_NOT_FOUND');
   }
   return child;
+}
+
+function upsertChildOnboardingToken(state: LocalDatabaseState, child: LocalChild): LocalChildOnboardingToken {
+  state.child_onboarding_tokens ??= [];
+  const entry: LocalChildOnboardingToken = {
+    childId: child.id,
+    childName: child.display_name,
+    childToken: child.child_token,
+    createdAt: child.child_token_updated_at
+  };
+  const index = state.child_onboarding_tokens.findIndex((item) => item.childId === child.id);
+  if (index >= 0) state.child_onboarding_tokens[index] = entry;
+  else state.child_onboarding_tokens.push(entry);
+  return entry;
+}
+
+function removeChildOnboardingToken(state: LocalDatabaseState, childId: UUID) {
+  state.child_onboarding_tokens = (state.child_onboarding_tokens ?? []).filter((item) => item.childId !== childId);
 }
 
 function requireTask(state: LocalDatabaseState, taskId: UUID) {
@@ -642,6 +661,7 @@ export class LocalDataService implements LocalDataRepository {
         archived_at: null
       };
       state.children.push(child);
+      upsertChildOnboardingToken(state, child);
       state.active_child_id ??= child.id;
       return child;
     });
@@ -665,6 +685,7 @@ export class LocalDataService implements LocalDataRepository {
       if (input.timezone !== undefined) child.timezone = requiredText(input.timezone, 'timezone');
       if (input.notes !== undefined) child.notes = input.notes?.trim() || null;
       child.updated_at = now();
+      upsertChildOnboardingToken(state, child);
       return child;
     });
   }
@@ -679,6 +700,7 @@ export class LocalDataService implements LocalDataRepository {
       if (state.active_child_id === childId) {
         state.active_child_id = state.children.find((item) => item.status === 'active')?.id ?? null;
       }
+      removeChildOnboardingToken(state, childId);
       return child;
     });
   }
@@ -704,16 +726,28 @@ export class LocalDataService implements LocalDataRepository {
   getChildByToken(token: string) {
     const normalized = token.trim();
     if (!normalized) return null;
-    return this.db.read().children.find((child) => child.status === 'active' && child.child_token === normalized) ?? null;
+    const state = this.db.read();
+    const child = state.children.find((item) => item.status === 'active' && item.child_token === normalized);
+    if (child) return child;
+
+    const onboardingToken = (state.child_onboarding_tokens ?? []).find((item) => item.childToken === normalized);
+    if (!onboardingToken) return null;
+    return state.children.find((item) => item.status === 'active' && item.id === onboardingToken.childId) ?? null;
   }
 
   bindChildDeviceByToken(token: string) {
     return this.db.transaction((state) => {
       const normalized = token.trim();
+      if (!normalized) throw new LocalDataError('Child token is empty', 'CHILD_TOKEN_EMPTY');
       let child = state.children.find((item) => item.status === 'active' && item.child_token === normalized);
       if (!child) {
         const payload = parseChildDeviceToken(normalized);
         if (!payload) throw new LocalDataError('Child token not found', 'CHILD_TOKEN_NOT_FOUND');
+        const existingChild = state.children.find((item) => item.id === payload.childId);
+        const existingToken = (state.child_onboarding_tokens ?? []).find((item) => item.childId === payload.childId);
+        if (existingChild || existingToken) {
+          throw new LocalDataError('Child token has been revoked', 'CHILD_TOKEN_REVOKED');
+        }
         const timestamp = now();
         child = {
           id: payload.childId,
@@ -751,6 +785,7 @@ export class LocalDataService implements LocalDataRepository {
       child.last_login_at = timestamp;
       child.last_login_device = currentDeviceLabel();
       child.updated_at = timestamp;
+      upsertChildOnboardingToken(state, child);
       state.device_child_id = child.id;
       state.active_child_id = child.id;
       return child;
@@ -768,6 +803,7 @@ export class LocalDataService implements LocalDataRepository {
       child.last_login_at = null;
       child.last_login_device = null;
       child.updated_at = timestamp;
+      upsertChildOnboardingToken(state, child);
       if (state.device_child_id === childId) state.device_child_id = null;
       return child;
     });

@@ -54,6 +54,7 @@ function createEmptyState(): LocalDatabaseState {
     current_user_id: LOCAL_PARENT_USER_ID,
     active_child_id: null,
     children: [],
+    child_onboarding_tokens: [],
     tasks: [],
     stars: [],
     dreams: [],
@@ -95,6 +96,33 @@ function normalizeState(state: LocalDatabaseState): LocalDatabaseState {
       cover_file_name: dream.cover_file_name ?? null
     };
   });
+  const children = (state.children ?? []).map((child) => {
+    const normalizedChild = {
+      ...child,
+      avatar_media_id: child.avatar_media_id ?? null,
+      bound_device_id: child.bound_device_id ?? null,
+      bound_at: child.bound_at ?? null,
+      last_login_at: child.last_login_at ?? null,
+      last_login_device: child.last_login_device ?? null
+    };
+    return {
+      ...normalizedChild,
+      child_token: child.child_token ?? createChildDeviceTokenForChild(normalizedChild),
+      child_token_updated_at: child.child_token_updated_at ?? child.updated_at ?? timestamp
+    };
+  });
+  const storedOnboardingTokens = state.child_onboarding_tokens ?? [];
+  const child_onboarding_tokens = children
+    .filter((child) => child.status === 'active')
+    .map((child) => {
+      const stored = storedOnboardingTokens.find((token) => token.childId === child.id);
+      return {
+        childId: child.id,
+        childName: child.display_name,
+        childToken: stored?.childToken === child.child_token ? stored.childToken : child.child_token,
+        createdAt: stored?.createdAt ?? child.child_token_updated_at ?? child.created_at
+      };
+    });
   return {
     ...state,
     family_id: state.family_id ?? LOCAL_FAMILY_ID,
@@ -103,21 +131,8 @@ function normalizeState(state: LocalDatabaseState): LocalDatabaseState {
     device_child_id: state.device_child_id ?? null,
     current_user_id: state.current_user_id ?? state.parent_id ?? LOCAL_PARENT_USER_ID,
     active_child_id: state.device_child_id ?? state.active_child_id ?? null,
-    children: (state.children ?? []).map((child) => {
-      const normalizedChild = {
-        ...child,
-        avatar_media_id: child.avatar_media_id ?? null,
-        bound_device_id: child.bound_device_id ?? null,
-        bound_at: child.bound_at ?? null,
-        last_login_at: child.last_login_at ?? null,
-        last_login_device: child.last_login_device ?? null
-      };
-      return {
-        ...normalizedChild,
-        child_token: child.child_token ?? createChildDeviceTokenForChild(normalizedChild),
-        child_token_updated_at: child.child_token_updated_at ?? child.updated_at ?? timestamp
-      };
-    }),
+    children,
+    child_onboarding_tokens,
     tasks: (state.tasks ?? []).map((task) => ({
       ...task,
       task_image_media_id: task.task_image_media_id ?? null,

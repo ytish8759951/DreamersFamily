@@ -81,6 +81,14 @@ describe('local MVP data flows', () => {
 
     expect(child.child_token).toMatch(/^df1_[a-f0-9]{32}_/);
     expect(data.getChildByToken(child.child_token)?.id).toBe(child.id);
+    expect(data.getState().child_onboarding_tokens).toEqual([
+      {
+        childId: child.id,
+        childName: '安安',
+        childToken: child.child_token,
+        createdAt: child.child_token_updated_at
+      }
+    ]);
 
     const childDeviceData = new LocalDataService(new MockDatabase(new TestStorage(), 'child-device-db'));
     childDeviceData.resetLocalData();
@@ -90,6 +98,48 @@ describe('local MVP data flows', () => {
     expect(boundChild.display_name).toBe('安安');
     expect(childDeviceData.getState().active_child_id).toBe(child.id);
     expect(childDeviceData.getState().device_child_id).toBe(child.id);
+  });
+
+  it('opens a valid child token on empty localStorage and reaches the child home identity', () => {
+    const child = data.createChild({ display_name: '空白裝置孩子', birth_date: '2022-01-02' });
+    const emptyDeviceData = new LocalDataService(new MockDatabase(new TestStorage(), 'empty-child-device-db'));
+    emptyDeviceData.resetLocalData();
+
+    expect(emptyDeviceData.getState().children).toHaveLength(0);
+
+    const boundChild = emptyDeviceData.bindChildDeviceByToken(child.child_token);
+
+    expect(boundChild).toMatchObject({
+      id: child.id,
+      display_name: '空白裝置孩子',
+      child_token: child.child_token
+    });
+    expect(emptyDeviceData.getState().active_child_id).toBe(child.id);
+    expect(emptyDeviceData.getState().device_child_id).toBe(child.id);
+  });
+
+  it('opens an already-bound child device with the same token again', () => {
+    const child = data.createChild({ display_name: '已綁定孩子' });
+    const childDeviceData = new LocalDataService(new MockDatabase(new TestStorage(), 'bound-child-device-db'));
+    childDeviceData.resetLocalData();
+
+    childDeviceData.bindChildDeviceByToken(child.child_token);
+    const reboundChild = childDeviceData.bindChildDeviceByToken(child.child_token);
+
+    expect(reboundChild.id).toBe(child.id);
+    expect(childDeviceData.getState().active_child_id).toBe(child.id);
+    expect(childDeviceData.getState().device_child_id).toBe(child.id);
+  });
+
+  it('shows invalid only after regenerate explicitly revokes the old child token', () => {
+    const child = data.createChild({ display_name: '換網址孩子' });
+    const oldToken = child.child_token;
+    const regenerated = data.regenerateChildToken(child.id);
+
+    expect(regenerated.child_token).not.toBe(oldToken);
+    expect(() => data.bindChildDeviceByToken(oldToken)).toThrowError(LocalDataError);
+    expect(() => data.bindChildDeviceByToken(oldToken)).toThrowError(/revoked/);
+    expect(data.bindChildDeviceByToken(regenerated.child_token).id).toBe(child.id);
   });
 
   it('runs task completion, approval, stars and screen-time rewards once', () => {
