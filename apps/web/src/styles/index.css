@@ -5570,6 +5570,11 @@ p {
   display: none;
 }
 
+.ph-mobile-overlay,
+.ph-mobile-drawer {
+  display: none;
+}
+
 @media (max-width: 1100px) {
   .ph-sidebar {
     display: none;
@@ -5595,8 +5600,94 @@ p {
     height: 41px;
     align-items: center;
     justify-content: center;
+    border: 1px solid #ecdfcf;
     border-radius: 13px;
     background: #fff9f0;
+    color: #684213;
+  }
+
+  .ph-mobile-overlay.is-open {
+    position: fixed;
+    inset: 0;
+    z-index: 80;
+    display: block;
+    border: 0;
+    background: rgba(47, 38, 25, .34);
+    padding: 0;
+  }
+
+  .ph-mobile-drawer {
+    position: fixed;
+    top: 0;
+    right: 0;
+    bottom: 0;
+    z-index: 90;
+    display: flex;
+    width: min(86vw, 340px);
+    transform: translateX(100%);
+    flex-direction: column;
+    border-left: 1px solid #ecdfcf;
+    background: #fffdfa;
+    box-shadow: -16px 0 34px rgba(74, 57, 35, .16);
+    transition: transform .2s ease;
+  }
+
+  .ph-mobile-drawer.is-open {
+    transform: translateX(0);
+  }
+
+  .ph-mobile-drawer-head {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    border-bottom: 1px solid #ecdfcf;
+    padding: 14px;
+  }
+
+  .ph-mobile-drawer-head .ph-brand {
+    width: auto;
+    border: 0;
+    background: transparent;
+    padding: 0;
+  }
+
+  .ph-mobile-drawer-head button {
+    display: inline-flex;
+    width: 40px;
+    height: 40px;
+    align-items: center;
+    justify-content: center;
+    border: 1px solid #ecdfcf;
+    border-radius: 13px;
+    background: #fff9f0;
+    color: #684213;
+  }
+
+  .ph-mobile-drawer nav {
+    display: grid;
+    gap: 7px;
+    overflow-y: auto;
+    padding: 13px;
+  }
+
+  .ph-mobile-drawer nav a {
+    display: flex;
+    min-height: 48px;
+    align-items: center;
+    gap: 11px;
+    border: 1px solid transparent;
+    border-radius: 14px;
+    padding: 0 14px;
+    color: #4f4334;
+    font-size: 14px;
+    font-weight: 800;
+    text-decoration: none;
+  }
+
+  .ph-mobile-drawer nav a.is-active {
+    border-color: #d6e8cd;
+    background: #edf5e9;
+    color: #58714f;
   }
 
   .ph-topbar > .ph-brand {

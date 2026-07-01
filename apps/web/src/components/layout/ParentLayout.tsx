@@ -9,8 +9,10 @@ import {
   Menu,
   PiggyBank,
   Settings,
-  Users
+  Users,
+  X
 } from 'lucide-react';
+import { useState } from 'react';
 import { NavLink, Outlet, useLocation } from 'react-router-dom';
 import { useLocalDataState } from '../../lib/useLocalData';
 
@@ -26,8 +28,21 @@ const navigation = [
   { label: '設定', short: '設定', to: '/parent/settings', icon: Settings }
 ];
 
+const mobileNavigation = [
+  { label: '孩子管理', to: '/parent/children', icon: Users },
+  { label: '任務管理', to: '/parent/tasks', icon: CheckSquare },
+  { label: '分享管理', to: '/parent/share', icon: Camera },
+  { label: '撲滿管理', to: '/parent/dreams', icon: PiggyBank },
+  { label: '信箱管理', to: '/parent/mailbox', icon: Mail },
+  { label: '特別日', to: '/parent/special-days', icon: CalendarHeart },
+  { label: '成長紀錄', to: '/parent/growth', icon: Activity },
+  { label: '螢幕時間', to: '/parent/screen-time', icon: Clock3 },
+  { label: '設定', to: '/parent/settings', icon: Settings }
+];
+
 export function ParentLayout() {
   const location = useLocation();
+  const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
   const localState = useLocalDataState();
   const activeChild = localState.children.find(
     (child) => child.id === localState.active_child_id && child.status === 'active'
@@ -68,7 +83,15 @@ export function ParentLayout() {
 
       <div className="ph-content">
         <header className="ph-topbar">
-          <button className="ph-menu" aria-label="開啟選單"><Menu size={20} /></button>
+          <button
+            type="button"
+            className="ph-menu"
+            aria-label="開啟選單"
+            aria-expanded={isMobileMenuOpen}
+            onClick={() => setIsMobileMenuOpen(true)}
+          >
+            <Menu size={20} />
+          </button>
           <Brand />
           <div className="ph-top-copy">
             <small>{activeChild ? `${activeChild.display_name} 目前使用中` : '尚未選擇孩子'}</small>
@@ -78,6 +101,38 @@ export function ParentLayout() {
         </header>
         <main className="ph-main"><Outlet /></main>
       </div>
+
+      <button
+        type="button"
+        className={`ph-mobile-overlay${isMobileMenuOpen ? ' is-open' : ''}`}
+        aria-label="關閉選單"
+        onClick={() => setIsMobileMenuOpen(false)}
+      />
+      <aside
+        className={`ph-mobile-drawer${isMobileMenuOpen ? ' is-open' : ''}`}
+        aria-hidden={!isMobileMenuOpen}
+        aria-label="家長端選單"
+      >
+        <div className="ph-mobile-drawer-head">
+          <Brand />
+          <button type="button" aria-label="關閉選單" onClick={() => setIsMobileMenuOpen(false)}>
+            <X size={20} />
+          </button>
+        </div>
+        <nav>
+          {mobileNavigation.map(({ label, to, icon: Icon }) => (
+            <NavLink
+              key={to}
+              to={to}
+              className={({ isActive }) => isActive ? 'is-active' : ''}
+              onClick={() => setIsMobileMenuOpen(false)}
+            >
+              <Icon size={18} />
+              <span>{label}</span>
+            </NavLink>
+          ))}
+        </nav>
+      </aside>
 
       <nav className="ph-bottom-nav">
         {bottomNavigation.map(({ short, label, to, icon: Icon }) => (
