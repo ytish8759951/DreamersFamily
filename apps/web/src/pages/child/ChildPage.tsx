@@ -1,0 +1,1798 @@
+﻿import { useEffect, useMemo, useRef, useState, type FormEvent } from 'react';
+import type { LucideIcon } from 'lucide-react';
+import {
+  Bell,
+  BookOpen,
+  CalendarDays,
+  Camera,
+  CheckCircle2,
+  ChevronRight,
+  Clock3,
+  Heart,
+  Image,
+  Mail,
+  Mic,
+  MoreHorizontal,
+  Pencil,
+  Play,
+  Search,
+  Sparkles,
+  Star,
+  Trophy,
+  Volume2,
+  Video
+} from 'lucide-react';
+import { Link } from 'react-router-dom';
+import { LocalDreamCover, useLocalDreamCoverUrl } from '../../components/LocalDreamCover';
+import { LocalShareMedia as LocalShareMediaView } from '../../components/LocalShareMedia';
+import { LocalTaskMedia } from '../../components/LocalTaskMedia';
+import { dataRepository } from '../../lib/dataRepository';
+import { useDreamCoverMigration } from '../../lib/dreamCoverMigration';
+import { compressImageFile } from '../../lib/imageCompression';
+import { logVideoStorageDiagnostics } from '../../lib/localVideoStore';
+import { shareRepository, type ShareMediaChunk, type ShareRecordedMedia } from '../../lib/shareRepository';
+import { mailboxRepository } from '../../lib/mailboxRepository';
+import { piggyRepository } from '../../lib/piggyRepository';
+import { taskRepository } from '../../lib/taskRepository';
+import { getLocalStorageDiagnostics } from '../../lib/storage';
+import type {
+  DreamWithBalance,
+  LocalChildBadge,
+  LocalDatabaseState,
+  LocalMailboxMessage,
+  LocalShare,
+  LocalShareMedia,
+  LocalSpecialDay,
+  LocalTask,
+  ShareWithMedia
+} from '../../lib/localTypes';
+import { getBirthdaySpecialDays } from '../../lib/specialDays';
+import { getChildHistoryTasks, getChildTodayTasks } from '../../lib/taskRules';
+import { useLocalDataState } from '../../lib/useLocalData';
+
+type ChildPageProps = {
+  title: string;
+  subtitle: string;
+  icon: LucideIcon;
+  mode: 'home' | 'tasks' | 'share' | 'dreams' | 'mailbox';
+};
+
+type VoiceSource = { text: string; audioUrl?: string };
+
+const asset = (name: string) => `/design-assets/${name}`;
+
+function speakSlowly(text: string) {
+  if (!('speechSynthesis' in window)) return;
+  window.speechSynthesis.cancel();
+  const utterance = new SpeechSynthesisUtterance(text);
+  utterance.lang = 'zh-TW';
+  utterance.rate = 0.72;
+  utterance.pitch = 1.12;
+  window.speechSynthesis.speak(utterance);
+}
+
+function playVoice({ text, audioUrl }: VoiceSource) {
+  if (!audioUrl) return speakSlowly(text);
+  new Audio(audioUrl).play().catch(() => speakSlowly(text));
+}
+
+export function ChildPage({ mode }: ChildPageProps) {
+  if (mode === 'home') return <HomePage />;
+  if (mode === 'tasks') return <TaskPage />;
+  if (mode === 'share') return <SharePage />;
+  if (mode === 'dreams') return <DreamPage />;
+  return <MailboxPage />;
+}
+
+function ChildPageHeader({ emoji, title, subtitle, accent }: { emoji: string; title: string; subtitle: string; accent?: string }) {
+  return (
+    <header className="v1-page-header">
+      <div>
+        <h1><span>{emoji}</span>{title}{accent ? <i>{accent}</i> : null}</h1>
+        <p>{subtitle}</p>
+      </div>
+    </header>
+  );
+}
+
+function HomePage() {
+  useDreamCoverMigration();
+  const localState = useLocalDataState();
+  const selectedChild = localState.children.find(
+    (child) => child.id === localState.active_child_id && child.status === 'active'
+  );
+  const childName = selectedChild?.display_name ?? '小小夢想家';
+  const childShares = selectedChild
+    ? buildChildShares(localState).filter((share) => share.child_id === selectedChild.id).slice(0, 3)
+    : [];
+  const piggySavings = selectedChild
+    ? piggyRepository.getPiggyBankSummary(selectedChild.id).currentSavings
+    : 0;
+  const totalStars = selectedChild
+    ? localState.stars
+        .filter((transaction) => transaction.child_id === selectedChild.id)
+        .reduce((total, transaction) => total + transaction.amount, 0)
+    : 0;
+  const remainingScreenMinutes = selectedChild
+    ? getTodayScreenTimeRemaining(localState, selectedChild.id)
+    : 0;
+  const latestGrowth = selectedChild
+    ? getLatestGrowthRecord(localState, selectedChild.id)
+    : null;
+  const specialDays = selectedChild ? getHomeSpecialDays(localState, selectedChild.id) : [];
+  const hasMoreSpecialDays = specialDays.length > 3;
+  const visibleSpecialDays = specialDays.slice(0, 3);
+
+  return (
+    <div className="v1-page v1-home v2-home-page">
+      <header className="v1-brand-header">
+        <h1>小小夢想家 Family <span>✦</span></h1>
+        <p>系統總覽與首頁定稿</p>
+      </header>
+
+      <button className="v1-home-hero" onClick={() => playVoice({ text: `哈囉${childName}！今天完成什麼冒險了呢？` })}>
+        <div className="v1-bunny-card">🐰</div>
+        <div className="v1-home-copy">
+          <small>小小夢想家 Family</small>
+          <h2>哈囉{childName}！</h2>
+          <p>今天完成什麼冒險了呢？</p>
+        </div>
+        <span className="v1-listen"><Volume2 size={19} fill="currentColor" /> 聽兔兔</span>
+      </button>
+
+      <Link to="/child/share" className="v1-panel v1-recent-panel v1-home-link-panel">
+        <SectionHeading icon={Camera} title="最近分享" action="查看更多" actionHref="/child/share" />
+        <div className="v1-recent-grid">
+          {childShares.length ? (
+            childShares.map((share) => <LocalRecentCard key={share.id} share={share} />)
+          ) : (
+            <ChildTaskEmpty text={selectedChild ? '還沒有分享紀錄' : '請家長先選擇目前孩子'} />
+          )}
+        </div>
+      </Link>
+
+      <Link to="/child/growth" className="v1-panel v1-growth-panel v1-home-link-panel">
+        <SectionHeading title="成長紀錄" accent="🌱" action="查看更多" actionHref="/child/growth" />
+        {latestGrowth ? (
+          <div className="v1-growth-grid">
+            <Metric icon="🧍‍♀️" label="身高" value={formatMetric(latestGrowth.height_cm)} unit="cm" note={`紀錄日期 ${formatChildDate(latestGrowth.date)}`} tone="blue" />
+            <Metric icon="⚖️" label="體重" value={formatMetric(latestGrowth.weight_kg)} unit="kg" note={`紀錄日期 ${formatChildDate(latestGrowth.date)}`} tone="green" />
+            <Metric icon="📖" label="閱讀" value={String(latestGrowth.reading_count)} unit="本" note={latestGrowth.note || '最新閱讀紀錄'} tone="yellow" />
+          </div>
+        ) : (
+          <ChildTaskEmpty text={selectedChild ? '尚未紀錄身高、體重與閱讀' : '請家長先選擇目前孩子'} />
+        )}
+      </Link>
+
+      <section className="v1-home-stats v2-home-stats">
+        <Link to="/child/dreams" className="v1-stat-link">
+          <StatCard emoji="🫙" title="撲滿總金額" value={formatChildMoney(piggySavings)} unit="" note="目前已存起來的零用錢" tone="pink" />
+        </Link>
+        <StatCard emoji="⭐" title="冒險星星" value={String(totalStars)} unit="顆" note="家長審核後會自動累積。" tone="yellow" />
+        <StatCard emoji="⏱️" title="平板時間" value={String(remainingScreenMinutes)} unit="分鐘" note="目前存摺餘額" tone="blue" />
+      </section>
+      <Link to="/child/special-days" className="child-home-special-days">
+        <header>
+          <h2>特殊日子</h2>
+          {hasMoreSpecialDays ? <span>查看全部 <ChevronRight size={16} /></span> : null}
+        </header>
+        <div>
+          {visibleSpecialDays.length ? (
+            visibleSpecialDays.map((day) => <HomeSpecialDayRow key={day.id} day={day} />)
+          ) : (
+            <ChildTaskEmpty text={selectedChild ? '尚未設定生日或特殊日子' : '請家長先選擇目前孩子'} />
+          )}
+        </div>
+      </Link>
+    </div>
+  );
+}
+
+function SectionHeading({ icon: Icon, title, accent, action, actionHref, actionOnClick }: { icon?: LucideIcon; title: string; accent?: string; action?: string; actionHref?: string; actionOnClick?: () => void }) {
+  return (
+    <div className="v1-section-heading">
+      <h2>{Icon ? <Icon size={22} /> : null}{title}{accent ? <span>{accent}</span> : null}</h2>
+      {action && actionHref ? <Link to={actionHref}>{action} <ChevronRight size={17} /></Link> : null}
+      {action && !actionHref ? <button type="button" onClick={actionOnClick}>{action} <ChevronRight size={17} /></button> : null}
+    </div>
+  );
+}
+
+function Metric({ icon, label, value, unit, note, tone }: { icon: string; label: string; value: string; unit: string; note: string; tone: string }) {
+  return (
+    <article className={`v1-metric v1-tone-${tone}`}>
+      <span>{icon}</span>
+      <div><strong>{label}</strong><p>{value}<small>{unit}</small></p><em>{note}</em></div>
+      <ChevronRight className="v1-mobile-chevron" size={18} />
+    </article>
+  );
+}
+
+function StatCard({ emoji, title, value, unit, note, tone }: { emoji: string; title: string; value: string; unit: string; note: string; tone: string }) {
+  return (
+    <article className={`v1-stat v1-tone-${tone}`}>
+      <span>{emoji}</span>
+      <div><strong>{title}</strong><p>{value}{unit ? <small>{unit}</small> : null}</p><em>{note}</em></div>
+    </article>
+  );
+}
+
+type HomeSpecialDay = {
+  id: string;
+  title: string;
+  date: string;
+  type: LocalSpecialDay['type'];
+  daysLeft: number;
+  isBirthday?: boolean;
+};
+
+function HomeSpecialDayRow({ day }: { day: HomeSpecialDay }) {
+  return (
+    <section className="child-home-special-day-row">
+      <span>{homeSpecialDayIcon(day.type)}</span>
+      <strong>{day.isBirthday ? '生日' : day.title}</strong>
+      <time>{formatChildDate(day.date)}</time>
+      {day.daysLeft >= 0 ? <em>倒數 {day.daysLeft} 天</em> : null}
+    </section>
+  );
+}
+
+function getLatestGrowthRecord(state: LocalDatabaseState, childId: string) {
+  return state.growth_records
+    .filter((record) => record.child_id === childId)
+    .sort((a, b) => b.date.localeCompare(a.date) || b.created_at.localeCompare(a.created_at))[0] ?? null;
+}
+
+function getLatestChildBadge(state: LocalDatabaseState, childId: string): LocalChildBadge | null {
+  return state.child_badges
+    .filter((badge) => badge.child_id === childId)
+    .sort((a, b) => b.awarded_at.localeCompare(a.awarded_at))[0] ?? null;
+}
+
+function getTodayScreenTimeRemaining(state: LocalDatabaseState, childId: string) {
+  return Math.max(
+    0,
+    state.screen_time_logs
+      .filter((log) => log.child_id === childId)
+      .reduce((total, log) => total + log.minutes_delta, 0)
+  );
+}
+
+function formatMetric(value: number) {
+  return Number.isInteger(value) ? String(value) : value.toFixed(1);
+}
+
+function TaskPage() {
+  const localState = useLocalDataState();
+  const [redeemStars, setRedeemStars] = useState('1');
+  const [redeemMessage, setRedeemMessage] = useState('');
+  const [completingTaskId, setCompletingTaskId] = useState<string | null>(null);
+  const [flyingTaskId, setFlyingTaskId] = useState<string | null>(null);
+  const [redeemHistoryPage, setRedeemHistoryPage] = useState(1);
+  const completionTimerRef = useRef<number | null>(null);
+  const flyingTimerRef = useRef<number | null>(null);
+  const selectedChild = localState.children.find(
+    (child) => child.id === localState.active_child_id && child.status === 'active'
+  );
+  const childTasks = selectedChild
+    ? localState.tasks.filter((task) => task.child_id === selectedChild.id)
+    : [];
+  const todayAdventureTasks = sortTodayTasks(getChildTodayTasks(childTasks));
+  const todayPendingTasks = todayAdventureTasks.filter((task) => task.status === 'pending' || task.status === 'rejected');
+  const visibleTasks = todayPendingTasks.slice(0, 8);
+  const historyTasks = getChildHistoryTasks(childTasks).filter((task) => ['submitted', 'approved'].includes(task.status));
+  const redeemLogs = selectedChild
+    ? localState.screen_time_logs
+        .filter((log) => log.child_id === selectedChild.id && log.type === 'redeem')
+        .sort((a, b) => b.created_at.localeCompare(a.created_at))
+    : [];
+  const completedToday = todayAdventureTasks.length - todayPendingTasks.length;
+  const totalStars = selectedChild
+    ? localState.stars
+        .filter((transaction) => transaction.child_id === selectedChild.id)
+        .reduce((total, transaction) => total + transaction.amount, 0)
+    : 0;
+  const pageSize = 5;
+  const visibleRedeemHistory = redeemLogs.slice((redeemHistoryPage - 1) * pageSize, redeemHistoryPage * pageSize);
+  const redeemHistoryPages = Math.max(1, Math.ceil(redeemLogs.length / pageSize));
+  const redeemAmount = Math.max(0, Number(redeemStars) || 0);
+  const redeemMinutes = redeemAmount;
+  const submitRedeem = (event: FormEvent) => {
+    event.preventDefault();
+    setRedeemMessage('');
+    if (!selectedChild) return;
+    if (!Number.isInteger(redeemAmount) || redeemAmount <= 0) {
+      setRedeemMessage('請輸入要兌換的星星數量');
+      return;
+    }
+    if (totalStars < redeemAmount) {
+      setRedeemMessage('星星不足，無法兌換');
+      return;
+    }
+    try {
+      taskRepository.redeemStarsForScreenTime(
+        selectedChild.id,
+        new Date().toISOString().slice(0, 10),
+        redeemAmount,
+        `孩子申請兌換 ${redeemAmount} 顆星星為 ${redeemMinutes} 分鐘平板時間`
+      );
+      setRedeemMessage(`已兌換 ${redeemMinutes} 分鐘平板時間`);
+      setRedeemStars('1');
+      setRedeemHistoryPage(1);
+    } catch (caught) {
+      setRedeemMessage(caught instanceof Error && caught.message.includes('Not enough stars') ? '星星不足，無法兌換' : caught instanceof Error ? caught.message : '兌換失敗');
+    }
+  };
+  useEffect(() => {
+    return () => {
+      if (completionTimerRef.current) window.clearTimeout(completionTimerRef.current);
+      if (flyingTimerRef.current) window.clearTimeout(flyingTimerRef.current);
+    };
+  }, []);
+  const completeTask = (task: LocalTask) => {
+    if (task.status !== 'pending' && task.status !== 'rejected') return;
+    if (completingTaskId) return;
+    setCompletingTaskId(task.id);
+    setFlyingTaskId(task.id);
+    if (completionTimerRef.current) window.clearTimeout(completionTimerRef.current);
+    if (flyingTimerRef.current) window.clearTimeout(flyingTimerRef.current);
+    completionTimerRef.current = window.setTimeout(() => {
+      try {
+        taskRepository.completeTask(task.id, '孩子已完成任務');
+      } finally {
+        setCompletingTaskId(null);
+        flyingTimerRef.current = window.setTimeout(() => setFlyingTaskId(null), 160);
+      }
+    }, 360);
+  };
+  return (
+    <div className="v1-page v2-task-page">
+      <ChildPageHeader emoji="⭐" title="任務" subtitle="完成今天的冒險，獲得冒險星星。" />
+      <div className="v1-task-layout">
+        <div className="v1-task-content">
+          <section className="child-task-carousel-section">
+            <SectionHeading title={`今日冒險 (${completedToday}/${todayAdventureTasks.length})`} accent="⭐" />
+            <div className="v1-task-list child-task-grid" aria-label="今日冒險任務">
+              {!selectedChild ? (
+                <ChildTaskEmpty text="請家長先在孩子管理選擇目前孩子" />
+              ) : visibleTasks.length ? (
+                visibleTasks.map((task) => (
+                  <TaskCard
+                    key={task.id}
+                    task={task}
+                    isCompleting={completingTaskId === task.id}
+                    isFlying={flyingTaskId === task.id}
+                    onComplete={() => completeTask(task)}
+                  />
+                ))
+              ) : (
+                <ChildTaskEmpty text="今天目前沒有待完成任務" />
+              )}
+            </div>
+          </section>
+
+          <section className="v1-panel child-task-history child-completed-task-history">
+            <SectionHeading title="完成的任務" accent="⭐" />
+            {historyTasks.length ? (
+              <div className="child-completed-task-grid child-task-carousel" aria-label="完成的任務">
+                {historyTasks.map((task) => <CompletedTaskCard key={task.id} task={task} />)}
+              </div>
+            ) : <ChildTaskEmpty text="家長審核通過後，完成紀錄會出現在這裡" />}
+          </section>
+
+          <section className="v1-panel child-task-history child-screen-redeem-history">
+            <SectionHeading title="平板時間兌換紀錄" accent="⏱" />
+            {redeemLogs.length ? (
+              <div>
+                {visibleRedeemHistory.map((log) => (
+                  <article key={log.id}>
+                    <span>⏱</span>
+                    <div><strong>使用 {log.starsUsed ?? 0} 顆星星</strong><small>{formatChildTaskDate(log.created_at)}</small></div>
+                    <b>{Math.abs(log.minutes ?? log.minutes_delta)} 分鐘</b>
+                    <time>已兌換</time>
+                  </article>
+                ))}
+                <HistoryPagination
+                  currentPage={redeemHistoryPage}
+                  totalPages={redeemHistoryPages}
+                  onPageChange={setRedeemHistoryPage}
+                />
+              </div>
+            ) : <ChildTaskEmpty text="還沒有平板時間兌換紀錄" />}
+          </section>
+        </div>
+        <aside className="v1-task-side">
+          <article className="v2-task-streak"><small>冒險星星</small><strong>⭐ {totalStars}<em>顆</em></strong><p>家長審核任務後會自動增加。</p></article>
+          <article className="v2-task-reward child-screen-redeem-card">
+            <small>申請兌換平板時間</small>
+            <p>目前星星：<strong>{totalStars} 顆</strong></p>
+            <p>兌換比例：1 顆星星 = 1 分鐘</p>
+            <form onSubmit={submitRedeem}>
+              <label>
+                我要兌換幾顆星星
+                <input
+                  type="number"
+                  min="1"
+                  step="1"
+                  value={redeemStars}
+                  onChange={(event) => setRedeemStars(event.target.value)}
+                />
+              </label>
+              <output>可兌換 {redeemMinutes} 分鐘</output>
+              <button type="submit" disabled={!selectedChild}>申請兌換</button>
+            </form>
+            {redeemMessage ? <em className={redeemMessage.includes('不足') || redeemMessage.includes('失敗') ? 'is-error' : ''}>{redeemMessage}</em> : null}
+          </article>
+        </aside>
+      </div>
+    </div>
+  );
+}
+
+function TaskCard({
+  task,
+  isCompleting,
+  isFlying,
+  onComplete
+}: {
+  task: LocalTask;
+  isCompleting: boolean;
+  isFlying: boolean;
+  onComplete: () => void;
+}) {
+  return (
+    <article className={`v1-task-row child-task-card${isCompleting ? ' is-completing' : ''}`}>
+      <span className={`child-task-category-badge v1-tone-${childTaskTone(task.category)}`}>{childTaskBadgeLabel(task.category)}</span>
+      <div className="v1-task-media-wrap">
+        <LocalTaskMedia
+          mediaId={task.thumbnail_media_id ?? task.task_image_media_id ?? null}
+          alt={task.title || '任務圖片'}
+          fallback={childTaskIcon(task.category)}
+          className={`v1-task-media v1-tone-${childTaskTone(task.category)}`}
+        />
+      </div>
+      <div className="v1-task-copy">
+        <strong>{task.title || '任務'}</strong>
+        {task.status === 'rejected' ? <small className="child-task-rejected">請重新完成後送出</small> : null}
+      </div>
+      <em>+{task.reward_stars} ⭐</em>
+      <button
+        aria-label="打勾完成"
+        className="child-task-complete-button"
+        onClick={onComplete}
+      >
+        <span className="child-task-check-icon"><CheckCircle2 size={19} /></span>
+        <span>打勾完成</span>
+      </button>
+      {isCompleting ? <span className="child-task-floating-reward">+{task.reward_stars}</span> : null}
+      {isFlying ? <span className="child-task-flying-star" aria-hidden="true">⭐</span> : null}
+    </article>
+  );
+}
+
+function CompletedTaskCard({ task }: { task: LocalTask }) {
+  return (
+    <article className="child-completed-task-card">
+      <LocalTaskMedia
+        mediaId={task.thumbnail_media_id ?? task.task_image_media_id ?? null}
+        alt={task.title || '任務圖片'}
+        fallback={childTaskIcon(task.category)}
+        className={`child-completed-task-media v1-tone-${childTaskTone(task.category)}`}
+      />
+      <div>
+        <strong>{task.title || '任務'}</strong>
+        <span>+{task.reward_stars} ⭐</span>
+        <time>{formatChildTaskDate(taskCompletedTime(task))}</time>
+      </div>
+      <CheckCircle2 className="child-completed-check" size={24} />
+      <span className="child-completed-label">完成</span>
+    </article>
+  );
+}
+
+function ChildTaskEmpty({ text }: { text: string }) {
+  return <div className="child-task-empty"><span>🐰</span><p>{text}</p></div>;
+}
+
+function HistoryPagination({
+  currentPage,
+  totalPages,
+  onPageChange
+}: {
+  currentPage: number;
+  totalPages: number;
+  onPageChange: (page: number) => void;
+}) {
+  if (totalPages <= 1) return null;
+  return (
+    <nav className="child-history-pagination">
+      <button type="button" disabled={currentPage === 1} onClick={() => onPageChange(currentPage - 1)}>上一頁</button>
+      <span>{currentPage} / {totalPages}</span>
+      <button type="button" disabled={currentPage === totalPages} onClick={() => onPageChange(currentPage + 1)}>下一頁</button>
+    </nav>
+  );
+}
+
+function childTaskTone(category: LocalTask['category']) {
+  return ({ daily: 'blue', habit: 'yellow', household: 'pink', challenge: 'green' } as const)[category];
+}
+
+function childTaskIcon(category: LocalTask['category']) {
+  return ({ daily: '🧸', habit: '🪥', household: '🧹', challenge: '🏆' } as const)[category];
+}
+
+function childTaskBadgeLabel(category: LocalTask['category']) {
+  return ({ daily: '每日', habit: '習慣', household: '家事', challenge: '挑戰' } as const)[category];
+}
+
+function formatChildTaskDate(value: string) {
+  return new Intl.DateTimeFormat('zh-TW', {
+    month: '2-digit',
+    day: '2-digit',
+    hour: '2-digit',
+    minute: '2-digit'
+  }).format(new Date(value));
+}
+
+function sortTodayTasks(tasks: LocalTask[]) {
+  return [...tasks].sort((a, b) => {
+    const aDone = ['submitted', 'approved'].includes(a.status);
+    const bDone = ['submitted', 'approved'].includes(b.status);
+    if (aDone !== bDone) return aDone ? 1 : -1;
+    return a.task_date.localeCompare(b.task_date) || a.created_at.localeCompare(b.created_at);
+  });
+}
+
+function taskCompletedTime(task: LocalTask) {
+  return task.reviewed_at ?? task.completed_at ?? task.updated_at;
+}
+
+type ShareFormMode = LocalShareMedia['media_type'];
+type ChildShareFilter = 'all' | ShareFormMode;
+
+type ChildRecordedMedia = ShareRecordedMedia;
+
+const SHARE_VIDEO_MIME_TYPES = [
+  'video/webm;codecs=vp9,opus',
+  'video/webm;codecs=vp8,opus',
+  'video/webm;codecs=vp8',
+  'video/webm',
+  'video/mp4'
+] as const;
+
+function SharePage() {
+  const localState = useLocalDataState();
+  const [formMode, setFormMode] = useState<ShareFormMode | null>(null);
+  const [formError, setFormError] = useState('');
+  const [shareFilter, setShareFilter] = useState<ChildShareFilter>('all');
+  const [redeemStars, setRedeemStars] = useState('1');
+  const [redeemMessage, setRedeemMessage] = useState('');
+  const recorderRef = useRef<MediaRecorder | null>(null);
+  const streamRef = useRef<MediaStream | null>(null);
+  const chunksRef = useRef<ShareMediaChunk[]>([]);
+  const timerRef = useRef<number | null>(null);
+  const recordingTokenRef = useRef(0);
+  const [recordingStream, setRecordingStream] = useState<MediaStream | null>(null);
+  const [recordingPreviewUrl, setRecordingPreviewUrl] = useState<string | null>(null);
+  const [sharePageIndex, setSharePageIndex] = useState(1);
+  const galleryPagerRef = useRef<HTMLDivElement | null>(null);
+  const [shareForm, setShareForm] = useState({
+    title: '',
+    caption: '',
+    file: null as File | null,
+    recording: null as ChildRecordedMedia | null,
+    recording_accepted: false,
+    is_recording: false,
+    recording_seconds: 0
+  });
+  const selectedChild = localState.children.find(
+    (child) => child.id === localState.active_child_id && child.status === 'active'
+  );
+  const totalStars = selectedChild
+    ? localState.stars
+        .filter((transaction) => transaction.child_id === selectedChild.id)
+        .reduce((total, transaction) => total + transaction.amount, 0)
+    : 0;
+  const childShares = useMemo(
+    () =>
+      selectedChild
+        ? buildChildShares(localState).filter((share) => share.child_id === selectedChild.id)
+        : [],
+    [localState, selectedChild]
+  );
+  const filteredShares = childShares.filter((share) => shareFilter === 'all' || share.share_type === shareFilter);
+  const shareFilters = [
+    { value: 'all' as const, label: '全部', count: childShares.length },
+    { value: 'photo' as const, label: '照片', count: childShares.filter((share) => share.share_type === 'photo').length },
+    { value: 'audio' as const, label: '語音', count: childShares.filter((share) => share.share_type === 'audio').length },
+    { value: 'video' as const, label: '影片', count: childShares.filter((share) => share.share_type === 'video').length }
+  ];
+  const redeemAmount = Math.max(0, Number(redeemStars) || 0);
+  const redeemMinutes = redeemAmount;
+  const pageSize = 6;
+  const totalPages = Math.max(1, Math.ceil(filteredShares.length / pageSize));
+  const safePageIndex = Math.min(sharePageIndex, totalPages);
+  const visibleShares = filteredShares.slice((safePageIndex - 1) * pageSize, safePageIndex * pageSize);
+  useEffect(() => {
+    setSharePageIndex(1);
+  }, [selectedChild?.id, shareFilter]);
+  const openShareForm = (mode: ShareFormMode) => {
+    stopActiveShareRecording(false);
+    setFormMode(mode);
+    setShareForm({
+      title: '',
+      caption: '',
+      file: null,
+      recording: null,
+      recording_accepted: false,
+      is_recording: false,
+      recording_seconds: 0
+    });
+    setFormError('');
+  };
+  const jumpToGalleryPager = () => {
+    galleryPagerRef.current?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+  };
+  const submitRedeem = (event: FormEvent) => {
+    event.preventDefault();
+    setRedeemMessage('');
+    if (!selectedChild) return;
+    if (!Number.isInteger(redeemAmount) || redeemAmount <= 0) {
+      setRedeemMessage('請輸入要兌換的星星數量');
+      return;
+    }
+    if (totalStars < redeemAmount) {
+      setRedeemMessage('星星不足，無法兌換');
+      return;
+    }
+    try {
+      taskRepository.redeemStarsForScreenTime(
+        selectedChild.id,
+        new Date().toISOString().slice(0, 10),
+        redeemAmount,
+        `孩子申請兌換 ${redeemAmount} 顆星星為 ${redeemMinutes} 分鐘平板時間`
+      );
+      setRedeemMessage(`已兌換 ${redeemMinutes} 分鐘平板時間`);
+      setRedeemStars('1');
+    } catch (caught) {
+      setRedeemMessage(caught instanceof Error && caught.message.includes('Not enough stars') ? '星星不足，無法兌換' : caught instanceof Error ? caught.message : '兌換失敗');
+    }
+  };
+  const closeShareForm = () => {
+    stopActiveShareRecording(false);
+    setFormMode(null);
+    setFormError('');
+  };
+  const clearRecordingTimer = () => {
+    if (timerRef.current !== null) {
+      window.clearInterval(timerRef.current);
+      timerRef.current = null;
+    }
+  };
+  const stopRecordingStream = () => {
+    streamRef.current?.getTracks().forEach((track) => track.stop());
+    streamRef.current = null;
+    setRecordingStream(null);
+  };
+  const clearRecordingPreviewUrl = () => {
+    setRecordingPreviewUrl((current) => {
+      shareRepository.releasePreviewUrl(current);
+      return null;
+    });
+  };
+  function stopActiveShareRecording(saveRecording = true) {
+    clearRecordingTimer();
+    recordingTokenRef.current += saveRecording ? 0 : 1;
+    const recorder = recorderRef.current;
+    if (recorder && recorder.state !== 'inactive') {
+      recorder.stop();
+    } else {
+      stopRecordingStream();
+      recorderRef.current = null;
+      chunksRef.current = [];
+      if (!saveRecording) {
+        setShareForm((current) => ({
+          ...current,
+          is_recording: false,
+          recording_seconds: 0
+        }));
+      }
+    }
+  }
+  const resetShareRecording = () => {
+    stopActiveShareRecording(false);
+    clearRecordingPreviewUrl();
+    setShareForm((current) => ({
+      ...current,
+      recording: null,
+      recording_accepted: false,
+      is_recording: false,
+      recording_seconds: 0
+    }));
+    setFormError('');
+  };
+  const startShareRecording = async (mode: 'audio' | 'video') => {
+    setFormError('');
+    if (
+      !navigator.mediaDevices ||
+      typeof navigator.mediaDevices.getUserMedia !== 'function' ||
+      typeof window.MediaRecorder === 'undefined'
+    ) {
+      setFormError(mode === 'video' ? '目前瀏覽器不支援錄影功能' : '目前瀏覽器不支援錄音功能');
+      return;
+    }
+    try {
+      stopActiveShareRecording(false);
+      clearRecordingPreviewUrl();
+      const stream = await navigator.mediaDevices.getUserMedia(mode === 'video' ? { video: true, audio: true } : { audio: true });
+      streamRef.current = stream;
+      const selectedMimeType = mode === 'video' ? getShareVideoRecordingMimeType() : getShareAudioRecordingMimeType();
+      const recorder = selectedMimeType ? new MediaRecorder(stream, { mimeType: selectedMimeType }) : new MediaRecorder(stream);
+      const token = recordingTokenRef.current + 1;
+      recordingTokenRef.current = token;
+      recorderRef.current = recorder;
+      setRecordingStream(mode === 'video' ? stream : null);
+      chunksRef.current = [];
+      console.info('[child/share] recording started', {
+        mode,
+        selectedMimeType,
+        'recorder.mimeType': recorder.mimeType
+      });
+      recorder.ondataavailable = (event) => {
+        if (event.data && event.data.size > 0) {
+          chunksRef.current.push(event.data);
+        }
+      };
+      recorder.onerror = (event) => {
+        console.error('[child/share] recorder error', event);
+      };
+      recorder.onstop = () => {
+        clearRecordingTimer();
+        stopRecordingStream();
+        recorderRef.current = null;
+        const chunks = chunksRef.current;
+        chunksRef.current = [];
+        if (recordingTokenRef.current !== token) return;
+        const fallbackType = mode === 'video' ? 'video/webm' : 'audio/webm';
+        const mediaMimeType = recorder.mimeType || selectedMimeType || fallbackType;
+        const recording = shareRepository.createRecordedMedia({
+          chunks,
+          mimeType: mediaMimeType,
+          mediaType: mode,
+          fileName: `child-share-recording-${Date.now()}.${getShareRecordingExtension(mediaMimeType)}`,
+          durationSeconds: shareForm.recording_seconds
+        });
+        console.info('[child/share] recording completed', {
+          mode,
+          selectedMimeType,
+          'recorder.mimeType': recorder.mimeType,
+          'chunks.length': chunks.length,
+          'blob.size': recording.file_size_bytes,
+          'blob.type': recording.mime_type
+        });
+        if (recording.file_size_bytes === 0) {
+          setFormError(mode === 'video' ? '錄影失敗，沒有錄到影片資料，請重新錄影。' : '錄音失敗，沒有錄到聲音資料，請重新錄音。');
+          setShareForm((current) => ({
+            ...current,
+            recording: null,
+            recording_accepted: false,
+            is_recording: false,
+            recording_seconds: 0
+          }));
+          clearRecordingPreviewUrl();
+          return;
+        }
+        setRecordingPreviewUrl((current) => {
+          shareRepository.releasePreviewUrl(current);
+          return recording.preview_url;
+        });
+        if (mode === 'video') {
+          logVideoStorageDiagnostics(recording.blob);
+        }
+
+        setShareForm((current) => ({
+          ...current,
+          recording: { ...recording, duration_seconds: current.recording_seconds },
+          recording_accepted: false,
+          is_recording: false
+        }));
+      };
+      recorder.start();
+      setShareForm((current) => ({
+        ...current,
+        recording: null,
+        recording_accepted: false,
+        is_recording: true,
+        recording_seconds: 0
+      }));
+      timerRef.current = window.setInterval(() => {
+        setShareForm((current) => ({
+          ...current,
+          recording_seconds: current.is_recording ? current.recording_seconds + 1 : current.recording_seconds
+        }));
+      }, 1000);
+    } catch (caught) {
+      stopActiveShareRecording(false);
+      const errorName = caught instanceof DOMException ? caught.name : '';
+      console.error('[child/share] recording start failed', caught);
+      setFormError(mode === 'video'
+        ? videoRecordingErrorMessage(errorName)
+        : ['NotAllowedError', 'PermissionDeniedError'].includes(errorName)
+          ? '請允許麥克風權限後再錄音。'
+          : '錄音失敗，請稍後再試。');
+    }
+  };
+  useEffect(() => () => {
+    stopActiveShareRecording(false);
+    clearRecordingPreviewUrl();
+  }, []);
+  const createShare = async (event: FormEvent) => {
+    event.preventDefault();
+    if (!selectedChild || !formMode) return;
+    setFormError('');
+    if ((formMode === 'audio' || formMode === 'video') && (!shareForm.recording || !shareForm.recording_accepted || shareForm.recording.media_type !== formMode)) {
+      setFormError(formMode === 'video' ? '請先錄影，並使用這段影片後再送出' : '請先錄音，並使用這段錄音後再送出');
+      return;
+    }
+    if (formMode === 'audio' && (!shareForm.recording || !shareForm.recording_accepted)) {
+      setFormError('請先錄音，並使用這段錄音後再送出');
+      return;
+    }
+    if (formMode === 'photo' && !shareForm.file) {
+      setFormError('請選擇要分享的本機檔案');
+      return;
+    }
+    try {
+      const mediaBlob =
+        formMode === 'photo'
+          ? await compressSharePhoto(shareForm.file!)
+          : shareForm.recording?.blob ?? null;
+      if (!mediaBlob) {
+        setFormError('媒體檔案準備失敗，請重新選擇或錄製。');
+        return;
+      }
+      if (formMode === 'video') {
+        logVideoStorageDiagnostics(mediaBlob);
+        const diagnostics = getLocalStorageDiagnostics();
+        console.info('[child/share] localStorage diagnostics before video share', {
+          'JSON.stringify(localStorage).length': diagnostics.jsonStringifyLength,
+          estimatedLocalStorageBytes: diagnostics.estimatedBytes,
+          estimatedLocalStorageKb: diagnostics.estimatedKb
+        });
+      }
+      const media =
+        (formMode === 'audio' || formMode === 'video') && shareForm.recording
+          ? {
+              media_type: formMode,
+              mime_type: mediaBlob.type || shareForm.recording.mime_type,
+              file_name: shareForm.recording.file_name,
+              file_size_bytes: mediaBlob.size,
+              duration_seconds: shareForm.recording.duration_seconds
+            }
+          : {
+              media_type: formMode,
+              mime_type: mediaBlob.type || defaultMimeType(formMode),
+              file_name: replaceFileExtension(shareForm.file!.name, mediaBlob.type.includes('webp') ? 'webp' : 'jpg'),
+              file_size_bytes: mediaBlob.size
+            };
+      const createdShare = shareRepository.createShare({
+        child_id: selectedChild.id,
+        title: shareForm.title || null,
+        caption: shareForm.caption || null,
+        source_type: 'child_device',
+        status: 'approved',
+        media: [media]
+      });
+      const createdMedia = createdShare.media[0];
+      await shareRepository.saveShareMedia({
+        id: createdMedia.id,
+        shareId: createdShare.id,
+        childId: selectedChild.id,
+        mediaType: formMode,
+        mimeType: mediaBlob.type || media.mime_type,
+        fileName: media.file_name,
+        fileSizeBytes: media.file_size_bytes,
+        durationSeconds: media.duration_seconds,
+        blob: mediaBlob
+      });
+      closeShareForm();
+    } catch (caught) {
+      const diagnostics = getLocalStorageDiagnostics();
+      console.error('[child/share] createShare failed', {
+        'error.name': caught instanceof DOMException || caught instanceof Error ? caught.name : 'UnknownError',
+        'error.message': caught instanceof DOMException || caught instanceof Error ? caught.message : String(caught),
+        'JSON.stringify(localStorage).length': diagnostics.jsonStringifyLength,
+        estimatedLocalStorageBytes: diagnostics.estimatedBytes,
+        estimatedLocalStorageKb: diagnostics.estimatedKb,
+        videoBlobSize: shareForm.recording?.blob?.size ?? null,
+        estimatedEncodedLength: shareForm.recording?.blob ? Math.ceil(shareForm.recording.blob.size / 3) * 4 : null
+      });
+      setFormError(caught instanceof Error ? caught.message : '新增分享失敗');
+    }
+  };
+
+  return (
+    <div className="v1-page v2-share-page">
+      <ChildPageHeader emoji="📷" title="分享" accent="✦" subtitle="記錄每一次的冒險時刻" />
+      <main className="v2-share-main">
+        <section className="v1-panel v2-share-actions-panel">
+          <SectionHeading title="今日分享" accent="✦" />
+          <div className="v1-share-actions">
+            <ShareAction art="📷" title="照片分享" subtitle="選擇本機照片" tone="blue" onClick={() => openShareForm('photo')} />
+            <ShareAction art="🎤" title="語音分享" subtitle="直接錄音分享" tone="green" onClick={() => openShareForm('audio')} />
+            <ShareAction art="🎬" title="影片分享" subtitle="選擇本機影片" tone="yellow" onClick={() => openShareForm('video')} />
+          </div>
+        </section>
+
+        <section className="v1-panel v2-recent-panel">
+          <SectionHeading icon={Camera} title="最近分享" action="查看更多" actionOnClick={jumpToGalleryPager} />
+          <div className="child-share-filter-tabs" role="tablist" aria-label="分享類型篩選">
+            {shareFilters.map((item) => (
+              <button
+                key={item.value}
+                type="button"
+                className={shareFilter === item.value ? 'is-active' : ''}
+                onClick={() => setShareFilter(item.value)}
+              >
+                <span>{item.label}</span>
+                <b>{item.count}</b>
+              </button>
+            ))}
+          </div>
+          <div className="v2-share-grid">
+            {visibleShares.length ? visibleShares.map((share) => <ShareGridCard key={share.id} share={share} />) : <ChildTaskEmpty text={shareFilter === 'all' ? '還沒有分享紀錄，先新增照片、語音或影片分享' : '這個分類目前沒有分享'} />}
+          </div>
+          <div ref={galleryPagerRef} className="v2-share-pagination">
+            <button type="button" onClick={() => setSharePageIndex((value) => Math.max(1, value - 1))} disabled={safePageIndex === 1}>上一頁</button>
+            <span>{safePageIndex} / {totalPages} 頁</span>
+            <button type="button" onClick={() => setSharePageIndex((value) => Math.min(totalPages, value + 1))} disabled={safePageIndex === totalPages}>下一頁</button>
+          </div>
+        </section>
+      </main>
+      {formMode ? (
+        <div className="local-form-backdrop" role="presentation" onMouseDown={closeShareForm}>
+          <section className="local-form-dialog child-share-dialog" role="dialog" aria-modal="true" onMouseDown={(event) => event.stopPropagation()}>
+            <header><div><small>LOCAL TEST MODE</small><h2>新增{childMediaTypeLabel(formMode)}分享</h2></div><button type="button" aria-label="關閉" onClick={closeShareForm}>×</button></header>
+            <form onSubmit={createShare}>
+              {formMode === 'audio' ? (
+                <ShareAudioRecorder
+                  recording={shareForm.recording}
+                  accepted={shareForm.recording_accepted}
+                  isRecording={shareForm.is_recording}
+                  seconds={shareForm.recording_seconds}
+                  onStart={() => startShareRecording('audio')}
+                  onStop={() => stopActiveShareRecording(true)}
+                  onReset={resetShareRecording}
+                  onUse={() => setShareForm((current) => ({ ...current, recording_accepted: true }))}
+                />
+              ) : formMode === 'video' ? (
+                <ShareVideoRecorder
+                  recording={shareForm.recording}
+                  accepted={shareForm.recording_accepted}
+                  isRecording={shareForm.is_recording}
+                  seconds={shareForm.recording_seconds}
+                  liveStream={recordingStream}
+                  previewUrl={recordingPreviewUrl}
+                  onStart={() => startShareRecording('video')}
+                  onStop={() => stopActiveShareRecording(true)}
+                  onReset={resetShareRecording}
+                  onUse={() => setShareForm((current) => ({ ...current, recording_accepted: true }))}
+                />
+              ) : (
+                <label className="is-full">
+                  分享檔案
+                  <input
+                    required
+                    type="file"
+                    accept={shareAccept(formMode)}
+                    onChange={(event) => setShareForm({ ...shareForm, file: event.currentTarget.files?.[0] ?? null })}
+                  />
+                </label>
+              )}
+              <label className="is-full">
+                標題
+                <input autoFocus maxLength={60} value={shareForm.title} onChange={(event) => setShareForm({ ...shareForm, title: event.target.value })} placeholder="例如：今天的積木作品" />
+              </label>
+              <label className="is-full">
+                想說的話
+                <textarea rows={3} maxLength={200} value={shareForm.caption} onChange={(event) => setShareForm({ ...shareForm, caption: event.target.value })} placeholder="寫下這次分享的故事" />
+              </label>
+              {formError ? <p className="local-form-error">{formError}</p> : null}
+              <footer><button type="button" onClick={closeShareForm}>取消</button><button className="ds-primary-button" type="submit">送出分享</button></footer>
+            </form>
+          </section>
+        </div>
+      ) : null}
+    </div>
+  );
+}
+
+function ShareAudioRecorder({
+  recording,
+  accepted,
+  isRecording,
+  seconds,
+  onStart,
+  onStop,
+  onReset,
+  onUse
+}: {
+  recording: ChildRecordedMedia | null;
+  accepted: boolean;
+  isRecording: boolean;
+  seconds: number;
+  onStart: () => void;
+  onStop: () => void;
+  onReset: () => void;
+  onUse: () => void;
+}) {
+  const audioRef = useRef<HTMLAudioElement | null>(null);
+  return (
+    <section className="mailbox-recorder child-share-recorder is-full" aria-label="語音錄音">
+      {!recording && !isRecording ? (
+        <button type="button" className="mailbox-recorder-primary" onClick={onStart}>
+          <span>🎤</span>
+          開始錄音
+        </button>
+      ) : null}
+      {isRecording ? (
+        <div className="mailbox-recorder-live">
+          <div><strong>🔴 錄音中</strong><time>{formatRecordingTime(seconds)}</time></div>
+          <button type="button" onClick={onStop}>停止錄音</button>
+        </div>
+      ) : null}
+      {recording && !isRecording ? (
+        <div className="mailbox-recorder-ready">
+          <audio ref={audioRef} src={recording.preview_url} controls />
+          <div>
+            <button type="button" onClick={() => void audioRef.current?.play()}>播放預聽</button>
+            <button type="button" onClick={onReset}>🗑 重新錄音</button>
+            <button type="button" className={accepted ? 'is-selected' : ''} disabled={accepted} onClick={onUse}>
+              {accepted ? '已使用這段錄音' : '使用這段錄音'}
+            </button>
+          </div>
+        </div>
+      ) : null}
+    </section>
+  );
+}
+
+function ShareVideoRecorder({
+  recording,
+  accepted,
+  isRecording,
+  seconds,
+  liveStream,
+  previewUrl,
+  onStart,
+  onStop,
+  onReset,
+  onUse
+}: {
+  recording: ChildRecordedMedia | null;
+  accepted: boolean;
+  isRecording: boolean;
+  seconds: number;
+  liveStream: MediaStream | null;
+  previewUrl: string | null;
+  onStart: () => void;
+  onStop: () => void;
+  onReset: () => void;
+  onUse: () => void;
+}) {
+  const liveVideoRef = useRef<HTMLVideoElement | null>(null);
+  const previewVideoRef = useRef<HTMLVideoElement | null>(null);
+
+  useEffect(() => {
+    if (!liveVideoRef.current) return;
+    liveVideoRef.current.srcObject = liveStream;
+    if (liveStream) void liveVideoRef.current.play();
+  }, [liveStream]);
+
+  useEffect(() => {
+    if (!previewVideoRef.current) return;
+    if (previewUrl) {
+      previewVideoRef.current.src = previewUrl;
+      previewVideoRef.current.load();
+    } else {
+      previewVideoRef.current.removeAttribute('src');
+      previewVideoRef.current.load();
+    }
+  }, [previewUrl]);
+
+  return (
+    <section className="mailbox-recorder child-share-recorder child-share-video-recorder is-full" aria-label="影片錄影">
+      {!recording && !isRecording ? (
+        <button type="button" className="mailbox-recorder-primary" onClick={onStart}>
+          <span>🎥</span>
+          開始錄影
+        </button>
+      ) : null}
+      {isRecording ? (
+        <div className="mailbox-recorder-live">
+          <video ref={liveVideoRef} muted playsInline autoPlay />
+          <div><strong>錄影中</strong><time>{formatRecordingTime(seconds)}</time></div>
+          <button type="button" onClick={onStop}>停止錄影</button>
+        </div>
+      ) : null}
+      {recording && !isRecording ? (
+        <div className="mailbox-recorder-ready">
+          <video ref={previewVideoRef} controls playsInline />
+          <div>
+            <button type="button" onClick={() => void previewVideoRef.current?.play()}>播放預覽</button>
+            <button type="button" onClick={onReset}>重新錄影</button>
+            <button type="button" className={accepted ? 'is-selected' : ''} disabled={accepted} onClick={onUse}>
+              {accepted ? '已使用這段影片' : '使用這段影片'}
+            </button>
+          </div>
+        </div>
+      ) : null}
+    </section>
+  );
+}
+function ShareAction({ art, title, subtitle, tone, onClick }: { art: string; title: string; subtitle: string; tone: string; onClick: () => void }) {
+  return (
+    <button className={`v1-share-action v1-tone-${tone}`} onClick={onClick}>
+      <span className="v2-action-art" aria-hidden="true">
+        <i className="v2-action-sparkle">✦</i>
+        <b>{art}</b>
+        <i className="v2-action-note">{tone === 'green' ? '♪' : tone === 'yellow' ? '✦' : '♥'}</i>
+      </span>
+      <strong>{title}</strong>
+      <small>{subtitle}</small>
+    </button>
+  );
+}
+
+function ShareGridCard({ share }: { share: ShareWithMedia }) {
+  const media = share.media[0];
+  const type = childShareTypeLabel(share.share_type);
+  const [audioUrl, setAudioUrl] = useState<string | null>(null);
+  useEffect(() => {
+    let cancelled = false;
+    if (media?.media_type === 'audio') {
+      void shareRepository.getMediaUrl(media.id).then((url) => {
+        if (!cancelled) setAudioUrl(url);
+        else shareRepository.releaseMediaUrl(media.id);
+      });
+    } else {
+      setAudioUrl(null);
+    }
+    return () => {
+      cancelled = true;
+      if (media?.media_type === 'audio') shareRepository.releaseMediaUrl(media.id);
+    };
+  }, [media?.id, media?.media_type]);
+
+  const playAudio = () => {
+    if (!audioUrl) return;
+    void new Audio(audioUrl).play();
+  };
+
+  return (
+    <article
+      className={`v2-share-card v2-share-card-${share.share_type}`}
+      role={media?.media_type === 'audio' ? 'button' : undefined}
+      tabIndex={media?.media_type === 'audio' ? 0 : undefined}
+      onClick={media?.media_type === 'audio' ? playAudio : undefined}
+      onKeyDown={media?.media_type === 'audio' ? (event) => {
+        if (event.key === 'Enter' || event.key === ' ') {
+          event.preventDefault();
+          playAudio();
+        }
+      } : undefined}
+    >
+      <div className={`v2-share-card-media${share.share_type === 'audio' ? ' is-audio' : ''}`}>
+        {media?.media_type === 'photo' ? (
+          <LocalShareMediaView mediaId={media.id} mediaType="photo" alt={share.title ?? ''} />
+        ) : media?.media_type === 'video' ? (
+          <>
+            <LocalShareMediaView mediaId={media.id} mediaType="video" controls={false} />
+            <span className="v2-share-video-play" aria-hidden="true"><Play size={30} fill="currentColor" /></span>
+          </>
+        ) : media?.media_type === 'audio' ? (
+          <>
+            <span className="v2-share-audio-art" aria-hidden="true">🎤</span>
+            <span className="v2-share-audio-wave" aria-hidden="true">∿∿∿∿∿</span>
+          </>
+        ) : (
+          <span>{childShareTypeIcon(share.share_type)}</span>
+        )}
+      </div>
+      <div className="v2-share-card-body">
+        <small className={`v2-share-card-type is-${share.share_type}`}>{type}</small>
+        <strong>{share.title || share.caption || (share.share_type === 'audio' ? '錄音分享' : type)}</strong>
+        <time>{share.created_at.slice(0, 10).replace(/-/g, '/')}</time>
+        <span>{share.share_type === 'audio' && media?.duration_seconds ? `錄音 · ${formatRecordingTime(media.duration_seconds)}` : type}</span>
+      </div>
+    </article>
+  );
+}
+
+function LocalRecentCard({ share }: { share: ShareWithMedia }) {
+  const media = share.media[0];
+  const type = childShareTypeLabel(share.share_type);
+  const Icon = share.share_type === 'audio' ? Mic : share.share_type === 'video' ? Play : Image;
+  return (
+    <article className="v1-recent-card">
+      <div className={`v1-media-thumb${share.share_type === 'audio' ? ' is-voice' : ''}`}>
+        {media?.media_type === 'video' ? (
+          <LocalShareMediaView mediaId={media.id} mediaType="video" />
+        ) : media?.media_type === 'photo' ? (
+          <LocalShareMediaView mediaId={media.id} mediaType="photo" alt={share.title ?? ''} />
+        ) : media ? <span>{childShareTypeIcon(share.share_type)}</span> : null}
+        {share.share_type === 'audio' ? <b className="v2-voice-wave" aria-hidden="true">⌁⌁⌁⌁⌁</b> : null}
+        <i><Icon size={20} fill={share.share_type === 'video' ? 'currentColor' : 'none'} /></i>
+      </div>
+      <div><strong>{share.title || type}</strong><time>{childShareStatusLabel(share.status)}</time></div>
+    </article>
+  );
+}
+
+function buildChildShares(state: LocalDatabaseState): ShareWithMedia[] {
+  return state.shares
+    .filter((share) => !share.deleted_at)
+    .map((share) => ({
+      ...share,
+      media: state.share_media
+        .filter((media) => media.share_id === share.id)
+        .sort((a, b) => a.sort_order - b.sort_order)
+    }))
+    .sort((a, b) => b.created_at.localeCompare(a.created_at));
+}
+
+function childShareTypeLabel(type: LocalShare['share_type']) {
+  return ({ text: '文字', photo: '照片', audio: '語音', video: '影片', mixed: '混合' } as const)[type];
+}
+
+function childShareTypeIcon(type: LocalShare['share_type']) {
+  return ({ text: '✎', photo: '📷', audio: '🎤', video: '▶', mixed: '▣' } as const)[type];
+}
+
+function childShareStatusLabel(status: LocalShare['status']) {
+  void status;
+  return '已分享';
+}
+
+function legacyChildShareStatusLabel(status: LocalShare['status']) {
+  return ({ draft: '草稿', pending_review: '待家長審核', approved: '已審核', rejected: '已退回', archived: '已封存' } as const)[status];
+}
+
+function childMediaTypeLabel(type: ShareFormMode) {
+  return ({ photo: '照片', audio: '語音', video: '影片' } as const)[type];
+}
+
+function shareAccept(type: ShareFormMode) {
+  return ({ photo: 'image/*', audio: 'audio/*', video: 'video/*' } as const)[type];
+}
+
+function defaultMimeType(type: ShareFormMode) {
+  return ({ photo: 'image/jpeg', audio: 'audio/mpeg', video: 'video/mp4' } as const)[type];
+}
+
+function replaceFileExtension(fileName: string, extension: string) {
+  return `${fileName.replace(/\.[^.]+$/, '') || 'share-photo'}.${extension}`;
+}
+
+async function compressSharePhoto(file: File) {
+  return compressImageFile(file);
+}
+
+function getShareVideoRecordingMimeType() {
+  if (typeof MediaRecorder.isTypeSupported !== 'function') return '';
+  for (const mimeType of SHARE_VIDEO_MIME_TYPES) {
+    if (MediaRecorder.isTypeSupported(mimeType)) return mimeType;
+  }
+  return '';
+}
+
+function getShareAudioRecordingMimeType() {
+  if (typeof MediaRecorder.isTypeSupported !== 'function') return '';
+  if (MediaRecorder.isTypeSupported('audio/webm;codecs=opus')) return 'audio/webm;codecs=opus';
+  if (MediaRecorder.isTypeSupported('audio/webm')) return 'audio/webm';
+  if (MediaRecorder.isTypeSupported('audio/mp4')) return 'audio/mp4';
+  return '';
+}
+
+function videoRecordingErrorMessage(errorName: string) {
+  if (['NotAllowedError', 'PermissionDeniedError'].includes(errorName)) return '請允許相機與麥克風權限';
+  if (errorName === 'NotFoundError') return '找不到相機或麥克風';
+  if (errorName === 'NotReadableError') return '相機或麥克風目前被其他程式使用';
+  return '錄影啟動失敗，請重新整理後再試';
+}
+
+function getShareRecordingExtension(mimeType: string) {
+  if (mimeType.includes('mp4')) return 'mp4';
+  return 'webm';
+}
+
+function formatRecordingTime(seconds: number) {
+  const minutes = Math.floor(seconds / 60).toString().padStart(2, '0');
+  const remainingSeconds = (seconds % 60).toString().padStart(2, '0');
+  return `${minutes}:${remainingSeconds}`;
+}
+
+const dreamParts = [
+  { label: '第一步', kind: 'front-wheel' },
+  { label: '第二步', kind: 'back-wheel' },
+  { label: '第三步', kind: 'frame' },
+  { label: '第四步', kind: 'seat' },
+  { label: '第五步', kind: 'handle' },
+  { label: '完成', kind: 'basket' }
+];
+
+function DreamPage() {
+  useDreamCoverMigration();
+  const localState = useLocalDataState();
+  const selectedChild = localState.children.find(
+    (child) => child.id === localState.active_child_id && child.status === 'active'
+  );
+  const childDreams = useMemo(
+    () =>
+      selectedChild
+        ? buildChildDreamBalances(localState).filter((dream) => dream.child_id === selectedChild.id)
+        : [],
+    [localState, selectedChild]
+  );
+  const activeDreams = childDreams.filter((dream) => dream.status !== 'completed');
+  const completedDreams = childDreams.filter((dream) => dream.status === 'completed');
+  const currentDream = activeDreams[0] ?? completedDreams[0] ?? null;
+  const totalSaved = childDreams.reduce((total, dream) => total + dream.current_amount, 0);
+  const unlockedCount = currentDream ? Math.min(6, Math.floor(currentDream.progress_percent / 20) + (currentDream.progress_percent > 0 ? 1 : 0)) : 0;
+
+  return (
+    <div className="v1-page v2-dream-page">
+      <ChildPageHeader emoji="🌈" title="夢想" subtitle="存錢實現夢想，讓夢想成真！" />
+      {currentDream ? (
+        <section className="v1-dream-hero">
+          <div className="v1-dream-copy">
+            <span>目前夢想 ✦</span>
+            <h2>{currentDream.title} <Pencil size={18} /></h2>
+            <p>{currentDream.description || '家長新增夢想後，孩子端會同步看到存款進度。'}</p>
+            <div className="v1-money">
+              <div><small>目標金額</small><strong>{formatChildMoney(currentDream.target_amount)}</strong></div>
+              <div><small>目前存款</small><strong>{formatChildMoney(currentDream.current_amount)}</strong></div>
+            </div>
+            <label><span>完成度</span><strong>{currentDream.progress_percent}%</strong></label>
+            <div className="v1-progress"><i style={{ width: `${currentDream.progress_percent}%` }} /></div>
+            <em>{currentDream.status === 'completed' ? '♥ 夢想完成了！' : currentDream.status === 'funded' ? '♥ 已經達標，等家長標記完成！' : `♥ 距離夢想還差 ${formatChildMoney(Math.max(0, currentDream.target_amount - currentDream.current_amount))}`}</em>
+          </div>
+          <div className="v2-dream-bike">
+            <span className="v2-bike-cloud v2-bike-cloud-one" />
+            <span className="v2-bike-cloud v2-bike-cloud-two" />
+            <span className="v2-bike-sparkle">✦</span>
+            <LocalDreamCover mediaId={childDreamCoverMediaId(currentDream)} fallbackSrc={childDreamCover(currentDream)} alt={currentDream.title} />
+          </div>
+        </section>
+      ) : (
+        <section className="v1-dream-hero child-dream-empty">
+          <div className="v1-dream-copy">
+            <span>目前夢想 ✦</span>
+            <h2>還沒有夢想</h2>
+            <p>{selectedChild ? '請家長到夢想管理新增第一個夢想基金。' : '請家長先選擇目前孩子。'}</p>
+          </div>
+          <div className="v2-dream-bike"><span className="child-dream-placeholder">🌈</span></div>
+        </section>
+      )}
+      <section className="v1-dream-middle">
+        <div className="v1-panel v2-puzzle-panel">
+          <SectionHeading title="我的夢想拼圖" accent="★" action="查看更多" />
+          <p>每存到一個階段就會解鎖一塊喔！</p>
+          <div className="v1-parts">
+            {dreamParts.map((part, index) => {
+              const unlocked = index < unlockedCount || currentDream?.status === 'completed';
+              return (
+              <article key={part.label}>
+                <span className={`v2-dream-part v2-dream-part-${part.kind}`} />
+                <small>{part.label}</small>
+                <i className={unlocked ? 'is-unlocked' : 'is-locked'}>{unlocked ? '✓' : '▣'}</i>
+              </article>
+              );
+            })}
+          </div>
+        </div>
+        <div className="v1-dream-summary">
+          <DreamSummaryCard tone="saved" icon="💰" label="已存金額" value={formatChildMoney(totalSaved)} />
+          <DreamSummaryCard tone="count" icon="🌈" label="夢想數量" value={`${childDreams.length} 個`} />
+          <DreamSummaryCard tone="done" icon="🏆" label="已完成夢想" value={`${completedDreams.length} 個`} />
+        </div>
+      </section>
+      <section className="v1-dream-bottom">
+        <div className="v1-panel v2-dream-list-panel">
+          <SectionHeading title="我的夢想清單" action="查看更多" />
+          <div className="v1-dream-list">
+            {childDreams.length ? childDreams.map((item) => <DreamListItem key={item.id} dream={item} />) : <ChildTaskEmpty text="家長新增夢想後，會出現在這裡" />}
+          </div>
+        </div>
+        <div className="v1-panel v2-completed-panel">
+          <SectionHeading title="已完成夢想" action="查看更多" />
+          <div className="v1-completed">
+            {completedDreams.length ? completedDreams.map((dream) => (
+              <article key={dream.id}>
+                <LocalDreamCover mediaId={childDreamCoverMediaId(dream)} fallbackSrc={childDreamCover(dream)} alt={dream.title} />
+                <div><strong>{dream.title}</strong><small>完成日期<br />{formatChildDate(dream.completed_at ?? dream.updated_at)}</small><i>♥</i></div>
+              </article>
+            )) : <ChildTaskEmpty text="完成夢想後，會收藏在這裡" />}
+          </div>
+          <button className="v2-dream-history">查看全部歷史 <ChevronRight size={16} /></button>
+        </div>
+      </section>
+    </div>
+  );
+}
+
+function DreamSummaryCard({ tone, icon, label, value }: { tone: string; icon: string; label: string; value: string }) {
+  return <article className={`v2-dream-summary-${tone}`}><b>{icon}</b><span>{label}<strong>{value}</strong></span></article>;
+}
+
+function DreamListItem({ dream }: { dream: DreamWithBalance }) {
+  const coverUrl = useLocalDreamCoverUrl(childDreamCoverMediaId(dream), childDreamCover(dream));
+  return (
+    <article>
+      <div style={{ backgroundImage: `url(${coverUrl})` }} />
+      <section><strong>{dream.title}</strong><small>目標金額　{formatChildMoney(dream.target_amount)}</small><div className="v1-progress"><i style={{ width: `${dream.progress_percent}%` }} /></div></section>
+      <span>{dream.progress_percent}%</span>
+      <em>🐷<i>●</i></em>
+    </article>
+  );
+}
+
+function buildChildDreamBalances(state: LocalDatabaseState): DreamWithBalance[] {
+  return state.dreams
+    .map((dream) => {
+      const currentAmount = state.dream_funds
+        .filter((fund) => fund.dream_id === dream.id)
+        .reduce((total, fund) => total + fund.amount, 0);
+      return {
+        ...dream,
+        current_amount: currentAmount,
+        progress_percent:
+          dream.target_amount === 0
+            ? 100
+            : Math.min(100, Math.round((currentAmount / dream.target_amount) * 100))
+      };
+    })
+    .sort((a, b) => b.priority - a.priority || b.created_at.localeCompare(a.created_at));
+}
+
+function formatChildMoney(value: number) {
+  return new Intl.NumberFormat('zh-TW', {
+    style: 'currency',
+    currency: 'TWD',
+    maximumFractionDigits: 0
+  }).format(value);
+}
+
+function formatChildDate(value: string) {
+  return new Intl.DateTimeFormat('zh-TW', {
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit'
+  }).format(new Date(value));
+}
+
+function getHomeSpecialDays(state: LocalDatabaseState, childId: string): HomeSpecialDay[] {
+  const child = state.children.find((item) => item.id === childId && item.status === 'active');
+  const birthday = child ? getBirthdaySpecialDays([child])[0] ?? null : null;
+  const birthdayRows: HomeSpecialDay[] = birthday
+    ? [{
+        id: `birthday:${birthday.childId}`,
+        title: birthday.title,
+        date: birthday.date,
+        type: 'birthday',
+        daysLeft: birthday.daysLeft,
+        isBirthday: true
+      }]
+    : [];
+  const childDays = state.special_days
+    .filter((day) => !day.deleted_at && day.child_id === childId && day.type !== 'birthday')
+    .map((day) => ({
+      id: day.id,
+      title: day.title,
+      date: day.date,
+      type: day.type,
+      daysLeft: homeDaysUntil(day.date)
+    }))
+    .sort((a, b) => a.daysLeft - b.daysLeft || a.date.localeCompare(b.date));
+
+  return [...birthdayRows, ...childDays];
+}
+
+function homeDaysUntil(date: string) {
+  const start = new Date(`${new Date().toISOString().slice(0, 10)}T00:00:00`);
+  const target = new Date(`${date}T00:00:00`);
+  return Math.ceil((target.getTime() - start.getTime()) / 86400000);
+}
+
+function homeSpecialDayIcon(type: LocalSpecialDay['type']) {
+  return ({
+    birthday: '🎂',
+    anniversary: '🌟',
+    holiday: '🎁',
+    family_event: '🌟',
+    other: '🌟'
+  } as const)[type];
+}
+
+function childDreamCover(dream: Pick<DreamWithBalance, 'cover_path' | 'coverUrl' | 'imageUrl' | 'title'>) {
+  return safeChildAssetCover(dream.cover_path) || safeChildAssetCover(dream.coverUrl) || safeChildAssetCover(dream.imageUrl) || defaultChildDreamCover(dream.title);
+}
+
+function childDreamCoverMediaId(dream: Pick<DreamWithBalance, 'cover_media_id' | 'coverMediaId'>) {
+  return dream.cover_media_id ?? dream.coverMediaId ?? null;
+}
+
+function safeChildAssetCover(value?: string | null) {
+  if (!value || value.startsWith('data:image')) return null;
+  return value;
+}
+
+function defaultChildDreamCover(title: string) {
+  if (title.includes('熊')) return asset('teddy-bear.jpg');
+  if (title.includes('火車')) return asset('wooden-train.jpg');
+  if (title.includes('車') || title.toLowerCase().includes('bike')) return asset('sage-scooter.png');
+  return asset('wooden-train.jpg');
+}
+
+function legacyChildDreamCover(title: string) {
+  if (title.includes('腳踏車') || title.toLowerCase().includes('bike')) return asset('sage-scooter.png');
+  if (title.includes('熊')) return asset('teddy-bear.jpg');
+  if (title.includes('火車')) return asset('wooden-train.jpg');
+  if (title.includes('滑板') || title.includes('車')) return asset('sage-scooter.png');
+  return asset('wooden-train.jpg');
+}
+
+type MailboxFilter = '全部' | '未讀' | '鼓勵卡' | '語音' | '圖片';
+
+function MailboxPage() {
+  const localState = useLocalDataState();
+  const [activeCategory, setActiveCategory] = useState<MailboxFilter>('全部');
+  const [selectedMessageId, setSelectedMessageId] = useState<string | null>(null);
+  const [mailboxError, setMailboxError] = useState('');
+  const [currentPage, setCurrentPage] = useState(1);
+  const selectedChild = localState.children.find(
+    (child) => child.id === localState.active_child_id && child.status === 'active'
+  );
+  const childMessages = selectedChild
+    ? localState.encouragement_cards
+        .filter((message) => message.child_id === selectedChild.id)
+        .sort((a, b) => b.created_at.localeCompare(a.created_at))
+    : [];
+  const unreadCount = childMessages.filter((message) => message.status !== 'opened').length;
+  const mailboxCategories = [
+    { label: '全部' as const, icon: Mail, count: childMessages.length },
+    { label: '未讀' as const, icon: Heart, count: unreadCount },
+    { label: '鼓勵卡' as const, icon: Heart, count: childMessages.filter((message) => message.card_type === 'card').length },
+    { label: '語音' as const, icon: Mic, count: childMessages.filter((message) => message.card_type === 'audio').length },
+    { label: '圖片' as const, icon: Image, count: childMessages.filter((message) => ['image', 'video'].includes(message.card_type)).length }
+  ];
+  const visibleMessages = childMessages.filter((message) => {
+    if (activeCategory === '全部') return true;
+    if (activeCategory === '未讀') return message.status !== 'opened';
+    if (activeCategory === '鼓勵卡') return message.card_type === 'card';
+    if (activeCategory === '語音') return message.card_type === 'audio';
+    if (activeCategory === '圖片') return ['image', 'video'].includes(message.card_type);
+    return true;
+  });
+  const pageSize = 6;
+  const totalPages = Math.max(1, Math.ceil(visibleMessages.length / pageSize));
+  const pagedMessages = visibleMessages.slice((currentPage - 1) * pageSize, currentPage * pageSize);
+  const selectedMessage =
+    childMessages.find((message) => message.id === selectedMessageId) ?? null;
+
+  useEffect(() => {
+    setCurrentPage(1);
+    setSelectedMessageId(null);
+  }, [activeCategory]);
+
+  useEffect(() => {
+    if (currentPage > totalPages) setCurrentPage(totalPages);
+  }, [currentPage, totalPages]);
+
+  const openMessage = (message: LocalMailboxMessage) => {
+    setMailboxError('');
+    try {
+      if (message.status !== 'opened') mailboxRepository.markMessageRead(message.id);
+      setSelectedMessageId(message.id);
+    } catch (caught) {
+      setMailboxError(caught instanceof Error ? caught.message : '開啟訊息失敗');
+    }
+  };
+
+  return (
+    <div className="v1-page v2-mailbox-page">
+      <ChildPageHeader emoji="✉️" title="信箱" accent="♥" subtitle="家長鼓勵都在這裡 ✨" />
+      <section className="v1-mail-layout">
+        <aside className="v1-mail-categories">
+          {mailboxCategories.map((item) => (
+            (() => {
+              const Icon = item.icon;
+              return (
+            <button
+              className={activeCategory === item.label ? 'is-active' : ''}
+              key={item.label}
+              onClick={() => setActiveCategory(item.label)}
+            >
+              <span><Icon size={18} fill={item.label === '鼓勵卡' || item.label === '未讀' ? 'currentColor' : 'none'} /></span>
+              <b className="v2-mail-full-label">{item.label}</b>
+              <b className="v2-mail-short-label">{item.label}</b>
+              {item.count ? <em>{item.count}</em> : null}
+            </button>
+              );
+            })()
+          ))}
+        </aside>
+        <div className="v1-message-area">
+          <SectionHeading title={`${activeCategory}訊息`} accent="✦" action={`${unreadCount} 未讀`} />
+          {mailboxError ? <p className="v2-mail-error">{mailboxError}</p> : null}
+          <div className="v1-message-list" aria-live="polite">
+            {pagedMessages.length ? pagedMessages.map((message) => (
+              <MessageCard
+                key={message.id}
+                message={message}
+                onOpen={() => openMessage(message)}
+              />
+            )) : (
+              <MailboxEmpty text={selectedChild ? '目前沒有訊息' : '請家長先選擇目前孩子'} />
+            )}
+          </div>
+          <MailboxPagination
+            currentPage={currentPage}
+            totalPages={totalPages}
+            onPageChange={setCurrentPage}
+          />
+        </div>
+      </section>
+      {selectedMessage ? <MessageDetail message={selectedMessage} onClose={() => setSelectedMessageId(null)} /> : null}
+    </div>
+  );
+}
+
+function MessageCard({ message, onOpen }: { message: LocalMailboxMessage; onOpen: () => void }) {
+  const Icon = childMailboxIconComponent(message.card_type);
+  const isRead = message.status === 'opened';
+  const date = formatChildTaskDate(message.sent_at ?? message.created_at);
+  const summary = message.message || childMailboxFallbackSummary(message.card_type);
+
+  return (
+    <article
+      className={`v1-message-row v2-mail-card v2-mail-card-${message.card_type}`}
+      role="button"
+      tabIndex={0}
+      onClick={onOpen}
+      onKeyDown={(event) => {
+        if (event.key === 'Enter' || event.key === ' ') onOpen();
+      }}
+    >
+      <header>
+        <span className="v2-mail-card-icon"><Icon size={26} fill={message.card_type === 'card' ? 'currentColor' : 'none'} /></span>
+        <div>
+          <small className="v2-mail-type-badge">{childMailboxTypeLabel(message.card_type)}</small>
+          <b>家長</b>
+        </div>
+        <em className={isRead ? 'is-read' : ''}>{isRead ? '已讀' : '未讀'}</em>
+      </header>
+      <div className="v2-mail-card-copy">
+        <h3>{message.title || childMailboxTypeLabel(message.card_type)}</h3>
+        {summary ? <p>{summary}</p> : null}
+      </div>
+      <MailboxCardMedia message={message} />
+      <footer>
+        <time>{date}</time>
+        <ChevronRight size={20} />
+      </footer>
+    </article>
+  );
+}
+
+function MailboxCardMedia({ message }: { message: LocalMailboxMessage }) {
+  if (message.card_type === 'audio' && message.media_id) {
+    return <MailboxAudio mediaId={message.media_id} compact />;
+  }
+  if (message.card_type === 'image' && message.media_id) {
+    return (
+      <div className="v2-mail-media-preview">
+        <LocalShareMediaView mediaId={message.media_id} mediaType="photo" alt={message.title ?? '圖片訊息'} />
+      </div>
+    );
+  }
+  if (message.card_type === 'video' && message.media_id) {
+    return (
+      <div className="v2-mail-media-preview">
+        <LocalShareMediaView mediaId={message.media_id} mediaType="video" />
+      </div>
+    );
+  }
+  if (message.card_type === 'card') {
+    return (
+      <div className="v2-mail-encouragement-preview">
+        {message.media_id ? <LocalShareMediaView mediaId={message.media_id} mediaType="photo" alt={message.title ?? '鼓勵卡'} /> : <Heart size={58} fill="currentColor" />}
+      </div>
+    );
+  }
+  return null;
+}
+
+function MailboxAudio({ mediaId, compact = false }: { mediaId: string; compact?: boolean }) {
+  return (
+    <div className={`v2-mail-audio${compact ? ' is-compact' : ''}`} onClick={(event) => event.stopPropagation()}>
+      <LocalShareMediaView mediaId={mediaId} mediaType="audio" className="v2-mail-audio-control" />
+    </div>
+  );
+}
+
+function MessageDetail({ message, onClose }: { message: LocalMailboxMessage; onClose: () => void }) {
+  const Icon = childMailboxIconComponent(message.card_type);
+  const isMediaLightbox = ['image', 'video'].includes(message.card_type);
+
+  return (
+    <div className={`v2-mail-modal${isMediaLightbox ? ' is-lightbox' : ''}`} role="dialog" aria-modal="true" onClick={onClose}>
+      <article onClick={(event) => event.stopPropagation()}>
+        <button type="button" className="v2-mail-modal-close" onClick={onClose} aria-label="關閉">×</button>
+        <header>
+          <span><Icon size={28} fill={message.card_type === 'card' ? 'currentColor' : 'none'} /></span>
+          <div>
+            <small>{childMailboxTypeLabel(message.card_type)}</small>
+            <h2>{message.title || childMailboxTypeLabel(message.card_type)}</h2>
+            <b>家長</b>
+          </div>
+          <em className={message.status === 'opened' ? 'is-read' : ''}>{message.status === 'opened' ? '已讀' : '未讀'}</em>
+        </header>
+        {message.message ? <p>{message.message}</p> : null}
+        {message.card_type === 'audio' && message.media_id ? <MailboxAudio mediaId={message.media_id} /> : null}
+        {message.card_type === 'image' && message.media_id ? (
+          <div className="v2-mail-modal-media"><LocalShareMediaView mediaId={message.media_id} mediaType="photo" alt={message.title ?? '圖片訊息'} /></div>
+        ) : null}
+        {message.card_type === 'video' && message.media_id ? (
+          <div className="v2-mail-modal-media"><LocalShareMediaView mediaId={message.media_id} mediaType="video" autoPlay /></div>
+        ) : null}
+        {message.card_type === 'card' ? <MailboxCardMedia message={message} /> : null}
+        <time>{formatChildTaskDate(message.sent_at ?? message.created_at)}</time>
+      </article>
+    </div>
+  );
+}
+
+function MailboxPagination({
+  currentPage,
+  totalPages,
+  onPageChange
+}: {
+  currentPage: number;
+  totalPages: number;
+  onPageChange: (page: number) => void;
+}) {
+  return (
+    <nav className="v2-mail-pagination" aria-label="信箱分頁">
+      <button type="button" disabled={currentPage === 1} onClick={() => onPageChange(currentPage - 1)}>上一頁</button>
+      <span>{currentPage} / {totalPages}</span>
+      <button type="button" disabled={currentPage === totalPages} onClick={() => onPageChange(currentPage + 1)}>下一頁</button>
+    </nav>
+  );
+}
+
+function MailboxEmpty({ text }: { text: string }) {
+  return (
+    <div className="v2-mail-empty">
+      <span>🐰</span>
+      <strong>{text}</strong>
+      <p>等家長送來鼓勵吧！</p>
+    </div>
+  );
+}
+
+function childMailboxTypeLabel(type: LocalMailboxMessage['card_type']) {
+  return ({ text: '文字', card: '鼓勵卡', audio: '語音', image: '圖片', video: '影片', mixed: '混合' } as const)[type];
+}
+
+function childMailboxIconComponent(type: LocalMailboxMessage['card_type']) {
+  return ({ text: Mail, card: Heart, audio: Mic, image: Image, video: Video, mixed: MoreHorizontal } as const)[type];
+}
+
+function childMailboxFallbackSummary(type: LocalMailboxMessage['card_type']) {
+  return ({ text: '', card: '家長送來一張鼓勵卡', audio: '家長錄了一段語音給你', image: '家長分享了一張圖片', video: '家長分享了一段影片', mixed: '家長送來新的訊息' } as const)[type];
+}
+
+
+
+

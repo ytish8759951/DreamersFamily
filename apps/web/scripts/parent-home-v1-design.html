@@ -1,0 +1,687 @@
+<!doctype html>
+<html lang="zh-Hant">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Parent Home V1 Final</title>
+  <style>
+    * { box-sizing: border-box; }
+    :root {
+      --cream: #fff8ef;
+      --paper: #fffdfa;
+      --white: #fff;
+      --ink: #2e2d2b;
+      --muted: #77736c;
+      --sage: #7f9b72;
+      --sage-dark: #58704f;
+      --green: #edf5e9;
+      --blue: #eaf2ff;
+      --pink: #ffebee;
+      --yellow: #fff4d9;
+      --line: #eee2d2;
+      --shadow: 0 9px 24px rgba(77, 59, 35, .08);
+    }
+    html, body {
+      margin: 0;
+      width: 2048px;
+      height: 1365px;
+      overflow: hidden;
+      background: #f7f5f1;
+      color: var(--ink);
+      font-family: "Microsoft JhengHei", "Noto Sans TC", Arial, sans-serif;
+    }
+    body {
+      background:
+        radial-gradient(circle at 16% 12%, rgba(255, 226, 190, .35), transparent 24%),
+        radial-gradient(circle at 82% 18%, rgba(224, 237, 218, .44), transparent 25%),
+        #faf9f6;
+    }
+    .board {
+      display: grid;
+      width: 100%;
+      height: 100%;
+      grid-template-columns: 930px 650px 372px;
+      padding: 42px 30px 34px;
+      gap: 28px;
+    }
+    .column { min-width: 0; }
+    .label {
+      display: inline-flex;
+      height: 34px;
+      align-items: center;
+      margin: 0 0 12px 2px;
+      border-radius: 999px;
+      background: var(--sage-dark);
+      padding: 0 17px;
+      color: #fff;
+      font-size: 17px;
+      font-weight: 700;
+      letter-spacing: .04em;
+      box-shadow: 0 5px 12px rgba(63, 84, 55, .18);
+    }
+    .screen {
+      height: 1240px;
+      overflow: hidden;
+      border: 1px solid #eadfce;
+      border-radius: 28px;
+      background: var(--cream);
+      box-shadow: 0 15px 38px rgba(74, 57, 34, .12);
+    }
+    .desktop-shell {
+      display: grid;
+      grid-template-columns: 192px minmax(0, 1fr);
+      height: 100%;
+    }
+    .sidebar {
+      position: relative;
+      display: flex;
+      flex-direction: column;
+      background: #fff;
+      padding: 20px 14px;
+      border-right: 1px solid var(--line);
+    }
+    .brand {
+      display: flex;
+      align-items: center;
+      border-radius: 17px;
+      background: var(--cream);
+      padding: 11px;
+      gap: 9px;
+    }
+    .brand .rabbit {
+      display: grid;
+      width: 42px;
+      height: 42px;
+      place-items: center;
+      border-radius: 13px;
+      background: var(--pink);
+      font-size: 27px;
+    }
+    .brand small, .brand strong { display: block; }
+    .brand small { color: var(--sage-dark); font-size: 9px; font-weight: 700; }
+    .brand strong { margin-top: 2px; font-size: 13px; }
+    .nav {
+      display: grid;
+      margin-top: 17px;
+      gap: 5px;
+    }
+    .nav div {
+      display: grid;
+      grid-template-columns: 27px 1fr auto;
+      min-height: 39px;
+      align-items: center;
+      border-radius: 13px;
+      padding: 7px 9px;
+      color: #6f6b65;
+      font-size: 12px;
+      gap: 5px;
+    }
+    .nav div.active {
+      background: var(--green);
+      color: var(--sage-dark);
+      font-weight: 700;
+    }
+    .nav i {
+      display: grid;
+      width: 24px;
+      height: 24px;
+      place-items: center;
+      border-radius: 8px;
+      background: rgba(255,255,255,.75);
+      font-style: normal;
+    }
+    .nav b {
+      display: grid;
+      min-width: 20px;
+      height: 20px;
+      place-items: center;
+      border-radius: 50%;
+      background: #f2a0a3;
+      color: white;
+      font-size: 9px;
+    }
+    .parent-card {
+      margin-top: auto;
+      border: 1px solid var(--line);
+      border-radius: 17px;
+      background: linear-gradient(145deg, #fff, #fff5e9);
+      padding: 12px;
+      text-align: center;
+    }
+    .parent-card span { font-size: 43px; }
+    .parent-card strong, .parent-card small { display: block; }
+    .parent-card strong { margin-top: 4px; font-size: 12px; }
+    .parent-card small { margin-top: 3px; color: var(--muted); font-size: 9px; }
+    .main { min-width: 0; }
+    .topbar {
+      display: flex;
+      height: 68px;
+      align-items: center;
+      justify-content: space-between;
+      border-bottom: 1px solid var(--line);
+      background: rgba(255,253,249,.96);
+      padding: 12px 19px;
+    }
+    .topbar small, .topbar strong { display: block; }
+    .topbar small { color: var(--sage-dark); font-size: 10px; font-weight: 700; }
+    .topbar strong { margin-top: 2px; font-size: 14px; }
+    .child-link {
+      display: flex;
+      align-items: center;
+      border: 1px solid var(--line);
+      border-radius: 13px;
+      background: #fff;
+      padding: 9px 12px;
+      color: #684213;
+      font-size: 11px;
+      font-weight: 700;
+      gap: 5px;
+      box-shadow: 0 5px 12px rgba(74,57,35,.06);
+    }
+    .content {
+      display: grid;
+      padding: 15px;
+      gap: 12px;
+    }
+    .welcome {
+      position: relative;
+      display: flex;
+      min-height: 114px;
+      align-items: center;
+      justify-content: space-between;
+      overflow: hidden;
+      border: 1px solid var(--line);
+      border-radius: 21px;
+      background:
+        radial-gradient(circle at 83% 32%, #ffe1d8 0 7px, transparent 8px),
+        radial-gradient(circle at 88% 70%, #e6effc 0 16px, transparent 17px),
+        linear-gradient(120deg, #fff, #fffaf3);
+      padding: 17px 18px;
+      box-shadow: var(--shadow);
+    }
+    .welcome h1 { margin: 0; font-size: 24px; }
+    .welcome h1 span { color: #f6b638; }
+    .welcome p { margin: 5px 0 0; color: var(--muted); font-size: 11px; }
+    .quick {
+      display: flex;
+      align-items: center;
+      border-radius: 14px;
+      background: var(--sage);
+      padding: 11px 15px;
+      color: white;
+      font-size: 12px;
+      font-weight: 700;
+      gap: 6px;
+      box-shadow: 0 7px 15px rgba(92,119,78,.24);
+    }
+    .stats {
+      display: grid;
+      grid-template-columns: repeat(4, 1fr);
+      gap: 9px;
+    }
+    .stat {
+      min-height: 83px;
+      border: 1px solid rgba(232,224,213,.9);
+      border-radius: 17px;
+      padding: 12px;
+      box-shadow: 0 5px 13px rgba(76,58,34,.05);
+    }
+    .stat small { display: block; color: #6f6a63; font-size: 9px; }
+    .stat strong { display: block; margin-top: 7px; font-size: 21px; }
+    .stat.blue { background: var(--blue); }
+    .stat.pink { background: var(--pink); }
+    .stat.yellow { background: var(--yellow); }
+    .stat.green { background: var(--green); }
+    .grid-2 {
+      display: grid;
+      grid-template-columns: minmax(0, 1.42fr) minmax(210px, .58fr);
+      gap: 11px;
+    }
+    .panel {
+      border: 1px solid var(--line);
+      border-radius: 20px;
+      background: white;
+      padding: 14px;
+      box-shadow: var(--shadow);
+    }
+    .panel-title {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      margin-bottom: 10px;
+    }
+    .panel-title h2 { margin: 0; font-size: 15px; }
+    .panel-title a { color: #0b4c91; font-size: 9px; font-weight: 700; }
+    .children {
+      display: grid;
+      grid-template-columns: repeat(3, 1fr);
+      gap: 8px;
+    }
+    .kid {
+      min-width: 0;
+      border-radius: 15px;
+      background: var(--cream);
+      padding: 10px;
+    }
+    .kid-head { display: flex; align-items: center; gap: 7px; }
+    .avatar {
+      display: grid;
+      width: 37px;
+      height: 37px;
+      place-items: center;
+      border-radius: 50%;
+      font-size: 19px;
+    }
+    .kid strong, .kid small { display: block; }
+    .kid strong { font-size: 11px; }
+    .kid small { margin-top: 2px; color: var(--muted); font-size: 8px; }
+    .kid dl {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      margin: 9px 0 0;
+      gap: 5px;
+    }
+    .kid dl div { border-radius: 9px; background: white; padding: 6px; }
+    .kid dt { color: var(--muted); font-size: 7px; }
+    .kid dd { margin: 3px 0 0; font-size: 10px; font-weight: 700; }
+    .review-list, .timeline { display: grid; gap: 6px; }
+    .review-item {
+      display: grid;
+      grid-template-columns: 34px minmax(0,1fr) auto;
+      align-items: center;
+      min-height: 47px;
+      border-radius: 12px;
+      background: var(--cream);
+      padding: 6px 8px;
+      gap: 7px;
+    }
+    .review-item > span, .time-item > span {
+      display: grid;
+      width: 31px;
+      height: 31px;
+      place-items: center;
+      border-radius: 10px;
+      background: white;
+      font-size: 17px;
+    }
+    .review-item strong, .review-item small { display: block; }
+    .review-item strong { font-size: 9px; }
+    .review-item small { margin-top: 2px; color: var(--muted); font-size: 7px; }
+    .review-item button {
+      border: 0;
+      border-radius: 9px;
+      background: var(--sage);
+      padding: 6px 8px;
+      color: white;
+      font-size: 8px;
+    }
+    .task-list { display: grid; gap: 6px; }
+    .task-line {
+      display: grid;
+      grid-template-columns: 35px minmax(0,1fr) auto;
+      align-items: center;
+      min-height: 45px;
+      border-bottom: 1px solid #f0e9df;
+      padding: 4px;
+      gap: 7px;
+    }
+    .task-line > span { font-size: 22px; }
+    .task-line strong, .task-line small { display: block; }
+    .task-line strong { font-size: 9px; }
+    .task-line small { color: var(--muted); font-size: 7px; }
+    .task-line em {
+      border-radius: 999px;
+      background: var(--green);
+      padding: 4px 7px;
+      color: var(--sage-dark);
+      font-size: 7px;
+      font-style: normal;
+    }
+    .time-item {
+      display: grid;
+      grid-template-columns: 34px 1fr;
+      align-items: center;
+      gap: 7px;
+      min-height: 49px;
+    }
+    .time-item strong, .time-item small { display: block; }
+    .time-item strong { font-size: 9px; }
+    .time-item small { margin-top: 2px; color: var(--muted); font-size: 7px; }
+    .actions {
+      display: grid;
+      grid-template-columns: repeat(4, 1fr);
+      gap: 8px;
+    }
+    .action {
+      display: flex;
+      min-height: 53px;
+      align-items: center;
+      border: 1px solid var(--line);
+      border-radius: 15px;
+      background: white;
+      padding: 9px;
+      gap: 7px;
+      box-shadow: 0 5px 12px rgba(73,57,36,.05);
+    }
+    .action span {
+      display: grid;
+      width: 31px;
+      height: 31px;
+      place-items: center;
+      border-radius: 10px;
+      background: var(--green);
+      font-size: 17px;
+    }
+    .action strong, .action small { display: block; }
+    .action strong { font-size: 9px; }
+    .action small { margin-top: 2px; color: var(--muted); font-size: 7px; }
+
+    /* Tablet */
+    .tablet-screen { position: relative; }
+    .tablet-top {
+      display: flex;
+      height: 72px;
+      align-items: center;
+      justify-content: space-between;
+      border-bottom: 1px solid var(--line);
+      background: white;
+      padding: 13px 18px;
+    }
+    .tablet-top .menu {
+      display: grid;
+      width: 38px;
+      height: 38px;
+      place-items: center;
+      border-radius: 12px;
+      background: var(--cream);
+      font-size: 20px;
+    }
+    .tablet-top .brand { width: 190px; padding: 7px 9px; }
+    .tablet-content { display: grid; padding: 14px; gap: 10px; }
+    .tablet-content .welcome { min-height: 100px; }
+    .tablet-content .stats { grid-template-columns: repeat(4, 1fr); }
+    .tablet-content .stat { min-height: 74px; padding: 10px; }
+    .tablet-content .stat strong { font-size: 18px; }
+    .tablet-content .grid-2 { grid-template-columns: 1fr; }
+    .tablet-content .children { grid-template-columns: repeat(3,1fr); }
+    .tablet-content .dual {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 10px;
+    }
+    .tablet-nav {
+      position: absolute;
+      left: 18px;
+      right: 18px;
+      bottom: 14px;
+      display: grid;
+      grid-template-columns: repeat(5, 1fr);
+      border: 1px solid var(--line);
+      border-radius: 18px;
+      background: rgba(255,255,255,.96);
+      padding: 6px;
+      box-shadow: var(--shadow);
+    }
+    .tablet-nav div {
+      display: flex;
+      min-height: 52px;
+      align-items: center;
+      justify-content: center;
+      flex-direction: column;
+      border-radius: 13px;
+      color: var(--muted);
+      font-size: 8px;
+      gap: 3px;
+    }
+    .tablet-nav div span { font-size: 19px; }
+    .tablet-nav div.active { background: var(--sage); color: white; }
+
+    /* Mobile */
+    .mobile-screen { position: relative; }
+    .mobile-head {
+      display: flex;
+      min-height: 70px;
+      align-items: center;
+      justify-content: space-between;
+      border-bottom: 1px solid var(--line);
+      background: white;
+      padding: 10px 11px;
+    }
+    .mobile-head .brand {
+      width: auto;
+      background: transparent;
+      padding: 0;
+    }
+    .mobile-head .brand .rabbit { width: 34px; height: 34px; font-size: 22px; }
+    .mobile-head .brand strong { font-size: 11px; }
+    .mobile-head .brand small { font-size: 7px; }
+    .mobile-menu {
+      display: grid;
+      width: 36px;
+      height: 36px;
+      place-items: center;
+      border-radius: 11px;
+      background: var(--cream);
+    }
+    .mobile-content {
+      display: grid;
+      padding: 10px;
+      gap: 8px;
+    }
+    .mobile-content .welcome {
+      min-height: 103px;
+      border-radius: 17px;
+      padding: 13px;
+    }
+    .mobile-content .welcome h1 { width: 210px; font-size: 18px; }
+    .mobile-content .welcome p { font-size: 8px; }
+    .mobile-content .quick { padding: 8px 9px; font-size: 8px; }
+    .mobile-content .stats { grid-template-columns: 1fr 1fr; gap: 7px; }
+    .mobile-content .stat { min-height: 66px; border-radius: 14px; padding: 9px; }
+    .mobile-content .stat small { font-size: 8px; }
+    .mobile-content .stat strong { margin-top: 4px; font-size: 17px; }
+    .mobile-content .panel { border-radius: 17px; padding: 10px; }
+    .mobile-content .panel-title { margin-bottom: 7px; }
+    .mobile-content .panel-title h2 { font-size: 13px; }
+    .mobile-content .panel-title a { font-size: 8px; }
+    .mobile-content .children {
+      display: flex;
+      overflow: hidden;
+      gap: 7px;
+    }
+    .mobile-content .kid { width: 155px; flex: none; padding: 8px; }
+    .mobile-content .kid:nth-child(3) { display: none; }
+    .mobile-content .review-item { min-height: 43px; }
+    .mobile-content .task-line:nth-child(n+4) { display: none; }
+    .mobile-content .actions { grid-template-columns: 1fr 1fr; }
+    .mobile-content .action { min-height: 49px; }
+    .mobile-bottom {
+      position: absolute;
+      left: 10px;
+      right: 10px;
+      bottom: 10px;
+      display: grid;
+      grid-template-columns: repeat(4, 1fr);
+      border: 1px solid var(--line);
+      border-radius: 17px;
+      background: rgba(255,255,255,.97);
+      padding: 5px;
+      box-shadow: var(--shadow);
+    }
+    .mobile-bottom div {
+      display: flex;
+      min-height: 48px;
+      align-items: center;
+      justify-content: center;
+      flex-direction: column;
+      border-radius: 12px;
+      color: var(--muted);
+      font-size: 7px;
+      gap: 2px;
+    }
+    .mobile-bottom span { font-size: 17px; }
+    .mobile-bottom .active { background: var(--sage); color: #fff; }
+  </style>
+</head>
+<body>
+  <main class="board">
+    <section class="column">
+      <div class="label">桌機版（1440px）</div>
+      <div class="screen desktop-shell">
+        <aside class="sidebar">
+          <div class="brand"><span class="rabbit">🐰</span><div><small>小小夢想家 Family</small><strong>家長管理中心</strong></div></div>
+          <div class="nav">
+            <div class="active"><i>⌂</i><span>家庭總覽</span></div>
+            <div><i>👧</i><span>孩子管理</span></div>
+            <div><i>☑</i><span>任務管理</span><b>4</b></div>
+            <div><i>🌈</i><span>願望管理</span></div>
+            <div><i>🏅</i><span>徽章管理</span></div>
+            <div><i>💌</i><span>鼓勵卡</span><b>3</b></div>
+            <div><i>🖼</i><span>成長相簿</span></div>
+            <div><i>🏆</i><span>榮譽牆</span></div>
+            <div><i>📅</i><span>特殊日子</span></div>
+            <div><i>⚙</i><span>設定</span></div>
+          </div>
+          <div class="parent-card"><span>👩🏻</span><strong>媽媽</strong><small>家庭管理員</small></div>
+        </aside>
+        <div class="main">
+          <header class="topbar"><div><small>樂樂的家庭空間</small><strong>溫柔陪伴每一步成長</strong></div><div class="child-link">⌂ 小朋友端</div></header>
+          <div class="content">
+            <section class="welcome"><div><h1>早安，媽媽！<span>✦</span></h1><p>今天也一起看看孩子們的成長與新冒險吧。</p></div><div class="quick">＋ 快速新增</div></section>
+            <section class="stats">
+              <article class="stat blue"><small>孩子</small><strong>3 位</strong></article>
+              <article class="stat pink"><small>待審核</small><strong>4 件</strong></article>
+              <article class="stat yellow"><small>今日星星</small><strong>+18</strong></article>
+              <article class="stat green"><small>平板時間</small><strong>100 分</strong></article>
+            </section>
+            <section class="grid-2">
+              <article class="panel">
+                <div class="panel-title"><h2>孩子今日狀態</h2><a>查看全部 ›</a></div>
+                <div class="children">
+                  <div class="kid"><div class="kid-head"><span class="avatar" style="background:#eaf2ff">👧🏻</span><div><strong>安安</strong><small>4 歲</small></div></div><dl><div><dt>星星</dt><dd>18</dd></div><div><dt>平板</dt><dd>25 分</dd></div></dl></div>
+                  <div class="kid"><div class="kid-head"><span class="avatar" style="background:#edf5e9">👧🏻</span><div><strong>樂樂</strong><small>6 歲</small></div></div><dl><div><dt>星星</dt><dd>32</dd></div><div><dt>平板</dt><dd>40 分</dd></div></dl></div>
+                  <div class="kid"><div class="kid-head"><span class="avatar" style="background:#fff4d9">👦🏻</span><div><strong>米米</strong><small>8 歲</small></div></div><dl><div><dt>星星</dt><dd>45</dd></div><div><dt>平板</dt><dd>35 分</dd></div></dl></div>
+                </div>
+              </article>
+              <article class="panel">
+                <div class="panel-title"><h2>待審核內容</h2><a>全部 4 件 ›</a></div>
+                <div class="review-list">
+                  <div class="review-item"><span>📷</span><div><strong>樂樂分享了照片</strong><small>今天 10:30</small></div><button>審核</button></div>
+                  <div class="review-item"><span>☑</span><div><strong>安安完成任務</strong><small>閱讀 20 分鐘</small></div><button>確認</button></div>
+                  <div class="review-item"><span>🌈</span><div><strong>米米新增願望</strong><small>夢想滑板車</small></div><button>查看</button></div>
+                </div>
+              </article>
+            </section>
+            <section class="grid-2">
+              <article class="panel">
+                <div class="panel-title"><h2>今日任務與願望</h2><a>前往管理 ›</a></div>
+                <div class="task-list">
+                  <div class="task-line"><span>🛏️</span><div><strong>早睡早起</strong><small>樂樂 · +10 星星</small></div><em>已完成</em></div>
+                  <div class="task-line"><span>📖</span><div><strong>閱讀 20 分鐘</strong><small>安安 · +10 星星</small></div><em>待確認</em></div>
+                  <div class="task-line"><span>🚲</span><div><strong>彩虹腳踏車</strong><small>樂樂 · 已完成 40%</small></div><em>查看</em></div>
+                  <div class="task-line"><span>🧸</span><div><strong>泰迪熊</strong><small>米米 · 已完成 75%</small></div><em>查看</em></div>
+                </div>
+              </article>
+              <article class="panel">
+                <div class="panel-title"><h2>最新動態</h2><a>更多 ›</a></div>
+                <div class="timeline">
+                  <div class="time-item"><span>📷</span><div><strong>樂樂新增成長照片</strong><small>和兔兔的開心時光</small></div></div>
+                  <div class="time-item"><span>💌</span><div><strong>爸爸送出鼓勵卡</strong><small>你今天很勇敢！</small></div></div>
+                  <div class="time-item"><span>🏅</span><div><strong>米米獲得新徽章</strong><small>閱讀小達人</small></div></div>
+                </div>
+              </article>
+            </section>
+            <section class="actions">
+              <div class="action"><span>📷</span><div><strong>新增照片</strong><small>加入成長相簿</small></div></div>
+              <div class="action"><span>🎤</span><div><strong>家長錄音</strong><small>錄下鼓勵的話</small></div></div>
+              <div class="action"><span>🎬</span><div><strong>新增影片</strong><small>保存生活片段</small></div></div>
+              <div class="action"><span>💌</span><div><strong>發送鼓勵</strong><small>推播到孩子平板</small></div></div>
+            </section>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <section class="column">
+      <div class="label">平板版（1024px）</div>
+      <div class="screen tablet-screen">
+        <header class="tablet-top"><div class="menu">☰</div><div class="brand"><span class="rabbit">🐰</span><div><small>小小夢想家 Family</small><strong>家長管理中心</strong></div></div><div class="child-link">⌂ 小朋友端</div></header>
+        <div class="tablet-content">
+          <section class="welcome"><div><h1>早安，媽媽！<span>✦</span></h1><p>今天也一起看看孩子們的成長與新冒險吧。</p></div><div class="quick">＋ 快速新增</div></section>
+          <section class="stats">
+            <article class="stat blue"><small>孩子</small><strong>3 位</strong></article>
+            <article class="stat pink"><small>待審核</small><strong>4 件</strong></article>
+            <article class="stat yellow"><small>今日星星</small><strong>+18</strong></article>
+            <article class="stat green"><small>平板時間</small><strong>100 分</strong></article>
+          </section>
+          <article class="panel"><div class="panel-title"><h2>孩子今日狀態</h2><a>查看全部 ›</a></div><div class="children">
+            <div class="kid"><div class="kid-head"><span class="avatar" style="background:#eaf2ff">👧🏻</span><div><strong>安安</strong><small>4 歲</small></div></div><dl><div><dt>星星</dt><dd>18</dd></div><div><dt>平板</dt><dd>25 分</dd></div></dl></div>
+            <div class="kid"><div class="kid-head"><span class="avatar" style="background:#edf5e9">👧🏻</span><div><strong>樂樂</strong><small>6 歲</small></div></div><dl><div><dt>星星</dt><dd>32</dd></div><div><dt>平板</dt><dd>40 分</dd></div></dl></div>
+            <div class="kid"><div class="kid-head"><span class="avatar" style="background:#fff4d9">👦🏻</span><div><strong>米米</strong><small>8 歲</small></div></div><dl><div><dt>星星</dt><dd>45</dd></div><div><dt>平板</dt><dd>35 分</dd></div></dl></div>
+          </div></article>
+          <section class="dual">
+            <article class="panel"><div class="panel-title"><h2>待審核內容</h2><a>4 件 ›</a></div><div class="review-list">
+              <div class="review-item"><span>📷</span><div><strong>樂樂分享了照片</strong><small>今天 10:30</small></div><button>審核</button></div>
+              <div class="review-item"><span>☑</span><div><strong>安安完成任務</strong><small>閱讀 20 分鐘</small></div><button>確認</button></div>
+              <div class="review-item"><span>🌈</span><div><strong>米米新增願望</strong><small>夢想滑板車</small></div><button>查看</button></div>
+            </div></article>
+            <article class="panel"><div class="panel-title"><h2>最新動態</h2><a>更多 ›</a></div><div class="timeline">
+              <div class="time-item"><span>📷</span><div><strong>樂樂新增成長照片</strong><small>和兔兔的開心時光</small></div></div>
+              <div class="time-item"><span>💌</span><div><strong>爸爸送出鼓勵卡</strong><small>你今天很勇敢！</small></div></div>
+              <div class="time-item"><span>🏅</span><div><strong>米米獲得新徽章</strong><small>閱讀小達人</small></div></div>
+            </div></article>
+          </section>
+          <article class="panel"><div class="panel-title"><h2>今日任務與願望</h2><a>前往管理 ›</a></div><div class="task-list">
+            <div class="task-line"><span>🛏️</span><div><strong>早睡早起</strong><small>樂樂 · +10 星星</small></div><em>已完成</em></div>
+            <div class="task-line"><span>📖</span><div><strong>閱讀 20 分鐘</strong><small>安安 · +10 星星</small></div><em>待確認</em></div>
+            <div class="task-line"><span>🚲</span><div><strong>彩虹腳踏車</strong><small>樂樂 · 已完成 40%</small></div><em>查看</em></div>
+          </div></article>
+          <section class="actions">
+            <div class="action"><span>📷</span><div><strong>新增照片</strong><small>加入成長相簿</small></div></div>
+            <div class="action"><span>🎤</span><div><strong>家長錄音</strong><small>錄下鼓勵的話</small></div></div>
+            <div class="action"><span>🎬</span><div><strong>新增影片</strong><small>保存生活片段</small></div></div>
+            <div class="action"><span>💌</span><div><strong>發送鼓勵</strong><small>推播到孩子平板</small></div></div>
+          </section>
+        </div>
+        <nav class="tablet-nav"><div class="active"><span>⌂</span>總覽</div><div><span>👧</span>孩子</div><div><span>☑</span>任務</div><div><span>🖼</span>相簿</div><div><span>⚙</span>設定</div></nav>
+      </div>
+    </section>
+
+    <section class="column">
+      <div class="label">手機版（375px）</div>
+      <div class="screen mobile-screen">
+        <header class="mobile-head"><div class="brand"><span class="rabbit">🐰</span><div><small>小小夢想家 Family</small><strong>家長管理中心</strong></div></div><div class="mobile-menu">☰</div></header>
+        <div class="mobile-content">
+          <section class="welcome"><div><h1>早安，媽媽！<span>✦</span></h1><p>今天也一起看看孩子們的新冒險吧。</p></div><div class="quick">＋ 新增</div></section>
+          <section class="stats">
+            <article class="stat blue"><small>孩子</small><strong>3 位</strong></article>
+            <article class="stat pink"><small>待審核</small><strong>4 件</strong></article>
+            <article class="stat yellow"><small>今日星星</small><strong>+18</strong></article>
+            <article class="stat green"><small>平板時間</small><strong>100 分</strong></article>
+          </section>
+          <article class="panel"><div class="panel-title"><h2>孩子今日狀態</h2><a>查看全部 ›</a></div><div class="children">
+            <div class="kid"><div class="kid-head"><span class="avatar" style="background:#eaf2ff">👧🏻</span><div><strong>安安</strong><small>4 歲</small></div></div><dl><div><dt>星星</dt><dd>18</dd></div><div><dt>平板</dt><dd>25 分</dd></div></dl></div>
+            <div class="kid"><div class="kid-head"><span class="avatar" style="background:#edf5e9">👧🏻</span><div><strong>樂樂</strong><small>6 歲</small></div></div><dl><div><dt>星星</dt><dd>32</dd></div><div><dt>平板</dt><dd>40 分</dd></div></dl></div>
+          </div></article>
+          <article class="panel"><div class="panel-title"><h2>待審核內容</h2><a>4 件 ›</a></div><div class="review-list">
+            <div class="review-item"><span>📷</span><div><strong>樂樂分享了照片</strong><small>今天 10:30</small></div><button>審核</button></div>
+            <div class="review-item"><span>☑</span><div><strong>安安完成任務</strong><small>閱讀 20 分鐘</small></div><button>確認</button></div>
+          </div></article>
+          <article class="panel"><div class="panel-title"><h2>今日任務與願望</h2><a>管理 ›</a></div><div class="task-list">
+            <div class="task-line"><span>🛏️</span><div><strong>早睡早起</strong><small>樂樂 · +10 星星</small></div><em>完成</em></div>
+            <div class="task-line"><span>📖</span><div><strong>閱讀 20 分鐘</strong><small>安安 · +10 星星</small></div><em>確認</em></div>
+            <div class="task-line"><span>🚲</span><div><strong>彩虹腳踏車</strong><small>樂樂 · 40%</small></div><em>查看</em></div>
+          </div></article>
+          <section class="actions">
+            <div class="action"><span>📷</span><div><strong>新增照片</strong><small>加入相簿</small></div></div>
+            <div class="action"><span>💌</span><div><strong>發送鼓勵</strong><small>給孩子的話</small></div></div>
+            <div class="action"><span>🎤</span><div><strong>家長錄音</strong><small>錄下鼓勵</small></div></div>
+            <div class="action"><span>🎬</span><div><strong>新增影片</strong><small>保存片段</small></div></div>
+          </section>
+        </div>
+        <nav class="mobile-bottom"><div class="active"><span>⌂</span>總覽</div><div><span>👧</span>孩子</div><div><span>☑</span>任務</div><div><span>⚙</span>設定</div></nav>
+      </div>
+    </section>
+  </main>
+</body>
+</html>

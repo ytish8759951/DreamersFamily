@@ -1,0 +1,950 @@
+﻿import { beforeEach, describe, expect, it } from 'vitest';
+import { LocalDataService, LocalDataError } from './localData';
+import { MockDatabase } from './mockDatabase';
+import type { KeyValueStorage } from './storage';
+import {
+  getChildHistoryTasks,
+  getChildTodayTasks,
+  getChildVisibleTasks,
+  getParentHistoryTasks,
+  getParentOpenTasks
+} from './taskRules';
+import { getBirthdaySpecialDays } from './specialDays';
+
+class TestStorage implements KeyValueStorage {
+  private values = new Map<string, string>();
+
+  getItem(key: string) {
+    return this.values.get(key) ?? null;
+  }
+
+  setItem(key: string, value: string) {
+    this.values.set(key, value);
+  }
+
+  removeItem(key: string) {
+    this.values.delete(key);
+  }
+}
+
+function addDaysForTest(date: string, days: number) {
+  const value = new Date(`${date}T00:00:00.000Z`);
+  value.setUTCDate(value.getUTCDate() + days);
+  return value.toISOString().slice(0, 10);
+}
+
+describe('local MVP data flows', () => {
+  let data: LocalDataService;
+  let storage: TestStorage;
+
+  beforeEach(() => {
+    storage = new TestStorage();
+    data = new LocalDataService(new MockDatabase(storage, 'test-db'));
+    data.resetLocalData();
+  });
+
+  it('exposes repository scope for future family, parent, child and device binding', () => {
+    expect(data.getRepositoryScope()).toMatchObject({
+      family_id: 'local-family',
+      parent_id: 'local-parent',
+      child_id: null,
+      device_id: 'local-device'
+    });
+
+    const child = data.createChild({ display_name: '沉沉' });
+
+    expect(data.getRepositoryScope()).toMatchObject({
+      family_id: 'local-family',
+      parent_id: 'local-parent',
+      child_id: child.id,
+      device_id: 'local-device'
+    });
+  });
+
+  it('manages and switches children without deleting history', () => {
+    const first = data.createChild({ display_name: '樂樂', birth_date: '2020-05-01' });
+    const second = data.createChild({ display_name: '安安' });
+
+    expect(data.getState().active_child_id).toBe(first.id);
+    expect(data.updateChild(first.id, { display_name: '樂樂寶貝' }).display_name).toBe('樂樂寶貝');
+    expect(data.switchChild(second.id).id).toBe(second.id);
+    expect(data.getState().active_child_id).toBe(second.id);
+
+    data.deleteChild(second.id);
+    expect(data.listChildren()).toHaveLength(1);
+    expect(data.listChildren(true).find((child) => child.id === second.id)?.status).toBe('archived');
+    expect(data.getState().active_child_id).toBe(first.id);
+  });
+
+  it('runs task completion, approval, stars and screen-time rewards once', () => {
+    const child = data.createChild({ display_name: '樂樂' });
+    const task = data.createTask({
+      child_id: child.id,
+      title: '整理玩具',
+      reward_stars: 5,
+      reward_screen_minutes: 10
+    });
+
+    expect(data.completeTask(task.id, '完成了').status).toBe('submitted');
+    expect(data.approveTask(task.id).status).toBe('approved');
+    expect(data.getStarBalance(child.id)).toBe(5);
+    expect(data.getScreenTimeBalance(child.id)).toBe(0);
+    expect(data.listTasks(child.id)[0].completion_note).toBe('完成了');
+
+    data.approveTask(task.id);
+    expect(data.getStarBalance(child.id)).toBe(5);
+    expect(data.getScreenTimeBalance(child.id)).toBe(0);
+  });
+
+  it('allows image-only tasks and stores task media ids', () => {
+    const child = data.createChild({ display_name: '樂樂' });
+    const task = data.createTask({
+      child_id: child.id,
+      title: '',
+      task_image_media_id: 'task-image-media-id',
+      thumbnail_media_id: 'task-thumbnail-media-id',
+      reward_stars: 3
+    });
+
+    expect(task.title).toBe('');
+    expect(task.task_image_media_id).toBe('task-image-media-id');
+    expect(task.thumbnail_media_id).toBe('task-thumbnail-media-id');
+  });
+
+  it('keeps tasks independent when the same task is assigned to every child', () => {
+    const first = data.createChild({ display_name: '沉沉' });
+    const second = data.createChild({ display_name: '安安' });
+    const children = data.listChildren();
+
+    const tasks = children.map((child) =>
+      data.createTask({
+        child_id: child.id,
+        title: '刷牙',
+        reward_stars: 1
+      })
+    );
+
+    expect(data.listTasks()).toHaveLength(2);
+    expect(data.listTasks(first.id)).toMatchObject([{ id: tasks[0].id, child_id: first.id, title: '刷牙' }]);
+    expect(data.listTasks(second.id)).toMatchObject([{ id: tasks[1].id, child_id: second.id, title: '刷牙' }]);
+
+    data.completeTask(tasks[0].id, '完成');
+    data.approveTask(tasks[0].id);
+
+    expect(data.listTasks(first.id)[0].status).toBe('approved');
+    expect(data.listTasks(second.id)[0].status).toBe('pending');
+    expect(data.getStarBalance(first.id)).toBe(1);
+    expect(data.getStarBalance(second.id)).toBe(0);
+  });
+
+  it('shows only today daily task occurrences to children and keeps old unfinished tasks in history', () => {
+    const child = data.createChild({ display_name: '沉沉' });
+    const yesterday = '2026-06-24';
+    const today = '2026-06-25';
+    const oldTask = data.createTask({
+      child_id: child.id,
+      title: '刷牙',
+      category: 'daily',
+      task_date: yesterday,
+      reward_stars: 1
+    });
+    const todayTask = data.createTask({
+      child_id: child.id,
+      title: '刷牙',
+      category: 'daily',
+      task_date: today,
+      reward_stars: 1
+    });
+
+    expect(getChildVisibleTasks(data.listTasks(child.id), 'daily', yesterday).map((task) => task.id)).toEqual([
+      oldTask.id
+    ]);
+    expect(getChildVisibleTasks(data.listTasks(child.id), 'daily', today).map((task) => task.id)).toEqual([
+      todayTask.id
+    ]);
+    expect(getChildHistoryTasks(data.listTasks(child.id), today).map((task) => task.id)).toContain(oldTask.id);
+  });
+
+  it('keeps yesterday submitted daily tasks reviewable for parents but hidden from child today list', () => {
+    const child = data.createChild({ display_name: '沉沉' });
+    const yesterdayTask = data.createTask({
+      child_id: child.id,
+      title: '閱讀',
+      category: 'daily',
+      task_date: '2026-06-24',
+      reward_stars: 2
+    });
+    const todayTask = data.createTask({
+      child_id: child.id,
+      title: '閱讀',
+      category: 'daily',
+      task_date: '2026-06-25',
+      reward_stars: 2
+    });
+
+    data.completeTask(yesterdayTask.id, '昨天完成');
+
+    expect(getChildVisibleTasks(data.listTasks(child.id), 'daily', '2026-06-25').map((task) => task.id)).toEqual([
+      todayTask.id
+    ]);
+    expect(getParentOpenTasks(data.listTasks(child.id), '2026-06-25').map((task) => task.id)).toEqual(
+      expect.arrayContaining([yesterdayTask.id, todayTask.id])
+    );
+    expect(getParentHistoryTasks(data.listTasks(child.id), '2026-06-25').map((task) => task.id)).not.toContain(
+      yesterdayTask.id
+    );
+  });
+
+  it('keeps only challenge tasks in the parent history list', () => {
+    const child = data.createChild({ display_name: '沉沉' });
+    const daily = data.createTask({ child_id: child.id, title: '刷牙', category: 'daily', task_date: '2026-06-25', reward_stars: 1 });
+    const habit = data.createTask({ child_id: child.id, title: '背單字', category: 'habit', task_date: '2026-06-25', reward_stars: 1 });
+    const household = data.createTask({ child_id: child.id, title: '收玩具', category: 'household', task_date: '2026-06-25', reward_stars: 1 });
+    const challenge = data.createTask({ child_id: child.id, title: '整理書包', category: 'challenge', task_date: '2026-06-25', reward_stars: 1 });
+
+    data.completeTask(daily.id, '完成');
+    data.completeTask(habit.id, '完成');
+    data.completeTask(household.id, '完成');
+    data.completeTask(challenge.id, '完成挑戰');
+    data.approveTask(daily.id);
+    data.approveTask(habit.id);
+    data.approveTask(household.id);
+    data.approveTask(challenge.id);
+
+    expect(getParentHistoryTasks(data.listTasks(child.id), '2026-06-25').map((task) => task.id)).toEqual([
+      challenge.id
+    ]);
+  });
+
+  it('combines all child task categories into one today list with unfinished tasks first', () => {
+    const child = data.createChild({ display_name: '沉沉' });
+    const daily = data.createTask({ child_id: child.id, title: '刷牙', category: 'daily', task_date: '2026-06-25', reward_stars: 1 });
+    const household = data.createTask({ child_id: child.id, title: '收玩具', category: 'household', task_date: '2026-06-25', reward_stars: 1 });
+    const habit = data.createTask({ child_id: child.id, title: '背單字', category: 'habit', task_date: '2026-06-25', reward_stars: 1 });
+    const challenge = data.createTask({ child_id: child.id, title: '整理書包', category: 'challenge', task_date: '2026-06-25', reward_stars: 1 });
+
+    data.completeTask(household.id, '完成');
+
+    expect(getChildTodayTasks(data.listTasks(child.id), '2026-06-25').map((task) => task.id)).toEqual([
+      daily.id,
+      habit.id,
+      challenge.id,
+      household.id
+    ]);
+  });
+
+  it('creates independent daily occurrences for every child across days', () => {
+    const first = data.createChild({ display_name: '沉沉' });
+    const second = data.createChild({ display_name: '安安' });
+    const children = data.listChildren();
+
+    children.forEach((child) => {
+      data.createTask({
+        child_id: child.id,
+        title: '刷牙',
+        category: 'daily',
+        task_date: '2026-06-24',
+        reward_stars: 1
+      });
+      data.createTask({
+        child_id: child.id,
+        title: '刷牙',
+        category: 'daily',
+        task_date: '2026-06-25',
+        reward_stars: 1
+      });
+    });
+
+    expect(getChildVisibleTasks(data.listTasks(first.id), 'daily', '2026-06-25')).toHaveLength(1);
+    expect(getChildVisibleTasks(data.listTasks(second.id), 'daily', '2026-06-25')).toHaveLength(1);
+    expect(getChildHistoryTasks(data.listTasks(first.id), '2026-06-25')).toHaveLength(1);
+    expect(getChildHistoryTasks(data.listTasks(second.id), '2026-06-25')).toHaveLength(1);
+  });
+
+  it('auto-creates today daily instances without removing yesterday pending review tasks', () => {
+    const child = data.createChild({ display_name: '沉沉' });
+    const currentDate = new Date().toISOString().slice(0, 10);
+    const yesterdayDate = addDaysForTest(currentDate, -1);
+    const yesterdayTask = data.createTask({
+      child_id: child.id,
+      title: '刷牙',
+      category: 'daily',
+      task_date: yesterdayDate,
+      reward_stars: 1
+    });
+
+    data.completeTask(yesterdayTask.id, '昨天完成');
+    const state = data.getState();
+    const childTasks = state.tasks.filter((task) => task.child_id === child.id && task.category === 'daily');
+    const todayTask = childTasks.find((task) => task.task_date === currentDate && task.title === '刷牙');
+
+    expect(todayTask).toMatchObject({ status: 'pending', task_date: currentDate, title: '刷牙' });
+    expect(childTasks.find((task) => task.id === yesterdayTask.id)).toMatchObject({
+      status: 'submitted',
+      task_date: yesterdayDate
+    });
+    expect(getParentOpenTasks(childTasks, currentDate).map((task) => task.id)).toEqual(
+      expect.arrayContaining([yesterdayTask.id, todayTask!.id])
+    );
+  });
+
+  it('updates dream progress and moves funded dreams to completed', () => {
+    const child = data.createChild({ display_name: '樂樂' });
+    const dream = data.createDream({
+      child_id: child.id,
+      title: '彩虹腳踏車',
+      target_amount: 1000
+    });
+
+    data.addDreamDeposit(dream.id, 400, '第一次存款');
+    expect(data.listDreams(child.id)[0]).toMatchObject({
+      current_amount: 400,
+      progress_percent: 40,
+      status: 'active'
+    });
+
+    data.addDreamDeposit(dream.id, 600, '達標');
+    expect(data.listDreams(child.id)[0].status).toBe('funded');
+    expect(data.completeDream(dream.id).status).toBe('completed');
+    expect(data.listDreams(child.id).filter((item) => item.status === 'completed')).toHaveLength(1);
+  });
+
+  it('stores dream cover media ids without persisting image data URLs', () => {
+    const child = data.createChild({ display_name: '樂樂' });
+    const dream = data.createDream({
+      child_id: child.id,
+      title: '彩虹腳踏車',
+      target_amount: 1000,
+      cover_path: 'data:image/png;base64,SHOULD_NOT_BE_STORED',
+      cover_media_id: 'dream-cover-1',
+      cover_mime_type: 'image/webp',
+      cover_file_name: 'dream-cover.webp'
+    });
+
+    expect(dream.cover_path).toBeNull();
+    expect(dream.coverUrl).toBeNull();
+    expect(dream.imageUrl).toBeNull();
+    expect(dream.cover_media_id).toBe('dream-cover-1');
+    expect(data.exportData()).not.toContain('data:image');
+    expect(data.exportData()).not.toContain('SHOULD_NOT_BE_STORED');
+  });
+
+  it('deletes dreams with their local fund records', () => {
+    const child = data.createChild({ display_name: '樂樂' });
+    const dream = data.createDream({
+      child_id: child.id,
+      title: '可刪除夢想',
+      target_amount: 1000,
+      cover_media_id: 'dream-cover-delete'
+    });
+    data.addDreamDeposit(dream.id, 100, '測試存款');
+
+    expect(data.deleteDream(dream.id).cover_media_id).toBe('dream-cover-delete');
+    expect(data.listDreams(child.id)).toHaveLength(0);
+    expect(data.getState().dream_funds.some((fund) => fund.dream_id === dream.id)).toBe(false);
+  });
+
+  it('stores photo, audio and video shares with history visible to parents', () => {
+    const child = data.createChild({ display_name: '樂樂' });
+    const photo = data.createShare({
+      child_id: child.id,
+      caption: '我的作品',
+      media: [{ media_type: 'photo', mime_type: 'image/jpeg', file_name: 'work.jpg' }]
+    });
+    const audio = data.createShare({
+      child_id: child.id,
+      caption: '今天的故事',
+      media: [{ media_type: 'audio', mime_type: 'audio/mpeg', file_name: 'story.mp3' }]
+    });
+    const video = data.createShare({
+      child_id: child.id,
+      caption: '跳舞影片',
+      media: [{ media_type: 'video', mime_type: 'video/mp4', file_name: 'dance.mp4' }]
+    });
+
+    expect(data.listShares(child.id)).toHaveLength(3);
+    expect(photo.media[0].storage_path).toContain('/local-family/');
+    expect(photo.status).toBe('approved');
+    expect(audio.share_type).toBe('audio');
+    expect(video.share_type).toBe('video');
+    expect(data.deleteShare(photo.id).deleted_at).not.toBeNull();
+    expect(data.listShares(child.id).map((share) => share.id)).not.toContain(photo.id);
+  });
+
+  it('does not persist share media data URLs in local data', () => {
+    const child = data.createChild({ display_name: 'Media Kid' });
+    const share = data.createShare({
+      child_id: child.id,
+      title: 'Photo without base64 persistence',
+      media: [
+        {
+          media_type: 'photo',
+          mime_type: 'image/webp',
+          file_name: 'photo.webp',
+          file_size_bytes: 1234,
+          data_url: 'data:image/webp;base64,SHOULD_NOT_BE_STORED'
+        }
+      ]
+    });
+
+    expect(share.media[0].local_data_url).toBeNull();
+    expect(share.mediaUrl).toBeNull();
+    expect(data.exportData()).not.toContain('data:image');
+    expect(data.exportData()).not.toContain('SHOULD_NOT_BE_STORED');
+  });
+
+  it('delivers mailbox messages and persists read state', () => {
+    const child = data.createChild({ display_name: '樂樂' });
+    const message = data.createMailboxMessage({
+      child_id: child.id,
+      title: '你今天很棒',
+      message: '謝謝你主動整理玩具。'
+    });
+    data.createMailboxMessage({
+      child_id: child.id,
+      title: '鼓勵卡',
+      message: '我為你驕傲。',
+      card_type: 'card'
+    });
+    data.createMailboxMessage({
+      child_id: child.id,
+      title: '語音留言',
+      card_type: 'audio',
+      media: {
+        mime_type: 'audio/mpeg',
+        file_name: 'voice.mp3',
+        data_url: 'data:audio/mpeg;base64,AAAA'
+      }
+    });
+    data.createMailboxMessage({
+      child_id: child.id,
+      title: '圖片留言',
+      message: '這張照片送給你。',
+      card_type: 'image',
+      media: {
+        mime_type: 'image/jpeg',
+        file_name: 'card.jpg',
+        data_url: 'data:image/jpeg;base64,AAAA'
+      }
+    });
+
+    expect(data.listMailboxMessages(child.id)).toHaveLength(4);
+    expect(data.listMailboxMessages(child.id).map((item) => item.card_type)).toEqual(
+      expect.arrayContaining(['text', 'card', 'audio', 'image'])
+    );
+    expect(data.markMessageRead(message.id)).toMatchObject({
+      status: 'opened'
+    });
+    expect(data.listMailboxMessages(child.id).find((item) => item.id === message.id)?.opened_at).not.toBeNull();
+  });
+
+  it('creates, awards and deletes badges while preserving child history', () => {
+    const child = data.createChild({ display_name: '樂樂' });
+    const badge = data.createBadge({
+      name: '閱讀小達人',
+      icon: '📚',
+      description: '完成閱讀挑戰',
+      reward_stars: 8
+    });
+
+    const awarded = data.awardBadge({
+      child_id: child.id,
+      badge_id: badge.id,
+      note: '連續閱讀 7 天'
+    });
+
+    expect(data.getBadges()).toHaveLength(1);
+    expect(data.getChildBadges(child.id)).toMatchObject([
+      {
+        id: awarded.id,
+        child_id: child.id,
+        badge_id: badge.id,
+        note: '連續閱讀 7 天'
+      }
+    ]);
+    expect(data.getStarBalance(child.id)).toBe(8);
+
+    data.awardBadge({ child_id: child.id, badge_id: badge.id });
+    expect(data.getChildBadges(child.id)).toHaveLength(1);
+    expect(data.getStarBalance(child.id)).toBe(8);
+
+    expect(data.deleteBadge(badge.id).deleted_at).not.toBeNull();
+    expect(data.getBadges()).toHaveLength(0);
+    expect(data.getBadges(true)).toHaveLength(1);
+    expect(data.getChildBadges(child.id)).toHaveLength(1);
+  });
+
+  it('normalizes badge icons on create and when reading existing local storage data', () => {
+    const defaulted = data.createBadge({
+      name: '小幫手',
+      icon: '',
+      description: '',
+      reward_stars: 5
+    });
+    const tooLong = data.createBadge({
+      name: '錯誤圖示',
+      icon: '小幫手',
+      reward_stars: 1
+    });
+
+    expect(defaulted.icon).toBe('🏅');
+    expect(tooLong.icon).toBe('🏅');
+
+    const stateWithBadIcon = data.getState();
+    stateWithBadIcon.badges[0].icon = '小幫手';
+    storage.setItem('test-db', JSON.stringify(stateWithBadIcon));
+
+    expect(data.getBadges(true).find((badge) => badge.id === defaulted.id)?.icon).toBe('🏅');
+    expect(JSON.parse(storage.getItem('test-db') ?? '{}').badges[0].icon).toBe('🏅');
+  });
+
+  it('manages special days with child filters and upcoming sorting', () => {
+    const child = data.createChild({ display_name: '樂樂' });
+    const birthday = data.createSpecialDay({
+      child_id: child.id,
+      title: '樂樂生日',
+      date: '2099-05-01',
+      type: 'birthday',
+      description: '準備生日卡',
+      source: 'manual',
+      createdBy: 'parent'
+    });
+    const activity = data.createSpecialDay({
+      child_id: null,
+      title: '家庭露營',
+      date: '2099-04-20',
+      type: 'family_event',
+      description: '全家一起出門',
+      source: 'manual',
+      createdBy: 'parent'
+    });
+
+    expect(data.getSpecialDays(child.id)).toHaveLength(2);
+    expect(data.getUpcomingSpecialDays(child.id).map((day) => day.id)).toEqual([
+      activity.id,
+      birthday.id
+    ]);
+
+    expect(data.updateSpecialDay(birthday.id, {
+      title: '六歲生日',
+      date: '2099-05-02',
+      type: 'birthday'
+    })).toMatchObject({
+      title: '六歲生日',
+      date: '2099-05-02'
+    });
+    expect(data.getSpecialDays(child.id).find((day) => day.child_id === child.id)).toMatchObject({
+      childId: child.id,
+      source: 'manual',
+      createdBy: 'parent'
+    });
+
+    expect(data.deleteSpecialDay(activity.id).deleted_at).not.toBeNull();
+    expect(data.getSpecialDays(child.id)).toHaveLength(1);
+    expect(data.getSpecialDays(child.id, true)).toHaveLength(2);
+  });
+
+  it('derives birthday special days from active child birth dates', () => {
+    const child = data.createChild({ display_name: '沉沉', birth_date: '2020-06-25' });
+
+    expect(getBirthdaySpecialDays(data.listChildren(), '2026-06-25')).toEqual([
+      {
+        childId: child.id,
+        title: '沉沉生日',
+        type: 'birthday',
+        date: '2026-06-25',
+        recurring: 'yearly',
+        source: 'child_birthday',
+        daysLeft: 0
+      }
+    ]);
+
+    expect(getBirthdaySpecialDays(data.listChildren(), '2026-06-26')[0]).toMatchObject({
+      childId: child.id,
+      date: '2027-06-25',
+      daysLeft: 364
+    });
+
+    data.updateChild(child.id, { birth_date: '2020-07-01' });
+    expect(getBirthdaySpecialDays(data.listChildren(), '2026-06-25')[0]).toMatchObject({
+      title: '沉沉生日',
+      date: '2026-07-01',
+      daysLeft: 6
+    });
+
+    data.deleteChild(child.id);
+    expect(getBirthdaySpecialDays(data.listChildren(), '2026-06-25')).toEqual([]);
+  });
+
+  it('updates settings and supports export, import and reset', () => {
+    const child = data.createChild({ display_name: '樂樂' });
+    data.updateSettings({
+      family_name: '星星家庭',
+      default_daily_screen_minutes: 60,
+      allow_photo_sharing: false
+    });
+
+    expect(data.getSettings()).toMatchObject({
+      family_name: '星星家庭',
+      default_daily_screen_minutes: 60,
+      allow_photo_sharing: false
+    });
+
+    const exported = data.exportData();
+    data.resetAllData();
+    expect(data.listChildren()).toHaveLength(0);
+    expect(data.getSettings().family_name).toBe('小小夢想家 Family');
+
+    data.importData(exported);
+    expect(data.listChildren()[0].id).toBe(child.id);
+    expect(data.getSettings()).toMatchObject({
+      family_name: '星星家庭',
+      default_daily_screen_minutes: 60,
+      allow_photo_sharing: false
+    });
+  });
+
+  it('keeps screen-time balance and immutable change history', () => {
+    const child = data.createChild({ display_name: '樂樂' });
+    data.updateScreenTime({ child_id: child.id, minutes_delta: 30, reason: '家長增加' });
+    data.updateScreenTime({ child_id: child.id, minutes_delta: -10, reason: '使用平板' });
+
+    expect(data.getScreenTimeBalance(child.id)).toBe(20);
+    expect(data.listScreenTimeLogs(child.id)).toHaveLength(2);
+    expect(() =>
+      data.updateScreenTime({ child_id: child.id, minutes_delta: -30 })
+    ).toThrowError(LocalDataError);
+    expect(data.getScreenTimeBalance(child.id)).toBe(20);
+  });
+
+  it('treats screen time as a ledger without weekend defaults or weekly planned minutes', () => {
+    const child = data.createChild({ display_name: 'Screen Time Kid' });
+    const weekStart = '2026-06-22';
+    const saturday = '2026-06-27';
+
+    expect(data.getScreenTimeBalance(child.id)).toBe(0);
+    expect(data.getWeeklyScreenTime(child.id, weekStart)).toHaveLength(7);
+    expect(data.getWeeklyScreenTime(child.id, weekStart).every((day) => day.plannedMinutes === 0)).toBe(true);
+    expect(data.getState().screen_time_schedules).toHaveLength(0);
+
+    data.updatePlannedScreenTime(child.id, saturday, 120);
+    expect(data.getWeeklyScreenTime(child.id, weekStart)[5].plannedMinutes).toBe(0);
+    expect(data.getScreenTimeBalance(child.id)).toBe(0);
+
+    const task = data.createTask({
+      child_id: child.id,
+      title: 'Earn stars',
+      reward_stars: 22,
+      reward_screen_minutes: 180
+    });
+    data.completeTask(task.id);
+    data.approveTask(task.id);
+
+    expect(data.getStarBalance(child.id)).toBe(22);
+    expect(data.getScreenTimeBalance(child.id)).toBe(0);
+
+    data.redeemStarsForScreenTime(child.id, saturday, 22, '22 stars redeemed');
+    expect(data.getStarBalance(child.id)).toBe(0);
+    expect(data.getScreenTimeBalance(child.id)).toBe(22);
+
+    data.addScreenTime(child.id, saturday, 30, 'manual add');
+    expect(data.getScreenTimeBalance(child.id)).toBe(52);
+
+    data.deductScreenTimePenalty(child.id, saturday, 20, 'manual deduct');
+    expect(data.getScreenTimeBalance(child.id)).toBe(32);
+    expect(data.listScreenTimeLogs(child.id)).toHaveLength(3);
+  });
+  it('uses one screen-time minute per redeemed star', () => {
+    const child = data.createChild({ display_name: 'Ratio Kid' });
+    data.updateSettings({ screen_time_star_minutes_per_star: 8 });
+
+    const task = data.createTask({
+      child_id: child.id,
+      title: 'Ratio stars',
+      reward_stars: 1
+    });
+    data.completeTask(task.id);
+    data.approveTask(task.id);
+
+    const log = data.redeemStarsForScreenTime(child.id, '2026-06-27', 1, 'ratio test');
+    expect(log.minutes).toBe(1);
+    expect(data.getScreenTimeBalance(child.id)).toBe(1);
+  });
+
+  it('rejects screen-time redemption when stars are insufficient', () => {
+    const child = data.createChild({ display_name: 'No Stars' });
+    expect(() =>
+      data.redeemStarsForScreenTime(child.id, '2026-06-27', 1, 'not enough')
+    ).toThrowError(LocalDataError);
+  });
+
+  it('persists screen-time ledger logs after repository refresh', () => {
+    const child = data.createChild({ display_name: 'Persistent Kid' });
+    data.updatePlannedScreenTime(child.id, '2026-06-27', 120);
+    data.addScreenTime(child.id, '2026-06-27', 15, 'persisted');
+
+    const refreshed = new LocalDataService(new MockDatabase(storage, 'test-db'));
+    expect(refreshed.getWeeklyScreenTime(child.id, '2026-06-22')[5].plannedMinutes).toBe(0);
+    expect(refreshed.getScreenTimeBalance(child.id)).toBe(15);
+  });
+  it('carries ledger balance forward without creating a fresh weekly allowance', () => {
+    const child = data.createChild({ display_name: 'Next Week Kid' });
+    const task = data.createTask({
+      child_id: child.id,
+      title: 'Star reward',
+      reward_stars: 1
+    });
+    data.completeTask(task.id);
+    data.approveTask(task.id);
+    data.updatePlannedScreenTime(child.id, '2026-06-27', 120);
+    data.redeemStarsForScreenTime(child.id, '2026-06-27', 1, 'previous week');
+    data.addScreenTime(child.id, '2026-06-27', 15, 'previous week');
+    data.deductScreenTimePenalty(child.id, '2026-06-27', 10, 'previous week');
+
+    const nextWeek = data.getWeeklyScreenTime(child.id, '2026-06-29');
+    expect(nextWeek[0].plannedMinutes).toBe(0);
+    expect(nextWeek[5].plannedMinutes).toBe(0);
+    expect(nextWeek[6].plannedMinutes).toBe(0);
+    expect(nextWeek[5].redeemedMinutes).toBe(0);
+    expect(nextWeek[5].penaltyMinutes).toBe(0);
+    expect(nextWeek[5].manualAddedMinutes).toBe(0);
+    expect(nextWeek[5].remainingMinutes).toBe(6);
+  });
+  it('manages growth records and returns the latest record by child', () => {
+    const first = data.createChild({ display_name: '沉沉' });
+    const second = data.createChild({ display_name: '安安' });
+    const older = data.createGrowthRecord({
+      child_id: first.id,
+      date: '2026-06-20',
+      height_cm: 118,
+      weight_kg: 21.8,
+      reading_count: 40,
+      note: '第一筆'
+    });
+    const latest = data.createGrowthRecord({
+      child_id: first.id,
+      date: '2026-06-25',
+      height_cm: 120,
+      weight_kg: 22.5,
+      reading_count: 45,
+      note: '最新紀錄'
+    });
+    data.createGrowthRecord({
+      child_id: second.id,
+      date: '2026-06-25',
+      height_cm: 110,
+      weight_kg: 18.5,
+      reading_count: 12
+    });
+
+    expect(data.getGrowthRecordsByChild(first.id).map((record) => record.id)).toEqual([
+      latest.id,
+      older.id
+    ]);
+    expect(data.getLatestGrowthRecordByChild(first.id)).toMatchObject({
+      id: latest.id,
+      height_cm: 120,
+      weight_kg: 22.5,
+      reading_count: 45
+    });
+
+    data.updateGrowthRecord(latest.id, { height_cm: 121, note: '已更新' });
+    expect(data.getLatestGrowthRecordByChild(first.id)).toMatchObject({
+      height_cm: 121,
+      note: '已更新'
+    });
+
+    data.deleteGrowthRecord(latest.id);
+    expect(data.getLatestGrowthRecordByChild(first.id)?.id).toBe(older.id);
+  });
+
+  it('keeps growth records through export and import', () => {
+    const child = data.createChild({ display_name: '沉沉' });
+    const record = data.createGrowthRecord({
+      child_id: child.id,
+      date: '2026-06-25',
+      height_cm: 120,
+      weight_kg: 22.5,
+      reading_count: 45
+    });
+
+    const exported = data.exportData();
+    data.resetAllData();
+    expect(data.getGrowthRecords()).toHaveLength(0);
+
+    data.importData(exported);
+    expect(data.getLatestGrowthRecordByChild(child.id)?.id).toBe(record.id);
+  });
+
+  it('manages piggy income, coin deposits and silent over-limit rejection', () => {
+    const child = data.createChild({ display_name: '樂樂' });
+    data.addPiggyIncome({ child_id: child.id, source: '阿嬤給的', amount: 150 });
+
+    expect(data.getPiggyBankSummary(child.id)).toMatchObject({
+      currentSavings: 0,
+      availableToDepositToday: 150,
+      depositedToday: 0
+    });
+
+    data.depositPiggyCoin(child.id, 100);
+    data.depositPiggyCoin(child.id, 50);
+
+    expect(data.getPiggyBankSummary(child.id)).toMatchObject({
+      currentSavings: 150,
+      availableToDepositToday: 0,
+      depositedToday: 150
+    });
+    expect(() => data.depositPiggyCoin(child.id, 1)).toThrowError(LocalDataError);
+  });
+
+  it('allows piggy products without names when price and main image are present', () => {
+    const child = data.createChild({ display_name: '空白商品孩子' });
+    const product = data.createPiggyProduct({
+      child_id: child.id,
+      price: 120,
+      main_media_id: 'blank-name-media',
+      shelf_status: 'shelf'
+    });
+
+    expect(product.name).toBe('');
+
+    const updated = data.updatePiggyProduct(product.id, { name: '   ' });
+    expect(updated.name).toBe('');
+  });
+
+  it('keeps piggy products and purchases isolated per child', () => {
+    const first = data.createChild({ display_name: '沉沉' });
+    const second = data.createChild({ display_name: '樂樂' });
+    data.addPiggyIncome({ child_id: first.id, source: '零用錢', amount: 300 });
+    data.addPiggyIncome({ child_id: second.id, source: '零用錢', amount: 300 });
+    data.depositPiggyCoin(first.id, 300);
+    data.depositPiggyCoin(second.id, 300);
+
+    const firstProduct = data.createPiggyProduct({
+      child_id: first.id,
+      name: '沉沉的積木',
+      price: 100,
+      main_media_id: 'first-media',
+      shelf_status: 'shelf'
+    });
+    const secondProduct = data.createPiggyProduct({
+      child_id: second.id,
+      name: '樂樂的畫筆',
+      price: 100,
+      main_media_id: 'second-media',
+      shelf_status: 'shelf'
+    });
+
+    expect(data.listPiggyProducts(first.id).map((product) => product.id)).toEqual([firstProduct.id]);
+    expect(data.listPiggyProducts(second.id).map((product) => product.id)).toEqual([secondProduct.id]);
+
+    data.requestPiggyPurchase(first.id, firstProduct.id);
+
+    expect(data.listPiggyPurchases(first.id)).toHaveLength(1);
+    expect(data.listPiggyPurchases(second.id)).toHaveLength(0);
+    expect(() => data.requestPiggyPurchase(second.id, firstProduct.id)).toThrowError(LocalDataError);
+  });
+
+  it('keeps six piggy shelf slots, saves child order and backfills after purchase', () => {
+    const child = data.createChild({ display_name: '安安' });
+    data.addPiggyIncome({ child_id: child.id, source: '生日紅包', amount: 1000 });
+    data.depositPiggyCoin(child.id, 1000);
+
+    const products = Array.from({ length: 7 }, (_, index) =>
+      data.createPiggyProduct({
+        child_id: child.id,
+        name: `商品 ${index + 1}`,
+        price: 100,
+        main_media_id: `media-${index + 1}`,
+        shelf_status: index < 6 ? 'shelf' : 'backlog'
+      })
+    );
+    data.savePiggyShelfOrder(child.id, [
+      products[1].id,
+      products[0].id,
+      products[2].id,
+      products[3].id,
+      products[4].id,
+      products[5].id
+    ]);
+
+    expect(data.getPiggyShelfProducts(child.id).map((product) => product.id)).toEqual([
+      products[1].id,
+      products[0].id,
+      products[2].id,
+      products[3].id,
+      products[4].id,
+      products[5].id
+    ]);
+
+    const purchase = data.requestPiggyPurchase(child.id, products[1].id);
+    expect(purchase.product_snapshot).toEqual({
+      name: '商品 2',
+      price: 100,
+      main_media_id: 'media-2'
+    });
+    expect(data.getPiggyBankSummary(child.id).currentSavings).toBe(900);
+    expect(data.getPiggyShelfProducts(child.id).map((product) => product.id)).toEqual([
+      products[1].id,
+      products[0].id,
+      products[2].id,
+      products[3].id,
+      products[4].id,
+      products[5].id
+    ]);
+
+    data.completePiggyPurchase(purchase.id);
+    expect(data.listPiggyPurchases(child.id).find((item) => item.id === purchase.id)?.status).toBe('arrived');
+    expect(data.getPiggyShelfProducts(child.id).map((product) => product.id)).toEqual([
+      products[1].id,
+      products[0].id,
+      products[2].id,
+      products[3].id,
+      products[4].id,
+      products[5].id
+    ]);
+
+    data.confirmPiggyPurchaseArrived(purchase.id);
+    expect(data.getPiggyShelfProducts(child.id).map((product) => product.id)).toEqual([
+      products[0].id,
+      products[2].id,
+      products[3].id,
+      products[4].id,
+      products[5].id,
+      products[6].id
+    ]);
+  });
+
+  it('refunds cancelled piggy purchases and preserves completed purchase snapshots', () => {
+    const child = data.createChild({ display_name: '米米' });
+    data.addPiggyIncome({ child_id: child.id, source: '考試獎勵', amount: 500 });
+    data.depositPiggyCoin(child.id, 500);
+    const product = data.createPiggyProduct({
+      child_id: child.id,
+      name: '彩色鉛筆',
+      price: 200,
+      main_media_id: 'pencil-media',
+      shelf_status: 'shelf'
+    });
+
+    const cancelled = data.requestPiggyPurchase(child.id, product.id);
+    data.cancelPiggyPurchase(cancelled.id);
+    expect(data.getPiggyBankSummary(child.id).currentSavings).toBe(500);
+
+    data.setPiggyProductShelfStatus(product.id, 'shelf');
+    const completed = data.requestPiggyPurchase(child.id, product.id);
+    data.updatePiggyProduct(product.id, { name: '修改後名稱', price: 999 });
+    data.completePiggyPurchase(completed.id);
+    data.confirmPiggyPurchaseArrived(completed.id);
+
+    expect(data.listPiggyPurchases(child.id).find((purchase) => purchase.id === completed.id)).toMatchObject({
+      status: 'completed',
+      product_snapshot: {
+        name: '彩色鉛筆',
+        price: 200,
+        main_media_id: 'pencil-media'
+      }
+    });
+  });
+});
+
