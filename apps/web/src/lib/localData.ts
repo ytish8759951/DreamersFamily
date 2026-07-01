@@ -6,6 +6,7 @@
   type MockDatabase
 } from './mockDatabase';
 import { normalizeBadgeIcon } from './badgeIcons';
+import { createChildDeviceToken, createChildDeviceTokenForChild, parseChildDeviceToken } from './childDeviceToken';
 import type {
   DreamWithBalance,
   LocalBadge,
@@ -58,23 +59,6 @@ function id(): UUID {
     return crypto.randomUUID();
   }
   return `local-${Date.now()}-${Math.random().toString(16).slice(2)}`;
-}
-
-function childToken(): string {
-  if (typeof crypto !== 'undefined' && typeof crypto.getRandomValues === 'function') {
-    const values = new Uint8Array(16);
-    crypto.getRandomValues(values);
-    return Array.from(values, (value) => value.toString(16).padStart(2, '0')).join('');
-  }
-  return `${Date.now().toString(36)}${Math.random().toString(36).slice(2)}${Math.random().toString(36).slice(2)}`.slice(0, 32);
-}
-
-function uniqueChildToken(state: LocalDatabaseState) {
-  let token = childToken();
-  while (state.children.some((child) => child.child_token === token)) {
-    token = childToken();
-  }
-  return token;
 }
 
 function currentDeviceLabel() {
@@ -624,10 +608,12 @@ export class LocalDataService implements LocalDataRepository {
   createChild(input: CreateChildInput) {
     return this.db.transaction((state) => {
       const timestamp = now();
+      const childId = id();
+      const displayName = requiredText(input.display_name, 'display_name');
       const child: LocalChild = {
-        id: id(),
+        id: childId,
         family_id: state.family_id,
-        display_name: requiredText(input.display_name, 'display_name'),
+        display_name: displayName,
         legal_name: input.legal_name?.trim() || null,
         birth_date: input.birth_date ?? null,
         birthday: input.birth_date ?? null,
@@ -638,7 +624,13 @@ export class LocalDataService implements LocalDataRepository {
         timezone: input.timezone || 'Asia/Taipei',
         status: 'active',
         notes: input.notes?.trim() || null,
-        child_token: uniqueChildToken(state),
+        child_token: createChildDeviceToken({
+          childId,
+          displayName,
+          birthDate: input.birth_date ?? null,
+          themeColor: input.theme_color ?? null,
+          createdAt: timestamp
+        }),
         child_token_updated_at: timestamp,
         bound_device_id: null,
         bound_at: null,
@@ -717,8 +709,39 @@ export class LocalDataService implements LocalDataRepository {
 
   bindChildDeviceByToken(token: string) {
     return this.db.transaction((state) => {
-      const child = state.children.find((item) => item.status === 'active' && item.child_token === token.trim());
-      if (!child) throw new LocalDataError('Child token not found', 'CHILD_TOKEN_NOT_FOUND');
+      const normalized = token.trim();
+      let child = state.children.find((item) => item.status === 'active' && item.child_token === normalized);
+      if (!child) {
+        const payload = parseChildDeviceToken(normalized);
+        if (!payload) throw new LocalDataError('Child token not found', 'CHILD_TOKEN_NOT_FOUND');
+        const timestamp = now();
+        child = {
+          id: payload.childId,
+          family_id: state.family_id,
+          display_name: payload.displayName,
+          legal_name: null,
+          birth_date: payload.birthDate,
+          birthday: payload.birthDate,
+          gender: null,
+          avatar_path: null,
+          avatar_media_id: null,
+          theme_color: payload.themeColor,
+          timezone: 'Asia/Taipei',
+          status: 'active',
+          notes: null,
+          child_token: normalized,
+          child_token_updated_at: timestamp,
+          bound_device_id: null,
+          bound_at: null,
+          last_login_at: null,
+          last_login_device: null,
+          created_by: state.current_user_id,
+          created_at: payload.createdAt,
+          updated_at: timestamp,
+          archived_at: null
+        };
+        state.children.push(child);
+      }
       if (child.bound_device_id && child.bound_device_id !== state.device_id) {
         throw new LocalDataError('Child token is already bound to another device', 'CHILD_TOKEN_ALREADY_BOUND');
       }
@@ -738,7 +761,7 @@ export class LocalDataService implements LocalDataRepository {
     return this.db.transaction((state) => {
       const child = requireChild(state, childId);
       const timestamp = now();
-      child.child_token = uniqueChildToken(state);
+      child.child_token = createChildDeviceTokenForChild(child);
       child.child_token_updated_at = timestamp;
       child.bound_device_id = null;
       child.bound_at = null;

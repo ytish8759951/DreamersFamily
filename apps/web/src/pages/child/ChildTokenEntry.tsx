@@ -1,15 +1,29 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { Navigate, useNavigate, useParams } from 'react-router-dom';
 import { childrenRepository } from '../../lib/childrenRepository';
 import { useLocalDataState } from '../../lib/useLocalData';
+
+const childRoutes = new Set([
+  'home',
+  'tasks',
+  'share',
+  'dreams',
+  'mailbox',
+  'honor-wall',
+  'special-days',
+  'screen-time',
+  'growth'
+]);
 
 export function ChildTokenEntry() {
   const { token = '' } = useParams();
   const navigate = useNavigate();
   const state = useLocalDataState();
   const [error, setError] = useState('');
+  const reservedChildRoute = useMemo(() => childRoutes.has(token), [token]);
 
   useEffect(() => {
+    if (reservedChildRoute) return;
     if (!token) {
       setError('孩子專屬網址不正確。');
       return;
@@ -26,9 +40,9 @@ export function ChildTokenEntry() {
           : '孩子專屬網址已失效，請家長重新產生網址。'
       );
     }
-  }, [navigate, token]);
+  }, [navigate, reservedChildRoute, token]);
 
-  if (state.device_child_id) return <Navigate to="/child/home" replace />;
+  if (reservedChildRoute || state.device_child_id) return <Navigate to="/child/home" replace />;
 
   return (
     <div className="child-device-entry">

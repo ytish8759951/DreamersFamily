@@ -50,10 +50,6 @@ export const router = createBrowserRouter([
     ]
   },
   {
-    path: '/child/:token',
-    element: <ChildTokenEntry />
-  },
-  {
     path: '/child',
     element: <ChildLayout />,
     children: [
@@ -68,5 +64,9 @@ export const router = createBrowserRouter([
       { path: 'screen-time', element: <ChildScreenTime /> },
       { path: 'growth', element: <GrowthReview /> }
     ]
+  },
+  {
+    path: '/child/:token',
+    element: <ChildTokenEntry />
   }
 ]);

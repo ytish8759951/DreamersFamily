@@ -76,6 +76,22 @@ describe('local MVP data flows', () => {
     expect(data.getState().active_child_id).toBe(first.id);
   });
 
+  it('creates a portable child token and binds a fresh child device by token', () => {
+    const child = data.createChild({ display_name: '安安', birth_date: '2021-03-04', theme_color: 'green' });
+
+    expect(child.child_token).toMatch(/^df1_[a-f0-9]{32}_/);
+    expect(data.getChildByToken(child.child_token)?.id).toBe(child.id);
+
+    const childDeviceData = new LocalDataService(new MockDatabase(new TestStorage(), 'child-device-db'));
+    childDeviceData.resetLocalData();
+    const boundChild = childDeviceData.bindChildDeviceByToken(child.child_token);
+
+    expect(boundChild.id).toBe(child.id);
+    expect(boundChild.display_name).toBe('安安');
+    expect(childDeviceData.getState().active_child_id).toBe(child.id);
+    expect(childDeviceData.getState().device_child_id).toBe(child.id);
+  });
+
   it('runs task completion, approval, stars and screen-time rewards once', () => {
     const child = data.createChild({ display_name: '樂樂' });
     const task = data.createTask({

@@ -1,5 +1,6 @@
 import type { LocalDatabaseState } from './localTypes';
 import { normalizeBadgeIcon } from './badgeIcons';
+import { createChildDeviceTokenForChild } from './childDeviceToken';
 import { getLocalStorage, readJson, writeJson, type KeyValueStorage } from './storage';
 
 export const LOCAL_DATABASE_KEY = 'little-dreamers-family:mvp-db:v1';
@@ -22,15 +23,6 @@ function createId() {
     return crypto.randomUUID();
   }
   return `local-${Date.now()}-${Math.random().toString(16).slice(2)}`;
-}
-
-function createChildToken() {
-  if (typeof crypto !== 'undefined' && typeof crypto.getRandomValues === 'function') {
-    const values = new Uint8Array(16);
-    crypto.getRandomValues(values);
-    return Array.from(values, (value) => value.toString(16).padStart(2, '0')).join('');
-  }
-  return `${Date.now().toString(36)}${Math.random().toString(36).slice(2)}${Math.random().toString(36).slice(2)}`.slice(0, 32);
 }
 
 function getBrowserDeviceId() {
@@ -111,16 +103,21 @@ function normalizeState(state: LocalDatabaseState): LocalDatabaseState {
     device_child_id: state.device_child_id ?? null,
     current_user_id: state.current_user_id ?? state.parent_id ?? LOCAL_PARENT_USER_ID,
     active_child_id: state.device_child_id ?? state.active_child_id ?? null,
-    children: (state.children ?? []).map((child) => ({
-      ...child,
-      avatar_media_id: child.avatar_media_id ?? null,
-      child_token: child.child_token ?? createChildToken(),
-      child_token_updated_at: child.child_token_updated_at ?? child.updated_at ?? timestamp,
-      bound_device_id: child.bound_device_id ?? null,
-      bound_at: child.bound_at ?? null,
-      last_login_at: child.last_login_at ?? null,
-      last_login_device: child.last_login_device ?? null
-    })),
+    children: (state.children ?? []).map((child) => {
+      const normalizedChild = {
+        ...child,
+        avatar_media_id: child.avatar_media_id ?? null,
+        bound_device_id: child.bound_device_id ?? null,
+        bound_at: child.bound_at ?? null,
+        last_login_at: child.last_login_at ?? null,
+        last_login_device: child.last_login_device ?? null
+      };
+      return {
+        ...normalizedChild,
+        child_token: child.child_token ?? createChildDeviceTokenForChild(normalizedChild),
+        child_token_updated_at: child.child_token_updated_at ?? child.updated_at ?? timestamp
+      };
+    }),
     tasks: (state.tasks ?? []).map((task) => ({
       ...task,
       task_image_media_id: task.task_image_media_id ?? null,
