@@ -37,6 +37,12 @@ export interface LocalChild {
   timezone: string;
   status: ChildStatus;
   notes: string | null;
+  child_token: string;
+  child_token_updated_at: ISODateTime;
+  bound_device_id: UUID | null;
+  bound_at: ISODateTime | null;
+  last_login_at: ISODateTime | null;
+  last_login_device: string | null;
   created_by: UUID;
   created_at: ISODateTime;
   updated_at: ISODateTime;

@@ -7,6 +7,7 @@ export const LOCAL_DATABASE_EVENT = 'little-dreamers-family:local-db-change';
 export const LOCAL_FAMILY_ID = 'local-family';
 export const LOCAL_PARENT_USER_ID = 'local-parent';
 export const LOCAL_DEVICE_ID = 'local-device';
+const LOCAL_DEVICE_ID_KEY = 'little-dreamers-family:device-id:v1';
 
 type Listener = (state: LocalDatabaseState) => void;
 
@@ -14,6 +15,35 @@ const listeners = new Set<Listener>();
 
 function now() {
   return new Date().toISOString();
+}
+
+function createId() {
+  if (typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function') {
+    return crypto.randomUUID();
+  }
+  return `local-${Date.now()}-${Math.random().toString(16).slice(2)}`;
+}
+
+function createChildToken() {
+  if (typeof crypto !== 'undefined' && typeof crypto.getRandomValues === 'function') {
+    const values = new Uint8Array(16);
+    crypto.getRandomValues(values);
+    return Array.from(values, (value) => value.toString(16).padStart(2, '0')).join('');
+  }
+  return `${Date.now().toString(36)}${Math.random().toString(36).slice(2)}${Math.random().toString(36).slice(2)}`.slice(0, 32);
+}
+
+function getBrowserDeviceId() {
+  if (typeof window === 'undefined') return LOCAL_DEVICE_ID;
+  try {
+    const stored = window.localStorage.getItem(LOCAL_DEVICE_ID_KEY);
+    if (stored) return stored;
+    const next = createId();
+    window.localStorage.setItem(LOCAL_DEVICE_ID_KEY, next);
+    return next;
+  } catch {
+    return LOCAL_DEVICE_ID;
+  }
 }
 
 function clone<T>(value: T): T {
@@ -27,7 +57,7 @@ function createEmptyState(): LocalDatabaseState {
     schema_version: 1,
     family_id: LOCAL_FAMILY_ID,
     parent_id: LOCAL_PARENT_USER_ID,
-    device_id: LOCAL_DEVICE_ID,
+    device_id: getBrowserDeviceId(),
     device_child_id: null,
     current_user_id: LOCAL_PARENT_USER_ID,
     active_child_id: null,
@@ -58,6 +88,7 @@ function createEmptyState(): LocalDatabaseState {
 
 function normalizeState(state: LocalDatabaseState): LocalDatabaseState {
   const settings = state.family_settings ?? createDefaultSettings(state.updated_at ?? now());
+  const timestamp = state.updated_at ?? now();
   const badges = (state.badges ?? []).map((badge) => ({
     ...badge,
     icon: normalizeBadgeIcon(badge.icon)
@@ -76,13 +107,19 @@ function normalizeState(state: LocalDatabaseState): LocalDatabaseState {
     ...state,
     family_id: state.family_id ?? LOCAL_FAMILY_ID,
     parent_id: state.parent_id ?? state.current_user_id ?? LOCAL_PARENT_USER_ID,
-    device_id: state.device_id ?? LOCAL_DEVICE_ID,
+    device_id: state.device_id && state.device_id !== LOCAL_DEVICE_ID ? state.device_id : getBrowserDeviceId(),
     device_child_id: state.device_child_id ?? null,
     current_user_id: state.current_user_id ?? state.parent_id ?? LOCAL_PARENT_USER_ID,
-    active_child_id: state.active_child_id ?? state.device_child_id ?? null,
+    active_child_id: state.device_child_id ?? state.active_child_id ?? null,
     children: (state.children ?? []).map((child) => ({
       ...child,
-      avatar_media_id: child.avatar_media_id ?? null
+      avatar_media_id: child.avatar_media_id ?? null,
+      child_token: child.child_token ?? createChildToken(),
+      child_token_updated_at: child.child_token_updated_at ?? child.updated_at ?? timestamp,
+      bound_device_id: child.bound_device_id ?? null,
+      bound_at: child.bound_at ?? null,
+      last_login_at: child.last_login_at ?? null,
+      last_login_device: child.last_login_device ?? null
     })),
     tasks: (state.tasks ?? []).map((task) => ({
       ...task,

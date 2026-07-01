@@ -86,6 +86,22 @@ export class SupabaseDataRepository implements LocalDataRepository {
     return notEnabled();
   }
 
+  getChildByToken(_token: string): LocalChild | null {
+    return notEnabled();
+  }
+
+  bindChildDeviceByToken(_token: string): LocalChild {
+    return notEnabled();
+  }
+
+  regenerateChildToken(_childId: UUID): LocalChild {
+    return notEnabled();
+  }
+
+  unbindChildDevice(_childId: UUID): LocalChild {
+    return notEnabled();
+  }
+
   createTask(_input: CreateTaskInput): LocalTask {
     return notEnabled();
   }

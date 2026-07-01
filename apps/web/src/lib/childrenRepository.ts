@@ -7,6 +7,10 @@ export const childrenRepository = {
   deleteChild: dataRepository.deleteChild.bind(dataRepository),
   switchChild: dataRepository.switchChild.bind(dataRepository),
   listChildren: dataRepository.listChildren.bind(dataRepository),
+  getChildByToken: dataRepository.getChildByToken.bind(dataRepository),
+  bindChildDeviceByToken: dataRepository.bindChildDeviceByToken.bind(dataRepository),
+  regenerateChildToken: dataRepository.regenerateChildToken.bind(dataRepository),
+  unbindChildDevice: dataRepository.unbindChildDevice.bind(dataRepository),
   saveChildAvatar,
   getChildAvatarUrl,
   releaseChildAvatarUrl

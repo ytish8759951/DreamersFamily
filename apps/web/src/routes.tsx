@@ -20,6 +20,7 @@ import { GrowthReview } from './pages/child/GrowthReview';
 import { ChildHonorWall } from './pages/child/HonorWall';
 import { ChildSpecialDays } from './pages/child/SpecialDays';
 import { ChildScreenTime } from './pages/child/ScreenTime';
+import { ChildTokenEntry } from './pages/child/ChildTokenEntry';
 import { DesignSystemPreview } from './pages/preview/DesignSystemPreview';
 
 export const router = createBrowserRouter([
@@ -47,6 +48,10 @@ export const router = createBrowserRouter([
       { path: 'screen-time', element: <ParentScreenTime /> },
       { path: 'settings', element: <Settings /> }
     ]
+  },
+  {
+    path: '/child/:token',
+    element: <ChildTokenEntry />
   },
   {
     path: '/child',

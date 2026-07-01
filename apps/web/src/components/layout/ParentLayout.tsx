@@ -13,7 +13,7 @@ import {
   X
 } from 'lucide-react';
 import { useState } from 'react';
-import { NavLink, Outlet, useLocation } from 'react-router-dom';
+import { Navigate, NavLink, Outlet, useLocation } from 'react-router-dom';
 import { useLocalDataState } from '../../lib/useLocalData';
 
 const navigation = [
@@ -47,6 +47,11 @@ export function ParentLayout() {
   const activeChild = localState.children.find(
     (child) => child.id === localState.active_child_id && child.status === 'active'
   );
+
+  if (localState.device_child_id) {
+    return <Navigate to="/child/home" replace />;
+  }
+
   const familyPath = location.pathname;
   const pickNavigation = (paths: string[]) =>
     paths

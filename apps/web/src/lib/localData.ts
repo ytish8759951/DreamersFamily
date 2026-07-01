@@ -60,6 +60,30 @@ function id(): UUID {
   return `local-${Date.now()}-${Math.random().toString(16).slice(2)}`;
 }
 
+function childToken(): string {
+  if (typeof crypto !== 'undefined' && typeof crypto.getRandomValues === 'function') {
+    const values = new Uint8Array(16);
+    crypto.getRandomValues(values);
+    return Array.from(values, (value) => value.toString(16).padStart(2, '0')).join('');
+  }
+  return `${Date.now().toString(36)}${Math.random().toString(36).slice(2)}${Math.random().toString(36).slice(2)}`.slice(0, 32);
+}
+
+function uniqueChildToken(state: LocalDatabaseState) {
+  let token = childToken();
+  while (state.children.some((child) => child.child_token === token)) {
+    token = childToken();
+  }
+  return token;
+}
+
+function currentDeviceLabel() {
+  if (typeof navigator === 'undefined') return 'Unknown device';
+  const platform = navigator.platform || 'Device';
+  const touch = navigator.maxTouchPoints > 0 ? 'Touch' : 'Desktop';
+  return `${platform} ${touch}`.trim();
+}
+
 function requiredText(value: string, field: string) {
   const normalized = value.trim();
   if (!normalized) throw new LocalDataError(`${field} is required`, 'VALIDATION_ERROR');
@@ -495,6 +519,10 @@ export interface LocalDataRepository {
   deleteChild(childId: UUID): LocalChild;
   switchChild(childId: UUID): LocalChild;
   listChildren(includeArchived?: boolean): LocalChild[];
+  getChildByToken(token: string): LocalChild | null;
+  bindChildDeviceByToken(token: string): LocalChild;
+  regenerateChildToken(childId: UUID): LocalChild;
+  unbindChildDevice(childId: UUID): LocalChild;
   createTask(input: CreateTaskInput): LocalTask;
   completeTask(taskId: UUID, completionNote?: string | null): LocalTask;
   approveTask(taskId: UUID): LocalTask;
@@ -610,6 +638,12 @@ export class LocalDataService implements LocalDataRepository {
         timezone: input.timezone || 'Asia/Taipei',
         status: 'active',
         notes: input.notes?.trim() || null,
+        child_token: uniqueChildToken(state),
+        child_token_updated_at: timestamp,
+        bound_device_id: null,
+        bound_at: null,
+        last_login_at: null,
+        last_login_device: null,
         created_by: state.current_user_id,
         created_at: timestamp,
         updated_at: timestamp,
@@ -660,6 +694,9 @@ export class LocalDataService implements LocalDataRepository {
   switchChild(childId: UUID) {
     return this.db.transaction((state) => {
       const child = requireChild(state, childId);
+      if (state.device_child_id && state.device_child_id !== child.id) {
+        throw new LocalDataError('Child device cannot switch children', 'CHILD_DEVICE_LOCKED');
+      }
       state.active_child_id = child.id;
       return child;
     });
@@ -670,6 +707,58 @@ export class LocalDataService implements LocalDataRepository {
       .read()
       .children.filter((child) => includeArchived || child.status === 'active')
       .sort((a, b) => a.created_at.localeCompare(b.created_at));
+  }
+
+  getChildByToken(token: string) {
+    const normalized = token.trim();
+    if (!normalized) return null;
+    return this.db.read().children.find((child) => child.status === 'active' && child.child_token === normalized) ?? null;
+  }
+
+  bindChildDeviceByToken(token: string) {
+    return this.db.transaction((state) => {
+      const child = state.children.find((item) => item.status === 'active' && item.child_token === token.trim());
+      if (!child) throw new LocalDataError('Child token not found', 'CHILD_TOKEN_NOT_FOUND');
+      if (child.bound_device_id && child.bound_device_id !== state.device_id) {
+        throw new LocalDataError('Child token is already bound to another device', 'CHILD_TOKEN_ALREADY_BOUND');
+      }
+      const timestamp = now();
+      child.bound_device_id = state.device_id;
+      child.bound_at ??= timestamp;
+      child.last_login_at = timestamp;
+      child.last_login_device = currentDeviceLabel();
+      child.updated_at = timestamp;
+      state.device_child_id = child.id;
+      state.active_child_id = child.id;
+      return child;
+    });
+  }
+
+  regenerateChildToken(childId: UUID) {
+    return this.db.transaction((state) => {
+      const child = requireChild(state, childId);
+      const timestamp = now();
+      child.child_token = uniqueChildToken(state);
+      child.child_token_updated_at = timestamp;
+      child.bound_device_id = null;
+      child.bound_at = null;
+      child.last_login_at = null;
+      child.last_login_device = null;
+      child.updated_at = timestamp;
+      if (state.device_child_id === childId) state.device_child_id = null;
+      return child;
+    });
+  }
+
+  unbindChildDevice(childId: UUID) {
+    return this.db.transaction((state) => {
+      const child = requireChild(state, childId);
+      child.bound_device_id = null;
+      child.bound_at = null;
+      child.updated_at = now();
+      if (state.device_child_id === childId) state.device_child_id = null;
+      return child;
+    });
   }
 
   createTask(input: CreateTaskInput) {
@@ -2168,6 +2257,10 @@ export const {
   updateChild,
   deleteChild,
   switchChild,
+  getChildByToken,
+  bindChildDeviceByToken,
+  regenerateChildToken,
+  unbindChildDevice,
   createTask,
   completeTask,
   approveTask,
@@ -2215,6 +2308,10 @@ export const {
   updateChild: localData.updateChild.bind(localData),
   deleteChild: localData.deleteChild.bind(localData),
   switchChild: localData.switchChild.bind(localData),
+  getChildByToken: localData.getChildByToken.bind(localData),
+  bindChildDeviceByToken: localData.bindChildDeviceByToken.bind(localData),
+  regenerateChildToken: localData.regenerateChildToken.bind(localData),
+  unbindChildDevice: localData.unbindChildDevice.bind(localData),
   createTask: localData.createTask.bind(localData),
   completeTask: localData.completeTask.bind(localData),
   approveTask: localData.approveTask.bind(localData),

@@ -2,7 +2,10 @@ import { useMemo, useState, type FormEvent, type ReactNode } from 'react';
 import {
   Baby,
   Check,
+  Copy,
   Edit3,
+  QrCode,
+  RefreshCw,
   Plus,
   Star,
   Tablet,
@@ -31,6 +34,33 @@ const emptyForm: ChildFormValues = {
 };
 
 const tones = ['blue', 'pink', 'yellow', 'green'];
+const productionOrigin = 'https://dreamersfamily.pages.dev';
+
+function childDeviceUrl(child: LocalChild) {
+  const origin = typeof window !== 'undefined' && !window.location.hostname.includes('localhost')
+    ? window.location.origin
+    : productionOrigin;
+  return `${origin}/child/${child.child_token}`;
+}
+
+function qrCodeUrl(value: string) {
+  return `https://api.qrserver.com/v1/create-qr-code/?size=220x220&margin=12&data=${encodeURIComponent(value)}`;
+}
+
+async function copyText(value: string) {
+  if (navigator.clipboard?.writeText) {
+    await navigator.clipboard.writeText(value);
+    return;
+  }
+  const input = document.createElement('textarea');
+  input.value = value;
+  input.style.position = 'fixed';
+  input.style.opacity = '0';
+  document.body.appendChild(input);
+  input.select();
+  document.execCommand('copy');
+  document.body.removeChild(input);
+}
 
 export function Children() {
   const state = useLocalDataState();
@@ -38,12 +68,18 @@ export function Children() {
   const [editingId, setEditingId] = useState<string | null>(null);
   const [form, setForm] = useState<ChildFormValues>(emptyForm);
   const [error, setError] = useState('');
+  const [expandedDeviceId, setExpandedDeviceId] = useState<string | null>(null);
+  const [createdChildId, setCreatedChildId] = useState<string | null>(null);
+  const [copiedChildId, setCopiedChildId] = useState<string | null>(null);
 
   const activeChildren = useMemo(
     () => state.children.filter((child) => child.status === 'active'),
     [state.children]
   );
   const activeChild = activeChildren.find((child) => child.id === state.active_child_id) ?? null;
+  const createdChild = createdChildId
+    ? activeChildren.find((child) => child.id === createdChildId) ?? null
+    : null;
 
   const starBalance = (childId: string) =>
     state.stars
@@ -86,12 +122,14 @@ export function Children() {
 
     try {
       if (formMode === 'create') {
-        childrenRepository.createChild({
+        const child = childrenRepository.createChild({
           display_name: form.display_name,
           birth_date: form.birth_date || null,
           theme_color: form.theme_color,
           notes: form.notes || null
         });
+        setCreatedChildId(child.id);
+        setExpandedDeviceId(child.id);
       } else if (editingId) {
         childrenRepository.updateChild(editingId, {
           display_name: form.display_name,
@@ -111,6 +149,24 @@ export function Children() {
       `確定要刪除「${child.display_name}」嗎？本機測試模式會將孩子封存，歷史資料仍會保留。`
     );
     if (confirmed) childrenRepository.deleteChild(child.id);
+  };
+
+  const copyChildUrl = async (child: LocalChild) => {
+    await copyText(childDeviceUrl(child));
+    setCopiedChildId(child.id);
+    window.setTimeout(() => setCopiedChildId((current) => current === child.id ? null : current), 1600);
+  };
+
+  const regenerateChildUrl = (child: LocalChild) => {
+    const confirmed = window.confirm(`重新產生「${child.display_name}」的孩子專屬網址？舊網址會立即失效，已綁定裝置也會解除。`);
+    if (!confirmed) return;
+    const next = childrenRepository.regenerateChildToken(child.id);
+    setExpandedDeviceId(next.id);
+  };
+
+  const unbindChildDevice = (child: LocalChild) => {
+    const confirmed = window.confirm(`解除「${child.display_name}」目前綁定的裝置？解除後下一台裝置可重新綁定。`);
+    if (confirmed) childrenRepository.unbindChildDevice(child.id);
   };
 
   return (
@@ -183,6 +239,28 @@ export function Children() {
                   </dl>
 
                   {child.notes ? <p>{child.notes}</p> : <p className="is-muted">尚未新增備註</p>}
+
+                  <section className="child-device-panel">
+                    <button
+                      type="button"
+                      className="child-device-toggle"
+                      onClick={() => setExpandedDeviceId(expandedDeviceId === child.id ? null : child.id)}
+                      aria-expanded={expandedDeviceId === child.id}
+                    >
+                      <Tablet size={16} />
+                      裝置設定
+                      <span>{child.bound_device_id ? '已綁定' : '尚未綁定'}</span>
+                    </button>
+                    {expandedDeviceId === child.id ? (
+                      <ChildDeviceSettings
+                        child={child}
+                        copied={copiedChildId === child.id}
+                        onCopy={() => void copyChildUrl(child)}
+                        onRegenerate={() => regenerateChildUrl(child)}
+                        onUnbind={() => unbindChildDevice(child)}
+                      />
+                    ) : null}
+                  </section>
 
                   <footer>
                     <button
@@ -295,6 +373,79 @@ export function Children() {
           </section>
         </div>
       ) : null}
+
+      {createdChild ? (
+        <div className="local-form-backdrop child-created-backdrop" role="presentation" onMouseDown={() => setCreatedChildId(null)}>
+          <section
+            className="local-form-dialog child-created-dialog"
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="child-created-title"
+            onMouseDown={(event) => event.stopPropagation()}
+          >
+            <header>
+              <div>
+                <small>DEVICE ONBOARDING</small>
+                <h2 id="child-created-title">🎉 孩子建立完成</h2>
+              </div>
+              <button type="button" aria-label="關閉" onClick={() => setCreatedChildId(null)}>×</button>
+            </header>
+            <div className="child-created-content">
+              <strong>{createdChild.display_name} 的孩子專屬入口已建立</strong>
+              <img src={qrCodeUrl(childDeviceUrl(createdChild))} alt={`${createdChild.display_name} 孩子專屬網址 QR Code`} />
+              <code>{childDeviceUrl(createdChild)}</code>
+            </div>
+            <footer className="child-created-actions">
+              <button type="button" onClick={() => setExpandedDeviceId(createdChild.id)}>
+                <QrCode size={18} /> 顯示 QR Code
+              </button>
+              <button type="button" onClick={() => void copyChildUrl(createdChild)}>
+                <Copy size={18} /> {copiedChildId === createdChild.id ? '已複製' : '複製網址'}
+              </button>
+              <button className="ds-primary-button" type="button" onClick={() => setCreatedChildId(null)}>
+                <Check size={18} /> 完成
+              </button>
+            </footer>
+          </section>
+        </div>
+      ) : null}
+    </div>
+  );
+}
+
+function ChildDeviceSettings({
+  child,
+  copied,
+  onCopy,
+  onRegenerate,
+  onUnbind
+}: {
+  child: LocalChild;
+  copied: boolean;
+  onCopy: () => void;
+  onRegenerate: () => void;
+  onUnbind: () => void;
+}) {
+  const url = childDeviceUrl(child);
+  return (
+    <div className="child-device-settings">
+      <div className="child-device-url">
+        <small>孩子專屬網址</small>
+        <code>{url}</code>
+      </div>
+      <div className="child-device-qr">
+        <img src={qrCodeUrl(url)} alt={`${child.display_name} 孩子專屬網址 QR Code`} />
+      </div>
+      <dl>
+        <div><dt>裝置綁定狀態</dt><dd>{child.bound_device_id ? '已綁定' : '尚未綁定'}</dd></div>
+        <div><dt>上次登入時間</dt><dd>{child.last_login_at ? formatDateTime(child.last_login_at) : '尚未登入'}</dd></div>
+        <div><dt>上次登入裝置</dt><dd>{child.last_login_device ?? '尚未登入'}</dd></div>
+      </dl>
+      <div className="child-device-actions">
+        <button type="button" onClick={onCopy}><Copy size={16} /> {copied ? '已複製' : '複製網址'}</button>
+        <button type="button" onClick={onRegenerate}><RefreshCw size={16} /> 重新產生網址</button>
+        <button type="button" className="is-danger" onClick={onUnbind} disabled={!child.bound_device_id}>解除裝置綁定</button>
+      </div>
     </div>
   );
 }
@@ -329,4 +480,14 @@ function formatChildMeta(child: LocalChild) {
     (today.getMonth() === birthDate.getMonth() && today.getDate() >= birthDate.getDate());
   if (!birthdayPassed) age -= 1;
   return `${Math.max(0, age)} 歲 · ${child.birth_date}`;
+}
+
+function formatDateTime(value: string) {
+  return new Intl.DateTimeFormat('zh-TW', {
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+    hour: '2-digit',
+    minute: '2-digit'
+  }).format(new Date(value));
 }
