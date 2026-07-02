@@ -39,7 +39,7 @@ export function ChildTokenEntry() {
     }
   }, [navigate, reservedChildRoute, token]);
 
-  if (reservedChildRoute || state.device_child_id) return <Navigate to={childHomeTarget} replace />;
+  if (reservedChildRoute || state.deviceBinding) return <Navigate to={childHomeTarget} replace />;
 
   if (invalid) {
     return (

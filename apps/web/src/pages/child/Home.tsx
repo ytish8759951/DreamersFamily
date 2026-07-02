@@ -11,7 +11,6 @@ import type {
   LocalShare,
   ShareWithMedia
 } from '../../lib/localTypes';
-import { getCookieValue } from '../../lib/storage';
 import { getBirthdaySpecialDays } from '../../lib/specialDays';
 import { useLocalDataState } from '../../lib/useLocalData';
 
@@ -36,24 +35,13 @@ export function ChildHome() {
   useDreamCoverMigration();
   const location = useLocation();
   const localState = useLocalDataState();
-  const currentChildIdentity = useMemo(() => {
-    if (typeof window === 'undefined') return null;
-    try {
-      const raw = window.localStorage.getItem('currentChildIdentity') ?? getCookieValue('currentChildIdentity');
-      return raw ? (JSON.parse(raw) as { childId?: string; displayName?: string } | null) : null;
-    } catch {
-      return null;
-    }
-  }, []);
-  const deviceBinding = useMemo(() => {
-    if (typeof window === 'undefined') return null;
-    return window.localStorage.getItem('deviceBinding') ?? getCookieValue('deviceBinding');
-  }, []);
-  const hasChildBinding = Boolean(localState.currentChildIdentity || localState.device_child_id || currentChildIdentity || deviceBinding);
+  const currentChildIdentity = localState.currentChildIdentity;
+  const deviceBinding = localState.deviceBinding;
+  const hasChildBinding = Boolean(localState.currentChildIdentity || deviceBinding);
   const selectedChildId = useMemo(() => {
     const childId = new URLSearchParams(location.search).get('childId');
-    return childId || localState.currentChildIdentity?.childId || currentChildIdentity?.childId || localState.device_child_id || deviceBinding || null;
-  }, [currentChildIdentity?.childId, deviceBinding, location.search, localState.currentChildIdentity?.childId, localState.device_child_id]);
+    return childId || localState.currentChildIdentity?.childId || deviceBinding || null;
+  }, [deviceBinding, location.search, localState.currentChildIdentity?.childId]);
   const selectedChild = selectedChildId
     ? localState.children.find((child) => child.id === selectedChildId && child.status === 'active')
     : null;

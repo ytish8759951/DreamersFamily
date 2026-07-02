@@ -40,6 +40,7 @@ export interface LocalChild {
   child_token: string;
   child_token_updated_at: ISODateTime;
   child_token_consumed_at: ISODateTime | null;
+  binding_status: 'unbound' | 'bound';
   bound_device_id: UUID | null;
   bound_at: ISODateTime | null;
   last_login_at: ISODateTime | null;
@@ -430,6 +431,7 @@ export interface LocalDatabaseState {
   family_id: UUID;
   parent_id: UUID | null;
   device_id: UUID | null;
+  deviceBinding: UUID | null;
   device_child_id: UUID | null;
   currentChildIdentity?: LocalChildIdentity | null;
   current_user_id: UUID;

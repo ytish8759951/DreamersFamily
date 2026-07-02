@@ -60,6 +60,7 @@ function createEmptyState(): LocalDatabaseState {
     family_id: LOCAL_FAMILY_ID,
     parent_id: LOCAL_PARENT_USER_ID,
     device_id: getBrowserDeviceId(),
+    deviceBinding: null,
     device_child_id: null,
     currentChildIdentity: null,
     current_user_id: LOCAL_PARENT_USER_ID,
@@ -111,6 +112,7 @@ function normalizeState(state: LocalDatabaseState): LocalDatabaseState {
     const normalizedChild = {
       ...child,
       avatar_media_id: child.avatar_media_id ?? null,
+      binding_status: child.binding_status ?? (child.bound_device_id ? 'bound' : 'unbound'),
       bound_device_id: child.bound_device_id ?? null,
       bound_at: child.bound_at ?? null,
       last_login_at: child.last_login_at ?? null,
@@ -140,7 +142,8 @@ function normalizeState(state: LocalDatabaseState): LocalDatabaseState {
     family_id: state.family_id ?? LOCAL_FAMILY_ID,
     parent_id: state.parent_id ?? state.current_user_id ?? LOCAL_PARENT_USER_ID,
     device_id: state.device_id && state.device_id !== LOCAL_DEVICE_ID ? state.device_id : getBrowserDeviceId(),
-    device_child_id: state.device_child_id ?? null,
+    deviceBinding: state.deviceBinding ?? state.device_child_id ?? null,
+    device_child_id: state.deviceBinding ?? state.device_child_id ?? null,
     currentChildIdentity: state.currentChildIdentity ?? null,
     current_user_id: state.current_user_id ?? state.parent_id ?? LOCAL_PARENT_USER_ID,
     active_child_id: state.device_child_id ?? state.active_child_id ?? null,
@@ -238,7 +241,7 @@ function readChildSessionBootstrap(): { currentChildIdentity: LocalChildIdentity
   }
 }
 
-function createBootstrapChild(identity: LocalChildIdentity): LocalChild {
+function createBootstrapChild(identity: LocalChildIdentity, boundDeviceId: string): LocalChild {
   const timestamp = now();
   return {
     id: identity.childId,
@@ -257,7 +260,8 @@ function createBootstrapChild(identity: LocalChildIdentity): LocalChild {
     child_token: identity.childToken,
     child_token_updated_at: identity.boundAt ?? timestamp,
     child_token_consumed_at: identity.boundAt ?? timestamp,
-    bound_device_id: null,
+    binding_status: 'bound',
+    bound_device_id: boundDeviceId,
     bound_at: identity.boundAt ?? timestamp,
     last_login_at: identity.boundAt ?? timestamp,
     last_login_device: '孩子平板',
@@ -279,9 +283,9 @@ function syncChildSessionKeys(storage: KeyValueStorage, state: LocalDatabaseStat
     deleteCookieValue(LOCAL_CURRENT_CHILD_IDENTITY_KEY);
   }
 
-  if (state.device_child_id) {
-    storage.setItem(LOCAL_DEVICE_BINDING_KEY, state.device_child_id);
-    setCookieValue(LOCAL_DEVICE_BINDING_KEY, state.device_child_id);
+  if (state.deviceBinding) {
+    storage.setItem(LOCAL_DEVICE_BINDING_KEY, state.deviceBinding);
+    setCookieValue(LOCAL_DEVICE_BINDING_KEY, state.deviceBinding);
   } else {
     storage.removeItem(LOCAL_DEVICE_BINDING_KEY);
     deleteCookieValue(LOCAL_DEVICE_BINDING_KEY);
@@ -298,14 +302,15 @@ export class MockDatabase {
     const stored = readJson<LocalDatabaseState>(this.storage, this.storageKey);
     const bootstrap = readChildSessionBootstrap();
     const isEmptyStoredState =
-      stored ? (stored.children?.length ?? 0) === 0 && !stored.currentChildIdentity && !stored.device_child_id : false;
+      stored ? (stored.children?.length ?? 0) === 0 && !stored.currentChildIdentity && !stored.deviceBinding && !stored.device_child_id : false;
     if (!stored || stored.schema_version !== 1 || (bootstrap && isEmptyStoredState)) {
       if (bootstrap) {
         const seeded = createEmptyState();
-        seeded.children = [createBootstrapChild(bootstrap.currentChildIdentity)];
-        seeded.device_child_id = bootstrap.currentChildIdentity.childId;
+        seeded.children = [createBootstrapChild(bootstrap.currentChildIdentity, seeded.device_id ?? LOCAL_DEVICE_ID)];
+        seeded.deviceBinding = bootstrap.deviceBinding;
+        seeded.device_child_id = bootstrap.deviceBinding;
         seeded.currentChildIdentity = bootstrap.currentChildIdentity;
-        seeded.active_child_id = bootstrap.currentChildIdentity.childId;
+        seeded.active_child_id = bootstrap.deviceBinding;
         this.write(seeded);
         return clone(seeded);
       }

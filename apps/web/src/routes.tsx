@@ -27,14 +27,11 @@ import { useLocalDataState } from './lib/useLocalData';
 function RootRedirect() {
   const location = useLocation();
   const state = useLocalDataState();
-  const childIdentity = typeof window !== 'undefined' ? window.localStorage.getItem('currentChildIdentity') : null;
-  const deviceBinding = typeof window !== 'undefined' ? window.localStorage.getItem('deviceBinding') : null;
-
-  if (location.pathname === '/' && (childIdentity || deviceBinding)) {
+  if (location.pathname === '/' && (state.currentChildIdentity || state.deviceBinding)) {
     return <Navigate to="/child/home" replace />;
   }
 
-  return <Navigate to={state.currentChildIdentity?.childId || state.device_child_id ? '/child/home' : '/parent/children'} replace />;
+  return <Navigate to={state.currentChildIdentity?.childId || state.deviceBinding ? '/child/home' : '/parent/children'} replace />;
 }
 
 export const router = createBrowserRouter([

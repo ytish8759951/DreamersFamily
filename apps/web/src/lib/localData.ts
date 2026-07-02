@@ -161,6 +161,7 @@ function createChildFromTokenPayload(
     child_token: token,
     child_token_updated_at: timestamp,
     child_token_consumed_at: null,
+    binding_status: 'unbound',
     bound_device_id: null,
     bound_at: null,
     last_login_at: null,
@@ -183,6 +184,7 @@ function setCurrentChildIdentity(state: LocalDatabaseState, child: LocalChild, t
     childToken: token,
     boundAt: timestamp
   };
+  state.deviceBinding = child.id;
 }
 
 function requireTask(state: LocalDatabaseState, taskId: UUID) {
@@ -731,6 +733,7 @@ export class LocalDataService implements LocalDataRepository {
         }),
         child_token_updated_at: timestamp,
         child_token_consumed_at: null,
+        binding_status: 'unbound',
         bound_device_id: null,
         bound_at: null,
         last_login_at: null,
@@ -774,15 +777,17 @@ export class LocalDataService implements LocalDataRepository {
     return this.db.transaction((state) => {
       const child = requireChild(state, childId);
       child.status = 'archived';
+      child.binding_status = 'unbound';
       child.archived_at = now();
       child.updated_at = child.archived_at;
 
       if (state.active_child_id === childId) {
         state.active_child_id = state.children.find((item) => item.status === 'active')?.id ?? null;
       }
-      if (state.device_child_id === childId) {
+      if (state.device_child_id === childId || state.deviceBinding === childId) {
         state.device_child_id = null;
         state.currentChildIdentity = null;
+        state.deviceBinding = null;
       }
       removeChildOnboardingToken(state, childId);
       return child;
@@ -847,12 +852,14 @@ export class LocalDataService implements LocalDataRepository {
       }
       const timestamp = now();
       child.bound_device_id = state.device_id;
+      child.binding_status = 'bound';
       child.bound_at ??= timestamp;
       child.last_login_at = timestamp;
       child.last_login_device = currentDeviceLabel();
       child.updated_at = timestamp;
       child.child_token_consumed_at = timestamp;
       removeChildOnboardingToken(state, child.id);
+      state.deviceBinding = child.id;
       state.device_child_id = child.id;
       state.active_child_id = child.id;
       setCurrentChildIdentity(state, child, normalized, timestamp);
@@ -867,15 +874,17 @@ export class LocalDataService implements LocalDataRepository {
       child.child_token = createChildDeviceTokenForChild(child);
       child.child_token_updated_at = timestamp;
       child.child_token_consumed_at = null;
+      child.binding_status = 'unbound';
       child.bound_device_id = null;
       child.bound_at = null;
       child.last_login_at = null;
       child.last_login_device = null;
       child.updated_at = timestamp;
       upsertChildOnboardingToken(state, child);
-      if (state.device_child_id === childId) {
+      if (state.device_child_id === childId || state.deviceBinding === childId) {
         state.device_child_id = null;
         state.currentChildIdentity = null;
+        state.deviceBinding = null;
       }
       return child;
     });
@@ -885,11 +894,13 @@ export class LocalDataService implements LocalDataRepository {
     return this.db.transaction((state) => {
       const child = requireChild(state, childId);
       child.bound_device_id = null;
+      child.binding_status = 'unbound';
       child.bound_at = null;
       child.updated_at = now();
-      if (state.device_child_id === childId) {
+      if (state.device_child_id === childId || state.deviceBinding === childId) {
         state.device_child_id = null;
         state.currentChildIdentity = null;
+        state.deviceBinding = null;
       }
       return child;
     });
