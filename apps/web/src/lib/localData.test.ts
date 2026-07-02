@@ -105,6 +105,9 @@ describe('local MVP data flows', () => {
       themeColor: 'green',
       childToken: child.child_token
     });
+    expect(childDeviceData.getState().children[0].child_token_consumed_at).toBeTruthy();
+    expect(childDeviceData.getChildByToken(child.child_token)).toBeNull();
+    expect(() => childDeviceData.bindChildDeviceByToken(child.child_token)).toThrowError(LocalDataError);
   });
 
   it('opens a valid child token on empty localStorage and reaches the child home identity', () => {
@@ -128,6 +131,7 @@ describe('local MVP data flows', () => {
       displayName: '空白裝置孩子',
       childToken: child.child_token
     });
+    expect(emptyDeviceData.getChildByToken(child.child_token)).toBeNull();
   });
 
   it('opens a child token whose encoded payload contains underscores', () => {
@@ -157,31 +161,24 @@ describe('local MVP data flows', () => {
     });
   });
 
-  it('opens an already-bound child device with the same token again', () => {
+  it('rejects a child token after it has been consumed once', () => {
     const child = data.createChild({ display_name: '已綁定孩子' });
     const childDeviceData = new LocalDataService(new MockDatabase(new TestStorage(), 'bound-child-device-db'));
     childDeviceData.resetLocalData();
 
     childDeviceData.bindChildDeviceByToken(child.child_token);
-    const reboundChild = childDeviceData.bindChildDeviceByToken(child.child_token);
-
-    expect(reboundChild.id).toBe(child.id);
-    expect(childDeviceData.getState().active_child_id).toBe(child.id);
-    expect(childDeviceData.getState().device_child_id).toBe(child.id);
+    expect(() => childDeviceData.bindChildDeviceByToken(child.child_token)).toThrowError(LocalDataError);
+    expect(childDeviceData.getChildByToken(child.child_token)).toBeNull();
   });
 
-  it('falls back to a parseable token payload when local onboarding lookup misses', () => {
+  it('requires a regenerated child token after the original token has been consumed', () => {
     const child = data.createChild({ display_name: '換網址孩子' });
     const oldToken = child.child_token;
     const regenerated = data.regenerateChildToken(child.id);
 
     expect(regenerated.child_token).not.toBe(oldToken);
-    expect(data.bindChildDeviceByToken(oldToken).id).toBe(child.id);
-    expect(data.getState().currentChildIdentity).toMatchObject({
-      childId: child.id,
-      displayName: '換網址孩子',
-      childToken: oldToken
-    });
+    expect(() => data.bindChildDeviceByToken(oldToken)).toThrowError(LocalDataError);
+    expect(data.getChildByToken(oldToken)).toBeNull();
     expect(data.bindChildDeviceByToken(regenerated.child_token).id).toBe(child.id);
   });
 

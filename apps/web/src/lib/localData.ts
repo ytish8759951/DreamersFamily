@@ -95,6 +95,15 @@ function requireChild(state: LocalDatabaseState, childId: UUID, includeArchived 
 }
 
 function upsertChildOnboardingToken(state: LocalDatabaseState, child: LocalChild): LocalChildOnboardingToken {
+  if (child.child_token_consumed_at) {
+    removeChildOnboardingToken(state, child.id);
+    return {
+      childId: child.id,
+      childName: child.display_name,
+      childToken: child.child_token,
+      createdAt: child.child_token_updated_at
+    };
+  }
   state.child_onboarding_tokens ??= [];
   const entry: LocalChildOnboardingToken = {
     childId: child.id,
@@ -113,6 +122,7 @@ function removeChildOnboardingToken(state: LocalDatabaseState, childId: UUID) {
 }
 
 function localChildToken(child: LocalChild) {
+  if (child.child_token_consumed_at) return '';
   return child.child_token || (child as LocalChild & { childToken?: string }).childToken || '';
 }
 
@@ -121,7 +131,7 @@ function onboardingChildToken(token: LocalChildOnboardingToken) {
 }
 
 function findActiveChildByToken(state: LocalDatabaseState, token: string) {
-  return state.children.find((child) => child.status === 'active' && localChildToken(child) === token) ?? null;
+  return state.children.find((child) => child.status === 'active' && !child.child_token_consumed_at && localChildToken(child) === token) ?? null;
 }
 
 function findOnboardingTokenByToken(state: LocalDatabaseState, token: string) {
@@ -150,6 +160,7 @@ function createChildFromTokenPayload(
     notes: null,
     child_token: token,
     child_token_updated_at: timestamp,
+    child_token_consumed_at: null,
     bound_device_id: null,
     bound_at: null,
     last_login_at: null,
@@ -719,6 +730,7 @@ export class LocalDataService implements LocalDataRepository {
           createdAt: timestamp
         }),
         child_token_updated_at: timestamp,
+        child_token_consumed_at: null,
         bound_device_id: null,
         bound_at: null,
         last_login_at: null,
@@ -804,7 +816,7 @@ export class LocalDataService implements LocalDataRepository {
 
     const onboardingToken = findOnboardingTokenByToken(state, normalized);
     if (!onboardingToken) return null;
-    return state.children.find((item) => item.status === 'active' && item.id === onboardingToken.childId) ?? null;
+    return state.children.find((item) => item.status === 'active' && item.id === onboardingToken.childId && !item.child_token_consumed_at) ?? null;
   }
 
   bindChildDeviceByToken(token: string) {
@@ -815,15 +827,20 @@ export class LocalDataService implements LocalDataRepository {
       if (!child) {
         const onboardingToken = findOnboardingTokenByToken(state, normalized);
         child = onboardingToken
-          ? state.children.find((item) => item.status === 'active' && item.id === onboardingToken.childId) ?? null
+          ? state.children.find((item) => item.status === 'active' && item.id === onboardingToken.childId && !item.child_token_consumed_at) ?? null
           : null;
       }
       if (!child) {
         const payload = parseChildDeviceToken(normalized);
         if (!payload) throw new LocalDataError('Child token not found', 'CHILD_TOKEN_NOT_FOUND');
-        const timestamp = now();
         child = state.children.find((item) => item.status === 'active' && item.id === payload.childId) ?? null;
-        if (!child) child = createChildFromTokenPayload(state, payload, normalized, timestamp);
+        if (child) {
+          if (child.child_token !== normalized || child.child_token_consumed_at) {
+            throw new LocalDataError('Child token has already been used', 'CHILD_TOKEN_EXPIRED');
+          }
+        } else {
+          child = createChildFromTokenPayload(state, payload, normalized, now());
+        }
       }
       if (child.bound_device_id && child.bound_device_id !== state.device_id) {
         throw new LocalDataError('Child token is already bound to another device', 'CHILD_TOKEN_ALREADY_BOUND');
@@ -834,7 +851,8 @@ export class LocalDataService implements LocalDataRepository {
       child.last_login_at = timestamp;
       child.last_login_device = currentDeviceLabel();
       child.updated_at = timestamp;
-      upsertChildOnboardingToken(state, child);
+      child.child_token_consumed_at = timestamp;
+      removeChildOnboardingToken(state, child.id);
       state.device_child_id = child.id;
       state.active_child_id = child.id;
       setCurrentChildIdentity(state, child, normalized, timestamp);
@@ -848,6 +866,7 @@ export class LocalDataService implements LocalDataRepository {
       const timestamp = now();
       child.child_token = createChildDeviceTokenForChild(child);
       child.child_token_updated_at = timestamp;
+      child.child_token_consumed_at = null;
       child.bound_device_id = null;
       child.bound_at = null;
       child.last_login_at = null;

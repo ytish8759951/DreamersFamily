@@ -447,11 +447,12 @@ function ChildDeviceSettings({
     <div className="child-device-settings">
       <dl>
         <div><dt>綁定狀態</dt><dd>{child.bound_device_id ? '已綁定' : '尚未綁定'}</dd></div>
+        <div><dt>QR 狀態</dt><dd>{child.child_token_consumed_at ? '已失效' : '可使用'}</dd></div>
         <div><dt>最後登入時間</dt><dd>{child.last_login_at ? formatDateTime(child.last_login_at) : '尚無'}</dd></div>
         <div><dt>最後登入裝置</dt><dd>{child.last_login_device ?? '尚無'}</dd></div>
       </dl>
       <div className="child-device-actions">
-        <button type="button" onClick={onCopy}><Copy size={16} /> {copied ? '已複製' : '複製網址'}</button>
+        <button type="button" onClick={onCopy} disabled={Boolean(child.child_token_consumed_at)}><Copy size={16} /> {child.child_token_consumed_at ? 'QR 已失效' : copied ? '已複製' : '複製網址'}</button>
         <button type="button" onClick={onRegenerate}><RefreshCw size={16} /> 重新產生網址</button>
         <button type="button" className="is-danger" onClick={onUnbind} disabled={!child.bound_device_id}>解除綁定</button>
       </div>

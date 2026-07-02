@@ -104,7 +104,8 @@ function normalizeState(state: LocalDatabaseState): LocalDatabaseState {
       bound_device_id: child.bound_device_id ?? null,
       bound_at: child.bound_at ?? null,
       last_login_at: child.last_login_at ?? null,
-      last_login_device: child.last_login_device ?? null
+      last_login_device: child.last_login_device ?? null,
+      child_token_consumed_at: child.child_token_consumed_at ?? null
     };
     return {
       ...normalizedChild,
@@ -114,7 +115,7 @@ function normalizeState(state: LocalDatabaseState): LocalDatabaseState {
   });
   const storedOnboardingTokens = state.child_onboarding_tokens ?? [];
   const child_onboarding_tokens = children
-    .filter((child) => child.status === 'active')
+    .filter((child) => child.status === 'active' && !child.child_token_consumed_at)
     .map((child) => {
       const stored = storedOnboardingTokens.find((token) => token.childId === child.id);
       return {

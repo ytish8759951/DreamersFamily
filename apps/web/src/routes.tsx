@@ -26,7 +26,7 @@ import { useLocalDataState } from './lib/useLocalData';
 
 function RootRedirect() {
   const state = useLocalDataState();
-  const childId = state.currentChildIdentity?.childId;
+  const childId = state.currentChildIdentity?.childId ?? state.device_child_id;
 
   return <Navigate to={childId ? `/child/home?childId=${encodeURIComponent(childId)}` : '/parent/children'} replace />;
 }

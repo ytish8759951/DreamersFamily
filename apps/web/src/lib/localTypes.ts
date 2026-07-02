@@ -39,6 +39,7 @@ export interface LocalChild {
   notes: string | null;
   child_token: string;
   child_token_updated_at: ISODateTime;
+  child_token_consumed_at: ISODateTime | null;
   bound_device_id: UUID | null;
   bound_at: ISODateTime | null;
   last_login_at: ISODateTime | null;

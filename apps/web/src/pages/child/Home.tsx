@@ -42,6 +42,22 @@ export function ChildHome() {
   const selectedChild = selectedChildId
     ? localState.children.find((child) => child.id === selectedChildId && child.status === 'active')
     : null;
+
+  if (!selectedChild) {
+    return (
+      <div className="v1-page v1-home v2-home-page">
+        <section className="child-home-install-banner">
+          <strong>尚未綁定裝置</strong>
+          <p>請先使用家長端產生的 QR Code 完成第一次綁定。</p>
+        </section>
+        <div className="child-home-empty-state">
+          <h1>孩子首頁</h1>
+          <p>裝置綁定後會自動進入這裡。</p>
+        </div>
+      </div>
+    );
+  }
+
   const childName = selectedChild?.display_name ?? '小朋友';
   const childShares = selectedChild
     ? buildChildShares(localState).filter((share) => share.child_id === selectedChild.id).slice(0, 3)
