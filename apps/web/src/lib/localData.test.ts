@@ -118,6 +118,26 @@ describe('local MVP data flows', () => {
     expect(emptyDeviceData.getState().device_child_id).toBe(child.id);
   });
 
+  it('opens a child token whose encoded payload contains underscores', () => {
+    const token = [
+      'df1',
+      'bd1d62560dc94401fe6f4a1b0251f729',
+      'eyJjaGlsZElkIjoiZmFlN2RkNGQtODg4ZS00ZTQ3LTg0ZDctZTg4MTIwMjkwMTFhIiwiZGlzcGxheU5hbWUiOiIxMTEiLCJiaXJ0aERhdGUiOiIyMDI1LTA2LTA2IiwidGhlbWVDb2xvciI6ImJsdWUiLCJjcmVhdGVkQXQiOiIyMDI2LTA3LTAxVDE1OjMyOjAzLjk4NVoiLCJ4Ijoi4KC_In0'
+    ].join('_');
+    const childDeviceData = new LocalDataService(new MockDatabase(new TestStorage(), 'underscore-token-child-db'));
+    childDeviceData.resetLocalData();
+
+    const boundChild = childDeviceData.bindChildDeviceByToken(token);
+
+    expect(boundChild).toMatchObject({
+      id: 'fae7dd4d-888e-4e47-84d7-e8812029011a',
+      display_name: '111',
+      child_token: token
+    });
+    expect(childDeviceData.getState().active_child_id).toBe(boundChild.id);
+    expect(childDeviceData.getState().device_child_id).toBe(boundChild.id);
+  });
+
   it('opens an already-bound child device with the same token again', () => {
     const child = data.createChild({ display_name: '已綁定孩子' });
     const childDeviceData = new LocalDataService(new MockDatabase(new TestStorage(), 'bound-child-device-db'));

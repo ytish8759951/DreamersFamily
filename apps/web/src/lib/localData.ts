@@ -107,6 +107,22 @@ function removeChildOnboardingToken(state: LocalDatabaseState, childId: UUID) {
   state.child_onboarding_tokens = (state.child_onboarding_tokens ?? []).filter((item) => item.childId !== childId);
 }
 
+function localChildToken(child: LocalChild) {
+  return child.child_token || (child as LocalChild & { childToken?: string }).childToken || '';
+}
+
+function onboardingChildToken(token: LocalChildOnboardingToken) {
+  return token.childToken || (token as LocalChildOnboardingToken & { token?: string }).token || '';
+}
+
+function findActiveChildByToken(state: LocalDatabaseState, token: string) {
+  return state.children.find((child) => child.status === 'active' && localChildToken(child) === token) ?? null;
+}
+
+function findOnboardingTokenByToken(state: LocalDatabaseState, token: string) {
+  return (state.child_onboarding_tokens ?? []).find((item) => onboardingChildToken(item) === token) ?? null;
+}
+
 function requireTask(state: LocalDatabaseState, taskId: UUID) {
   const task = state.tasks.find((item) => item.id === taskId);
   if (!task) throw new LocalDataError('Task not found', 'TASK_NOT_FOUND');
@@ -727,10 +743,10 @@ export class LocalDataService implements LocalDataRepository {
     const normalized = token.trim();
     if (!normalized) return null;
     const state = this.db.read();
-    const child = state.children.find((item) => item.status === 'active' && item.child_token === normalized);
+    const child = findActiveChildByToken(state, normalized);
     if (child) return child;
 
-    const onboardingToken = (state.child_onboarding_tokens ?? []).find((item) => item.childToken === normalized);
+    const onboardingToken = findOnboardingTokenByToken(state, normalized);
     if (!onboardingToken) return null;
     return state.children.find((item) => item.status === 'active' && item.id === onboardingToken.childId) ?? null;
   }
@@ -739,7 +755,13 @@ export class LocalDataService implements LocalDataRepository {
     return this.db.transaction((state) => {
       const normalized = token.trim();
       if (!normalized) throw new LocalDataError('Child token is empty', 'CHILD_TOKEN_EMPTY');
-      let child = state.children.find((item) => item.status === 'active' && item.child_token === normalized);
+      let child = findActiveChildByToken(state, normalized);
+      if (!child) {
+        const onboardingToken = findOnboardingTokenByToken(state, normalized);
+        child = onboardingToken
+          ? state.children.find((item) => item.status === 'active' && item.id === onboardingToken.childId) ?? null
+          : null;
+      }
       if (!child) {
         const payload = parseChildDeviceToken(normalized);
         if (!payload) throw new LocalDataError('Child token not found', 'CHILD_TOKEN_NOT_FOUND');

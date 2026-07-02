@@ -34,11 +34,18 @@ export function createChildDeviceTokenForChild(child: Pick<LocalChild, 'id' | 'd
 }
 
 export function parseChildDeviceToken(token: string): ChildDeviceTokenPayload | null {
-  const parts = token.trim().split('_');
-  if (parts.length !== 3 || parts[0] !== tokenPrefix || !/^[a-f0-9]{32}$/i.test(parts[1])) return null;
+  const normalized = token.trim();
+  const firstSeparator = normalized.indexOf('_');
+  const secondSeparator = normalized.indexOf('_', firstSeparator + 1);
+  if (firstSeparator < 0 || secondSeparator < 0) return null;
+
+  const prefix = normalized.slice(0, firstSeparator);
+  const random = normalized.slice(firstSeparator + 1, secondSeparator);
+  const payload = normalized.slice(secondSeparator + 1);
+  if (prefix !== tokenPrefix || !/^[a-f0-9]{32}$/i.test(random) || !payload) return null;
 
   try {
-    const parsed = JSON.parse(decodeBase64Url(parts[2])) as Partial<ChildDeviceTokenPayload>;
+    const parsed = JSON.parse(decodeBase64Url(payload)) as Partial<ChildDeviceTokenPayload>;
     if (!parsed.childId || !parsed.displayName || !parsed.createdAt) return null;
     return {
       childId: String(parsed.childId),

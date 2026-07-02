@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from 'react';
-import { Navigate, useNavigate, useParams } from 'react-router-dom';
+import { Navigate, useLocation, useNavigate } from 'react-router-dom';
 import { childrenRepository } from '../../lib/childrenRepository';
 import { useLocalDataState } from '../../lib/useLocalData';
 
@@ -16,7 +16,8 @@ const childRoutes = new Set([
 ]);
 
 export function ChildTokenEntry() {
-  const { token = '' } = useParams();
+  const location = useLocation();
+  const token = decodeURIComponent(location.pathname.replace('/child/', ''));
   const navigate = useNavigate();
   const state = useLocalDataState();
   const [error, setError] = useState('');
