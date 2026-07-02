@@ -7308,13 +7308,21 @@ button.ds-primary-button {
 }
 
 .child-created-dialog {
-  max-width: 31rem;
+  width: min(92vw, 420px);
+  max-width: 480px;
+  max-height: calc(100dvh - 2rem);
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
 }
 
 .child-created-content {
   display: grid;
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow-y: auto;
   justify-items: center;
-  padding: 1rem;
+  padding: 1rem 1rem 0.5rem;
   text-align: center;
   gap: 0.85rem;
 }
@@ -7324,10 +7332,42 @@ button.ds-primary-button {
   font-size: 1rem;
 }
 
+.child-created-url {
+  display: grid;
+  width: 100%;
+  gap: 0.5rem;
+}
+
+.child-created-url small {
+  color: var(--muted);
+  font-weight: 800;
+}
+
+.child-created-url textarea {
+  width: 100%;
+  min-height: 4.5rem;
+  border: 1px solid rgba(93, 73, 45, 0.12);
+  border-radius: 12px;
+  background: var(--cream);
+  padding: 0.75rem;
+  color: var(--text);
+  font: inherit;
+  line-height: 1.4;
+  resize: none;
+  word-break: break-all;
+  overflow-wrap: anywhere;
+}
+
+.child-created-url button {
+  justify-self: center;
+}
+
 .child-created-actions {
   justify-content: flex-end;
+  flex: none;
   border-top: 1px solid rgba(93, 73, 45, 0.1);
   padding: 1rem;
+  background: var(--white);
 }
 
 .child-device-entry {

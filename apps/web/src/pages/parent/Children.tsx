@@ -327,6 +327,7 @@ export function Children() {
       qrUrl: copyUrl,
       copyUrl
     });
+    setCreatedChildId(null);
     setQrImageError('');
     setQrDialogChildId(child.id);
   };
@@ -559,7 +560,7 @@ export function Children() {
         </div>
       ) : null}
 
-      {createdChild ? (
+      {createdChild && !qrDialogChild ? (
         <div className="local-form-backdrop child-created-backdrop" role="presentation" onMouseDown={() => setCreatedChildId(null)}>
           <section
             className="local-form-dialog child-created-dialog"
@@ -618,9 +619,6 @@ export function Children() {
               error={qrImageError}
             />
             <footer className="child-created-actions">
-              <button type="button" onClick={() => void copyChildUrl(qrDialogChild)}>
-                <Copy size={18} /> {copiedChildId === qrDialogChild.id ? 'Copied' : 'Copy URL'}
-              </button>
               <button className="ds-primary-button" type="button" onClick={closeQRCodeDialog}>
                 <Check size={18} /> Done
               </button>
@@ -668,8 +666,13 @@ function QRCodeDialogContent({
       <strong>{child.display_name} QR Code</strong>
       {error ? <p className="local-form-error">{error}</p> : null}
       <LocalQRCode value={copyUrl} label={`${child.display_name} QR Code`} />
-      <small>目前的 childDeviceUrl</small>
-      <code>{copyUrl}</code>
+      <div className="child-created-url">
+        <small>Current childDeviceUrl</small>
+        <textarea readOnly rows={3} value={copyUrl} />
+        <button type="button" onClick={() => void copyText(copyUrl)}>
+          <Copy size={16} /> Copy URL
+        </button>
+      </div>
       <small>childToken: {child.child_token || '(empty)'}</small>
     </div>
   );
