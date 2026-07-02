@@ -88,20 +88,29 @@ function logChildUrlDebug(input: {
     copyUrl: input.copyUrl
   });
 }
+
+function qrCodeComponentName() {
+  const component = QRCode as unknown as { displayName?: string; name?: string };
+  return component.displayName || component.name || 'QRCode';
+}
+
 class QRCodeRenderBoundary extends Component<
   { value: string; children: ReactNode },
-  { error: Error | null }
+  { error: Error | null; componentStack: string | null }
 > {
-  state: { error: Error | null } = { error: null };
+  state: { error: Error | null; componentStack: string | null } = { error: null, componentStack: null };
 
   static getDerivedStateFromError(error: Error) {
     return { error };
   }
 
   componentDidCatch(error: Error, errorInfo: ErrorInfo) {
+    this.setState({ componentStack: errorInfo.componentStack ?? null });
     console.error('[child onboarding] QR render failed', {
       childDeviceUrl: this.props.value,
       error,
+      name: error.name,
+      message: error.message,
       stack: error.stack,
       componentStack: errorInfo.componentStack
     });
@@ -109,10 +118,17 @@ class QRCodeRenderBoundary extends Component<
 
   render() {
     if (this.state.error) {
+      const componentName = qrCodeComponentName();
       return (
-        <div className="local-form-error">
-          <strong>QR Code render failed.</strong>
-          <pre style={{ whiteSpace: 'pre-wrap' }}>{this.state.error.stack ?? this.state.error.message}</pre>
+        <div className="local-form-error" style={{ textAlign: 'left', wordBreak: 'break-word' }}>
+          <strong>QR Code Render Debug Panel</strong>
+          <DebugValue label="1. error.name" value={this.state.error.name} />
+          <DebugValue label="2. error.message" value={this.state.error.message} />
+          <DebugValue label="3. error.stack" value={this.state.error.stack ?? null} />
+          <DebugValue label="4. componentStack" value={this.state.componentStack} />
+          <DebugValue label="5. React component name" value={componentName} />
+          <DebugValue label="6. childDeviceUrl length" value={this.props.value.length} />
+          <DebugValue label="7. childDeviceUrl" value={this.props.value} />
         </div>
       );
     }
@@ -122,6 +138,21 @@ class QRCodeRenderBoundary extends Component<
 
 function LocalQRCode({ value, label }: { value: string; label: string }) {
   console.log('childDeviceUrl', value);
+  console.log('react-qr-code status', {
+    packageJsonDependency: 'react-qr-code',
+    moduleAvailable: Boolean(QRCode),
+    importStatement: 'import QRCode from "react-qr-code";',
+    componentName: qrCodeComponentName()
+  });
+  if (!QRCode) {
+    return (
+      <div className="local-form-error">
+        <strong>react-qr-code module not found</strong>
+        <DebugValue label="childDeviceUrl length" value={value.length} />
+        <DebugValue label="childDeviceUrl" value={value} />
+      </div>
+    );
+  }
   return (
     <QRCodeRenderBoundary value={value}>
       <QRCode
@@ -135,6 +166,19 @@ function LocalQRCode({ value, label }: { value: string; label: string }) {
         viewBox="0 0 256 256"
       />
     </QRCodeRenderBoundary>
+  );
+}
+
+function DebugValue({ label, value }: { label: string; value: unknown }) {
+  return (
+    <div style={{ marginTop: 8 }}>
+      <dt style={{ fontWeight: 700 }}>{label}</dt>
+      <dd style={{ margin: '4px 0 0' }}>
+        <pre style={{ whiteSpace: 'pre-wrap', margin: 0 }}>
+          {typeof value === 'string' ? value : JSON.stringify(value, null, 2)}
+        </pre>
+      </dd>
+    </div>
   );
 }
 async function copyText(value: string) {
