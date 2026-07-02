@@ -6,7 +6,12 @@
   type MockDatabase
 } from './mockDatabase';
 import { normalizeBadgeIcon } from './badgeIcons';
-import { createChildDeviceToken, createChildDeviceTokenForChild, parseChildDeviceToken } from './childDeviceToken';
+import {
+  createChildDeviceToken,
+  createChildDeviceTokenForChild,
+  parseChildDeviceToken,
+  type ChildDeviceTokenPayload
+} from './childDeviceToken';
 import type {
   DreamWithBalance,
   LocalBadge,
@@ -121,6 +126,52 @@ function findActiveChildByToken(state: LocalDatabaseState, token: string) {
 
 function findOnboardingTokenByToken(state: LocalDatabaseState, token: string) {
   return (state.child_onboarding_tokens ?? []).find((item) => onboardingChildToken(item) === token) ?? null;
+}
+
+function createChildFromTokenPayload(
+  state: LocalDatabaseState,
+  payload: ChildDeviceTokenPayload,
+  token: string,
+  timestamp: string
+): LocalChild {
+  const child: LocalChild = {
+    id: payload.childId,
+    family_id: state.family_id,
+    display_name: payload.displayName,
+    legal_name: null,
+    birth_date: payload.birthDate,
+    birthday: payload.birthDate,
+    gender: null,
+    avatar_path: null,
+    avatar_media_id: null,
+    theme_color: payload.themeColor,
+    timezone: 'Asia/Taipei',
+    status: 'active',
+    notes: null,
+    child_token: token,
+    child_token_updated_at: timestamp,
+    bound_device_id: null,
+    bound_at: null,
+    last_login_at: null,
+    last_login_device: null,
+    created_by: state.current_user_id,
+    created_at: payload.createdAt,
+    updated_at: timestamp,
+    archived_at: null
+  };
+  state.children.push(child);
+  return child;
+}
+
+function setCurrentChildIdentity(state: LocalDatabaseState, child: LocalChild, token: string, timestamp: string) {
+  state.currentChildIdentity = {
+    childId: child.id,
+    displayName: child.display_name,
+    birthDate: child.birth_date,
+    themeColor: child.theme_color,
+    childToken: token,
+    boundAt: timestamp
+  };
 }
 
 function requireTask(state: LocalDatabaseState, taskId: UUID) {
@@ -716,6 +767,10 @@ export class LocalDataService implements LocalDataRepository {
       if (state.active_child_id === childId) {
         state.active_child_id = state.children.find((item) => item.status === 'active')?.id ?? null;
       }
+      if (state.device_child_id === childId) {
+        state.device_child_id = null;
+        state.currentChildIdentity = null;
+      }
       removeChildOnboardingToken(state, childId);
       return child;
     });
@@ -765,38 +820,9 @@ export class LocalDataService implements LocalDataRepository {
       if (!child) {
         const payload = parseChildDeviceToken(normalized);
         if (!payload) throw new LocalDataError('Child token not found', 'CHILD_TOKEN_NOT_FOUND');
-        const existingChild = state.children.find((item) => item.id === payload.childId);
-        const existingToken = (state.child_onboarding_tokens ?? []).find((item) => item.childId === payload.childId);
-        if (existingChild || existingToken) {
-          throw new LocalDataError('Child token has been revoked', 'CHILD_TOKEN_REVOKED');
-        }
         const timestamp = now();
-        child = {
-          id: payload.childId,
-          family_id: state.family_id,
-          display_name: payload.displayName,
-          legal_name: null,
-          birth_date: payload.birthDate,
-          birthday: payload.birthDate,
-          gender: null,
-          avatar_path: null,
-          avatar_media_id: null,
-          theme_color: payload.themeColor,
-          timezone: 'Asia/Taipei',
-          status: 'active',
-          notes: null,
-          child_token: normalized,
-          child_token_updated_at: timestamp,
-          bound_device_id: null,
-          bound_at: null,
-          last_login_at: null,
-          last_login_device: null,
-          created_by: state.current_user_id,
-          created_at: payload.createdAt,
-          updated_at: timestamp,
-          archived_at: null
-        };
-        state.children.push(child);
+        child = state.children.find((item) => item.status === 'active' && item.id === payload.childId) ?? null;
+        if (!child) child = createChildFromTokenPayload(state, payload, normalized, timestamp);
       }
       if (child.bound_device_id && child.bound_device_id !== state.device_id) {
         throw new LocalDataError('Child token is already bound to another device', 'CHILD_TOKEN_ALREADY_BOUND');
@@ -810,6 +836,7 @@ export class LocalDataService implements LocalDataRepository {
       upsertChildOnboardingToken(state, child);
       state.device_child_id = child.id;
       state.active_child_id = child.id;
+      setCurrentChildIdentity(state, child, normalized, timestamp);
       return child;
     });
   }
@@ -826,7 +853,10 @@ export class LocalDataService implements LocalDataRepository {
       child.last_login_device = null;
       child.updated_at = timestamp;
       upsertChildOnboardingToken(state, child);
-      if (state.device_child_id === childId) state.device_child_id = null;
+      if (state.device_child_id === childId) {
+        state.device_child_id = null;
+        state.currentChildIdentity = null;
+      }
       return child;
     });
   }
@@ -837,7 +867,10 @@ export class LocalDataService implements LocalDataRepository {
       child.bound_device_id = null;
       child.bound_at = null;
       child.updated_at = now();
-      if (state.device_child_id === childId) state.device_child_id = null;
+      if (state.device_child_id === childId) {
+        state.device_child_id = null;
+        state.currentChildIdentity = null;
+      }
       return child;
     });
   }

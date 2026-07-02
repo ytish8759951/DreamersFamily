@@ -56,6 +56,15 @@ export interface LocalChildOnboardingToken {
   createdAt: ISODateTime;
 }
 
+export interface LocalChildIdentity {
+  childId: UUID;
+  displayName: string;
+  birthDate: ISODate | null;
+  themeColor: string | null;
+  childToken: string;
+  boundAt: ISODateTime;
+}
+
 export interface LocalTask {
   id: UUID;
   family_id: UUID;
@@ -421,6 +430,7 @@ export interface LocalDatabaseState {
   parent_id: UUID | null;
   device_id: UUID | null;
   device_child_id: UUID | null;
+  currentChildIdentity?: LocalChildIdentity | null;
   current_user_id: UUID;
   active_child_id: UUID | null;
   children: LocalChild[];
