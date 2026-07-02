@@ -48,7 +48,7 @@ export function ParentLayout() {
     (child) => child.id === localState.active_child_id && child.status === 'active'
   );
 
-  if (localState.device_child_id) {
+  if (localState.currentChildIdentity) {
     return <Navigate to="/child/home" replace />;
   }
 

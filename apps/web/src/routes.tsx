@@ -22,9 +22,17 @@ import { ChildSpecialDays } from './pages/child/SpecialDays';
 import { ChildScreenTime } from './pages/child/ScreenTime';
 import { ChildTokenEntry } from './pages/child/ChildTokenEntry';
 import { DesignSystemPreview } from './pages/preview/DesignSystemPreview';
+import { useLocalDataState } from './lib/useLocalData';
+
+function RootRedirect() {
+  const state = useLocalDataState();
+  const hasChildIdentity = Boolean(state.currentChildIdentity);
+
+  return <Navigate to={hasChildIdentity ? '/child/home' : '/parent/children'} replace />;
+}
 
 export const router = createBrowserRouter([
-  { path: '/', element: <Navigate to="/parent/children" replace /> },
+  { path: '/', element: <RootRedirect /> },
   { path: '/preview/design-system', element: <DesignSystemPreview /> },
   {
     path: '/parent',

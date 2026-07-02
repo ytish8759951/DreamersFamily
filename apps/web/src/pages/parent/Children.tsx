@@ -320,7 +320,7 @@ export function Children() {
           >
             <header>
               <div>
-                <small>LOCAL TEST MODE</small>
+                <small>孩子資料</small>
                 <h2 id="child-form-title">{formMode === 'create' ? '新增孩子' : '編輯孩子'}</h2>
               </div>
               <button type="button" aria-label="關閉" onClick={closeForm}>×</button>
@@ -377,7 +377,7 @@ export function Children() {
               <footer>
                 <button type="button" onClick={closeForm}>取消</button>
                 <button className="ds-primary-button" type="submit">
-                  <Check size={18} /> ??</button>
+                  <Check size={18} /> 儲存</button>
               </footer>
             </form>
           </section>
@@ -395,15 +395,15 @@ export function Children() {
           >
             <header>
               <div>
-                <small>DEVICE ONBOARDING</small>
-                <h2 id="child-created-title">??????</h2>
+                <small>孩子專屬入口</small>
+                <h2 id="child-created-title">孩子建立完成</h2>
               </div>
-              <button type="button" aria-label="??" onClick={() => setCreatedChildId(null)}>?</button>
+              <button type="button" aria-label="關閉" onClick={() => setCreatedChildId(null)}>×</button>
             </header>
             <QRCodeDialogContent child={createdChild} />
             <footer className="child-created-actions">
               <button type="button" onClick={() => void copyChildUrl(createdChild)}>
-                <Copy size={18} /> {copiedChildId === createdChild.id ? '???' : '????'}
+                <Copy size={18} /> {copiedChildId === createdChild.id ? '已複製' : '複製網址'}
               </button>
               <button className="ds-primary-button" type="button" onClick={() => setCreatedChildId(null)}>
                 <Check size={18} /> 完成
@@ -424,7 +424,7 @@ function QRCodeDialogContent({
   const copyUrl = childDeviceUrl(child);
   return (
     <div className="child-created-content">
-      <p>???????????? QR Code</p>
+      <p>請使用孩子的平板掃描下方 QR Code</p>
       <LocalQRCode value={copyUrl} label={`${child.display_name} QR Code`} />
     </div>
   );
@@ -446,14 +446,14 @@ function ChildDeviceSettings({
   return (
     <div className="child-device-settings">
       <dl>
-        <div><dt>??????</dt><dd>{child.bound_device_id ? '???' : '????'}</dd></div>
-        <div><dt>??????</dt><dd>{child.last_login_at ? formatDateTime(child.last_login_at) : '????'}</dd></div>
-        <div><dt>??????</dt><dd>{child.last_login_device ?? '????'}</dd></div>
+        <div><dt>綁定狀態</dt><dd>{child.bound_device_id ? '已綁定' : '尚未綁定'}</dd></div>
+        <div><dt>最後登入時間</dt><dd>{child.last_login_at ? formatDateTime(child.last_login_at) : '尚無'}</dd></div>
+        <div><dt>最後登入裝置</dt><dd>{child.last_login_device ?? '尚無'}</dd></div>
       </dl>
       <div className="child-device-actions">
-        <button type="button" onClick={onCopy}><Copy size={16} /> {copied ? '???' : '????'}</button>
-        <button type="button" onClick={onRegenerate}><RefreshCw size={16} /> ??????</button>
-        <button type="button" className="is-danger" onClick={onUnbind} disabled={!child.bound_device_id}>??????</button>
+        <button type="button" onClick={onCopy}><Copy size={16} /> {copied ? '已複製' : '複製網址'}</button>
+        <button type="button" onClick={onRegenerate}><RefreshCw size={16} /> 重新產生網址</button>
+        <button type="button" className="is-danger" onClick={onUnbind} disabled={!child.bound_device_id}>解除綁定</button>
       </div>
     </div>
   );
