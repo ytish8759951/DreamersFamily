@@ -36,6 +36,23 @@ export function getLocalStorage(): KeyValueStorage {
   }
 }
 
+export function getCookieValue(name: string) {
+  if (typeof document === 'undefined') return null;
+  const escaped = name.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  const match = document.cookie.match(new RegExp(`(?:^|; )${escaped}=([^;]*)`));
+  return match ? decodeURIComponent(match[1]) : null;
+}
+
+export function setCookieValue(name: string, value: string, maxAgeSeconds = 60 * 60 * 24 * 365) {
+  if (typeof document === 'undefined') return;
+  document.cookie = `${name}=${encodeURIComponent(value)}; Path=/; Max-Age=${maxAgeSeconds}; SameSite=Lax`;
+}
+
+export function deleteCookieValue(name: string) {
+  if (typeof document === 'undefined') return;
+  document.cookie = `${name}=; Path=/; Max-Age=0; SameSite=Lax`;
+}
+
 export function readJson<T>(storage: KeyValueStorage, key: string): T | null {
   const raw = storage.getItem(key);
   if (!raw) return null;

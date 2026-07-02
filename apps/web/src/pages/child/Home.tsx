@@ -11,6 +11,7 @@ import type {
   LocalShare,
   ShareWithMedia
 } from '../../lib/localTypes';
+import { getCookieValue } from '../../lib/storage';
 import { getBirthdaySpecialDays } from '../../lib/specialDays';
 import { useLocalDataState } from '../../lib/useLocalData';
 
@@ -38,7 +39,7 @@ export function ChildHome() {
   const currentChildIdentity = useMemo(() => {
     if (typeof window === 'undefined') return null;
     try {
-      const raw = window.localStorage.getItem('currentChildIdentity');
+      const raw = window.localStorage.getItem('currentChildIdentity') ?? getCookieValue('currentChildIdentity');
       return raw ? (JSON.parse(raw) as { childId?: string; displayName?: string } | null) : null;
     } catch {
       return null;
@@ -46,7 +47,7 @@ export function ChildHome() {
   }, []);
   const deviceBinding = useMemo(() => {
     if (typeof window === 'undefined') return null;
-    return window.localStorage.getItem('deviceBinding');
+    return window.localStorage.getItem('deviceBinding') ?? getCookieValue('deviceBinding');
   }, []);
   const hasChildBinding = Boolean(localState.currentChildIdentity || localState.device_child_id || currentChildIdentity || deviceBinding);
   const selectedChildId = useMemo(() => {
@@ -61,8 +62,7 @@ export function ChildHome() {
     return (
       <div className="v1-page v1-home v2-home-page">
         <section className="child-home-install-banner">
-          <strong>此平板尚未綁定孩子</strong>
-          <p>請家長重新掃描 QR Code</p>
+          <strong>此平板尚未綁定孩子，請家長重新掃描 QR Code</strong>
         </section>
         <div className="child-home-empty-state">
           <h1>孩子首頁</h1>

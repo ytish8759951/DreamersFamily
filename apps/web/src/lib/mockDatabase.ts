@@ -1,7 +1,15 @@
-import type { LocalDatabaseState } from './localTypes';
+import type { LocalChild, LocalChildIdentity, LocalDatabaseState } from './localTypes';
 import { normalizeBadgeIcon } from './badgeIcons';
 import { createChildDeviceTokenForChild } from './childDeviceToken';
-import { getLocalStorage, readJson, writeJson, type KeyValueStorage } from './storage';
+import {
+  deleteCookieValue,
+  getCookieValue,
+  getLocalStorage,
+  readJson,
+  setCookieValue,
+  writeJson,
+  type KeyValueStorage
+} from './storage';
 
 export const LOCAL_DATABASE_KEY = 'little-dreamers-family:mvp-db:v1';
 export const LOCAL_DATABASE_EVENT = 'little-dreamers-family:local-db-change';
@@ -206,19 +214,77 @@ function createDefaultSettings(timestamp: string) {
   };
 }
 
+function readChildSessionBootstrap(): { currentChildIdentity: LocalChildIdentity; deviceBinding: string } | null {
+  const identityRaw = getCookieValue(LOCAL_CURRENT_CHILD_IDENTITY_KEY);
+  const deviceBinding = getCookieValue(LOCAL_DEVICE_BINDING_KEY);
+  if (!identityRaw || !deviceBinding) return null;
+
+  try {
+    const parsed = JSON.parse(identityRaw) as Partial<LocalChildIdentity>;
+    if (!parsed?.childId || !parsed?.displayName) return null;
+    return {
+      currentChildIdentity: {
+        childId: parsed.childId,
+        displayName: parsed.displayName,
+        birthDate: parsed.birthDate ?? null,
+        themeColor: parsed.themeColor ?? null,
+        childToken: parsed.childToken ?? '',
+        boundAt: parsed.boundAt ?? now()
+      },
+      deviceBinding
+    };
+  } catch {
+    return null;
+  }
+}
+
+function createBootstrapChild(identity: LocalChildIdentity): LocalChild {
+  const timestamp = now();
+  return {
+    id: identity.childId,
+    family_id: LOCAL_FAMILY_ID,
+    display_name: identity.displayName,
+    legal_name: null,
+    birth_date: identity.birthDate ?? null,
+    birthday: identity.birthDate ?? null,
+    gender: null,
+    avatar_path: null,
+    avatar_media_id: null,
+    theme_color: identity.themeColor ?? null,
+    timezone: 'Asia/Taipei',
+    status: 'active',
+    notes: null,
+    child_token: identity.childToken,
+    child_token_updated_at: identity.boundAt ?? timestamp,
+    child_token_consumed_at: identity.boundAt ?? timestamp,
+    bound_device_id: null,
+    bound_at: identity.boundAt ?? timestamp,
+    last_login_at: identity.boundAt ?? timestamp,
+    last_login_device: '孩子平板',
+    created_by: LOCAL_PARENT_USER_ID,
+    created_at: identity.boundAt ?? timestamp,
+    updated_at: timestamp,
+    archived_at: null
+  };
+}
+
 function syncChildSessionKeys(storage: KeyValueStorage, state: LocalDatabaseState) {
   if (typeof window === 'undefined') return;
 
   if (state.currentChildIdentity) {
     storage.setItem(LOCAL_CURRENT_CHILD_IDENTITY_KEY, JSON.stringify(state.currentChildIdentity));
+    setCookieValue(LOCAL_CURRENT_CHILD_IDENTITY_KEY, JSON.stringify(state.currentChildIdentity));
   } else {
     storage.removeItem(LOCAL_CURRENT_CHILD_IDENTITY_KEY);
+    deleteCookieValue(LOCAL_CURRENT_CHILD_IDENTITY_KEY);
   }
 
   if (state.device_child_id) {
     storage.setItem(LOCAL_DEVICE_BINDING_KEY, state.device_child_id);
+    setCookieValue(LOCAL_DEVICE_BINDING_KEY, state.device_child_id);
   } else {
     storage.removeItem(LOCAL_DEVICE_BINDING_KEY);
+    deleteCookieValue(LOCAL_DEVICE_BINDING_KEY);
   }
 }
 
@@ -230,7 +296,19 @@ export class MockDatabase {
 
   read(): LocalDatabaseState {
     const stored = readJson<LocalDatabaseState>(this.storage, this.storageKey);
-    if (!stored || stored.schema_version !== 1) {
+    const bootstrap = readChildSessionBootstrap();
+    const isEmptyStoredState =
+      stored ? (stored.children?.length ?? 0) === 0 && !stored.currentChildIdentity && !stored.device_child_id : false;
+    if (!stored || stored.schema_version !== 1 || (bootstrap && isEmptyStoredState)) {
+      if (bootstrap) {
+        const seeded = createEmptyState();
+        seeded.children = [createBootstrapChild(bootstrap.currentChildIdentity)];
+        seeded.device_child_id = bootstrap.currentChildIdentity.childId;
+        seeded.currentChildIdentity = bootstrap.currentChildIdentity;
+        seeded.active_child_id = bootstrap.currentChildIdentity.childId;
+        this.write(seeded);
+        return clone(seeded);
+      }
       const empty = createEmptyState();
       this.write(empty);
       return clone(empty);
