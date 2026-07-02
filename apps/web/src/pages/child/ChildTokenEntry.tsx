@@ -22,6 +22,10 @@ export function ChildTokenEntry() {
   const state = useLocalDataState();
   const [invalid, setInvalid] = useState(false);
   const reservedChildRoute = useMemo(() => childRoutes.has(token), [token]);
+  const childHomeTarget = useMemo(() => {
+    const childId = state.currentChildIdentity?.childId ?? state.device_child_id ?? null;
+    return childId ? `/child/home?childId=${encodeURIComponent(childId)}` : '/child/home';
+  }, [state.currentChildIdentity?.childId, state.device_child_id]);
 
   useEffect(() => {
     if (reservedChildRoute) return;
@@ -31,14 +35,14 @@ export function ChildTokenEntry() {
     }
 
     try {
-      childrenRepository.bindChildDeviceByToken(token);
-      navigate('/child/home', { replace: true });
+      const child = childrenRepository.bindChildDeviceByToken(token);
+      navigate(`/child/home?childId=${encodeURIComponent(child.id)}`, { replace: true });
     } catch {
       setInvalid(true);
     }
   }, [navigate, reservedChildRoute, token]);
 
-  if (reservedChildRoute || state.device_child_id) return <Navigate to="/child/home" replace />;
+  if (reservedChildRoute || state.device_child_id) return <Navigate to={childHomeTarget} replace />;
 
   if (invalid) {
     return (

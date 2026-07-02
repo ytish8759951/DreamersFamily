@@ -4,7 +4,7 @@
   "description": "Dreamers Family",
   "display": "standalone",
   "orientation": "portrait",
-  "start_url": "/launch",
+  "start_url": "/parent/children",
   "scope": "/",
   "background_color": "#fff7ed",
   "theme_color": "#7a8f6e",

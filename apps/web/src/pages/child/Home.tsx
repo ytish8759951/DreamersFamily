@@ -1,7 +1,7 @@
 ﻿import type { LucideIcon } from 'lucide-react';
 import { Camera, ChevronRight, Image, Mic, Play, Volume2 } from 'lucide-react';
-import type { ReactNode } from 'react';
-import { Link } from 'react-router-dom';
+import { useMemo, type ReactNode } from 'react';
+import { Link, useLocation } from 'react-router-dom';
 import { LocalShareMedia as LocalShareMediaView } from '../../components/LocalShareMedia';
 import { dataRepository } from '../../lib/dataRepository';
 import { useDreamCoverMigration } from '../../lib/dreamCoverMigration';
@@ -33,10 +33,15 @@ function playVoice({ text, audioUrl }: VoiceSource) {
 
 export function ChildHome() {
   useDreamCoverMigration();
+  const location = useLocation();
   const localState = useLocalDataState();
-  const selectedChild = localState.children.find(
-    (child) => child.id === localState.active_child_id && child.status === 'active'
-  );
+  const selectedChildId = useMemo(() => {
+    const childId = new URLSearchParams(location.search).get('childId');
+    return childId || localState.currentChildIdentity?.childId || localState.device_child_id || localState.active_child_id || null;
+  }, [location.search, localState.active_child_id, localState.currentChildIdentity?.childId, localState.device_child_id]);
+  const selectedChild = selectedChildId
+    ? localState.children.find((child) => child.id === selectedChildId && child.status === 'active')
+    : null;
   const childName = selectedChild?.display_name ?? '小朋友';
   const childShares = selectedChild
     ? buildChildShares(localState).filter((share) => share.child_id === selectedChild.id).slice(0, 3)
@@ -60,6 +65,12 @@ export function ChildHome() {
 
   return (
     <div className="v1-page v1-home v2-home-page">
+      {selectedChild ? (
+        <section className="child-home-install-banner">
+          <strong>孩子裝置已啟用</strong>
+          <p>請把這個頁面加入主畫面，之後會直接開啟孩子首頁。</p>
+        </section>
+      ) : null}
       <header className="v1-brand-header">
         <h1>小小夢想家 Family <span>✦</span></h1>
         <p>今天也一起收集星星、分享與成長。</p>

@@ -26,14 +26,13 @@ import { useLocalDataState } from './lib/useLocalData';
 
 function RootRedirect() {
   const state = useLocalDataState();
-  const hasChildIdentity = Boolean(state.currentChildIdentity);
+  const childId = state.currentChildIdentity?.childId;
 
-  return <Navigate to={hasChildIdentity ? '/child/home' : '/parent/children'} replace />;
+  return <Navigate to={childId ? `/child/home?childId=${encodeURIComponent(childId)}` : '/parent/children'} replace />;
 }
 
 export const router = createBrowserRouter([
   { path: '/', element: <RootRedirect /> },
-  { path: '/launch', element: <RootRedirect /> },
   { path: '/preview/design-system', element: <DesignSystemPreview /> },
   {
     path: '/parent',
