@@ -11,4 +11,4 @@
 \ir migrations/001_initial_schema.sql
 \ir migrations/002_core_product_schema.sql
 \ir migrations/003_core_rls_and_storage.sql
-
+\ir migrations/004_repository_foundation.sql
