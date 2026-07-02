@@ -1,4 +1,4 @@
-import { Component, useMemo, useState, type ErrorInfo, type FormEvent, type ReactNode } from 'react';
+import { useMemo, useState, type FormEvent, type ReactNode } from 'react';
 import QRCode from 'react-qr-code';
 import {
   Baby,
@@ -43,141 +43,18 @@ function childDeviceUrl(child: LocalChild) {
   return `${origin}/child/${child.child_token}`;
 }
 
-function onboardingTokenForChild(state: ReturnType<typeof useLocalDataState>, child: LocalChild) {
-  return state.child_onboarding_tokens?.find((token) => token.childId === child.id) ?? null;
-}
-
-function logChildUrlDebug(input: {
-  source: string;
-  child: LocalChild;
-  onboardingToken: ReturnType<typeof onboardingTokenForChild>;
-  qrUrl: string;
-  copyUrl: string;
-}) {
-  const childWithLegacyFields = input.child as LocalChild & {
-    childToken?: string;
-    childTokenLegacy?: string;
-    onboardingToken?: string;
-  };
-
-  console.log('[child onboarding url debug]', {
-    source: input.source,
-    'child.childToken': childWithLegacyFields.childToken,
-    childId: input.child.id,
-    child_child_token: input.child.child_token,
-    child: {
-      childToken: childWithLegacyFields.childToken,
-      child_token: input.child.child_token,
-      childTokenLegacy: childWithLegacyFields.childTokenLegacy,
-      onboardingToken: childWithLegacyFields.onboardingToken
-    },
-    childToken: childWithLegacyFields.childToken,
-    onboardingToken: input.onboardingToken,
-    qrUrl: input.qrUrl,
-    copyUrl: input.copyUrl,
-    qrAndCopyMatch: input.qrUrl === input.copyUrl
-  });
-
-  console.log('[child onboarding qr/copy check]', {
-    childToken: childWithLegacyFields.childToken ?? input.child.child_token,
-    child_childToken: childWithLegacyFields.childToken,
-    child_child_token: input.child.child_token,
-    onboardingToken: input.onboardingToken,
-    qrUrl: input.qrUrl,
-    copyUrl: input.copyUrl
-  });
-}
-
-function qrCodeComponentName() {
-  const component = QRCode as unknown as { displayName?: string; name?: string };
-  return component.displayName || component.name || 'QRCode';
-}
-
-class QRCodeRenderBoundary extends Component<
-  { value: string; children: ReactNode },
-  { error: Error | null; componentStack: string | null }
-> {
-  state: { error: Error | null; componentStack: string | null } = { error: null, componentStack: null };
-
-  static getDerivedStateFromError(error: Error) {
-    return { error };
-  }
-
-  componentDidCatch(error: Error, errorInfo: ErrorInfo) {
-    this.setState({ componentStack: errorInfo.componentStack ?? null });
-    console.error('[child onboarding] QR render failed', {
-      childDeviceUrl: this.props.value,
-      error,
-      name: error.name,
-      message: error.message,
-      stack: error.stack,
-      componentStack: errorInfo.componentStack
-    });
-  }
-
-  render() {
-    if (this.state.error) {
-      const componentName = qrCodeComponentName();
-      return (
-        <div className="local-form-error" style={{ textAlign: 'left', wordBreak: 'break-word' }}>
-          <strong>QR Code Render Debug Panel</strong>
-          <DebugValue label="1. error.name" value={this.state.error.name} />
-          <DebugValue label="2. error.message" value={this.state.error.message} />
-          <DebugValue label="3. error.stack" value={this.state.error.stack ?? null} />
-          <DebugValue label="4. componentStack" value={this.state.componentStack} />
-          <DebugValue label="5. React component name" value={componentName} />
-          <DebugValue label="6. childDeviceUrl length" value={this.props.value.length} />
-          <DebugValue label="7. childDeviceUrl" value={this.props.value} />
-        </div>
-      );
-    }
-    return this.props.children;
-  }
-}
-
 function LocalQRCode({ value, label }: { value: string; label: string }) {
-  console.log('childDeviceUrl', value);
-  console.log('react-qr-code status', {
-    packageJsonDependency: 'react-qr-code',
-    moduleAvailable: Boolean(QRCode),
-    importStatement: 'import QRCode from "react-qr-code";',
-    componentName: qrCodeComponentName()
-  });
-  if (!QRCode) {
-    return (
-      <div className="local-form-error">
-        <strong>react-qr-code module not found</strong>
-        <DebugValue label="childDeviceUrl length" value={value.length} />
-        <DebugValue label="childDeviceUrl" value={value} />
-      </div>
-    );
-  }
   return (
-    <QRCodeRenderBoundary value={value}>
-      <QRCode
-        aria-label={label}
-        bgColor="#ffffff"
-        fgColor="#111827"
-        level="M"
-        size={220}
-        style={{ height: 'auto', maxWidth: '100%', width: '220px' }}
-        value={value}
-        viewBox="0 0 256 256"
-      />
-    </QRCodeRenderBoundary>
-  );
-}
-
-function DebugValue({ label, value }: { label: string; value: unknown }) {
-  return (
-    <div style={{ marginTop: 8 }}>
-      <dt style={{ fontWeight: 700 }}>{label}</dt>
-      <dd style={{ margin: '4px 0 0' }}>
-        <pre style={{ whiteSpace: 'pre-wrap', margin: 0 }}>
-          {typeof value === 'string' ? value : JSON.stringify(value, null, 2)}
-        </pre>
-      </dd>
-    </div>
+    <QRCode
+      aria-label={label}
+      bgColor="#ffffff"
+      fgColor="#111827"
+      level="M"
+      size={220}
+      style={{ height: 'auto', maxWidth: '100%', width: '220px' }}
+      value={value}
+      viewBox="0 0 256 256"
+    />
   );
 }
 async function copyText(value: string) {
@@ -261,11 +138,6 @@ export function Children() {
           theme_color: form.theme_color,
           notes: form.notes || null
         });
-        console.log('[child onboarding] created childToken', {
-          childId: child.id,
-          childName: child.display_name,
-          childToken: child.child_token
-        });
         setCreatedChildId(child.id);
         setExpandedDeviceId(child.id);
       } else if (editingId) {
@@ -291,14 +163,6 @@ export function Children() {
 
   const copyChildUrl = async (child: LocalChild) => {
     const copyUrl = childDeviceUrl(child);
-    const onboardingToken = onboardingTokenForChild(state, child);
-    logChildUrlDebug({
-      source: 'copy button',
-      child,
-      onboardingToken,
-      qrUrl: copyUrl,
-      copyUrl
-    });
     await copyText(copyUrl);
     setCopiedChildId(child.id);
     window.setTimeout(() => setCopiedChildId((current) => current === child.id ? null : current), 1600);
@@ -308,11 +172,6 @@ export function Children() {
     const confirmed = window.confirm(`重新產生「${child.display_name}」的孩子專屬網址？舊網址會立即失效，已綁定裝置也會解除。`);
     if (!confirmed) return;
     const next = childrenRepository.regenerateChildToken(child.id);
-    console.log('[child onboarding] regenerated childToken', {
-      childId: next.id,
-      childName: next.display_name,
-      childToken: next.child_token
-    });
     setExpandedDeviceId(next.id);
   };
 
@@ -406,7 +265,6 @@ export function Children() {
                     {expandedDeviceId === child.id ? (
                       <ChildDeviceSettings
                         child={child}
-                        state={state}
                         copied={copiedChildId === child.id}
                         onCopy={() => void copyChildUrl(child)}
                         onRegenerate={() => regenerateChildUrl(child)}
@@ -519,8 +377,7 @@ export function Children() {
               <footer>
                 <button type="button" onClick={closeForm}>取消</button>
                 <button className="ds-primary-button" type="submit">
-                  <Check size={18} /> 儲存孩子
-                </button>
+                  <Check size={18} /> ??</button>
               </footer>
             </form>
           </section>
@@ -539,14 +396,14 @@ export function Children() {
             <header>
               <div>
                 <small>DEVICE ONBOARDING</small>
-                <h2 id="child-created-title">孩子建立完成</h2>
+                <h2 id="child-created-title">??????</h2>
               </div>
-              <button type="button" aria-label="關閉" onClick={() => setCreatedChildId(null)}>×</button>
+              <button type="button" aria-label="??" onClick={() => setCreatedChildId(null)}>?</button>
             </header>
-            <QRCodeDialogContent child={createdChild} state={state} />
+            <QRCodeDialogContent child={createdChild} />
             <footer className="child-created-actions">
               <button type="button" onClick={() => void copyChildUrl(createdChild)}>
-                <Copy size={18} /> {copiedChildId === createdChild.id ? '已複製' : '複製網址'}
+                <Copy size={18} /> {copiedChildId === createdChild.id ? '???' : '????'}
               </button>
               <button className="ds-primary-button" type="button" onClick={() => setCreatedChildId(null)}>
                 <Check size={18} /> 完成
@@ -560,76 +417,43 @@ export function Children() {
 }
 
 function QRCodeDialogContent({
-  child,
-  state
+  child
 }: {
   child: LocalChild;
-  state: ReturnType<typeof useLocalDataState>;
 }) {
   const copyUrl = childDeviceUrl(child);
-  const onboardingToken = onboardingTokenForChild(state, child);
-  logChildUrlDebug({
-    source: 'created child modal',
-    child,
-    onboardingToken,
-    qrUrl: copyUrl,
-    copyUrl
-  });
   return (
     <div className="child-created-content">
-      <strong>{child.display_name} QR Code</strong>
+      <p>???????????? QR Code</p>
       <LocalQRCode value={copyUrl} label={`${child.display_name} QR Code`} />
-      <div className="child-created-url">
-        <button type="button" onClick={() => void copyText(copyUrl)}>
-          <Copy size={16} /> Copy URL
-        </button>
-      </div>
-      <details className="child-created-debug">
-        <summary>Debug</summary>
-        <div className="child-created-debug-body">
-          <small>childToken present: {child.child_token ? 'yes' : 'no'}</small>
-          <small>childDeviceUrl length: {copyUrl.length}</small>
-          <small>childDeviceUrl: {copyUrl}</small>
-        </div>
-      </details>
     </div>
   );
 }
 
 function ChildDeviceSettings({
   child,
-  state,
   copied,
   onCopy,
   onRegenerate,
   onUnbind
 }: {
   child: LocalChild;
-  state: ReturnType<typeof useLocalDataState>;
   copied: boolean;
   onCopy: () => void;
   onRegenerate: () => void;
   onUnbind: () => void;
 }) {
-  const onboardingToken = onboardingTokenForChild(state, child);
-  logChildUrlDebug({
-    source: 'expanded child qr',
-    child,
-    onboardingToken,
-    qrUrl: childDeviceUrl(child),
-    copyUrl: childDeviceUrl(child)
-  });
   return (
     <div className="child-device-settings">
       <dl>
-        <div><dt>裝置綁定狀態</dt><dd>{child.bound_device_id ? '已綁定' : '尚未綁定'}</dd></div>
-        <div><dt>上次登入時間</dt><dd>{child.last_login_at ? formatDateTime(child.last_login_at) : '尚未登入'}</dd></div>
-        <div><dt>上次登入裝置</dt><dd>{child.last_login_device ?? '尚未登入'}</dd></div>
+        <div><dt>??????</dt><dd>{child.bound_device_id ? '???' : '????'}</dd></div>
+        <div><dt>??????</dt><dd>{child.last_login_at ? formatDateTime(child.last_login_at) : '????'}</dd></div>
+        <div><dt>??????</dt><dd>{child.last_login_device ?? '????'}</dd></div>
       </dl>
       <div className="child-device-actions">
-        <button type="button" onClick={onCopy}><Copy size={16} /> {copied ? '已複製' : '複製網址'}</button>
-        <button type="button" onClick={onRegenerate}><RefreshCw size={16} /> 重新產生網址</button>
-        <button type="button" className="is-danger" onClick={onUnbind} disabled={!child.bound_device_id}>解除裝置綁定</button>
+        <button type="button" onClick={onCopy}><Copy size={16} /> {copied ? '???' : '????'}</button>
+        <button type="button" onClick={onRegenerate}><RefreshCw size={16} /> ??????</button>
+        <button type="button" className="is-danger" onClick={onUnbind} disabled={!child.bound_device_id}>??????</button>
       </div>
     </div>
   );

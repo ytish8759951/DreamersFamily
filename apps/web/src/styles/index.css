@@ -7348,71 +7348,12 @@ button.ds-primary-button {
   font-size: 1rem;
 }
 
-.child-created-url {
-  display: grid;
-  width: 100%;
-  max-width: 100%;
-  gap: 0.5rem;
-  box-sizing: border-box;
-}
-
-.child-created-url small {
-  color: var(--muted);
-  font-weight: 800;
-}
-
-.child-created-url textarea {
-  width: 100%;
-  max-width: 100%;
-  min-height: 4.5rem;
-  border: 1px solid rgba(93, 73, 45, 0.12);
-  border-radius: 12px;
-  background: var(--cream);
-  padding: 0.75rem;
-  color: var(--text);
-  font: inherit;
-  line-height: 1.4;
-  resize: none;
-  word-break: break-all;
-  white-space: normal;
-  overflow-wrap: anywhere;
-  overflow-x: hidden;
-  box-sizing: border-box;
-}
-
-.child-created-url button {
-  justify-self: center;
-}
-
 .child-created-content svg {
   display: block;
   width: 220px;
   max-width: 80vw;
   height: auto;
   margin: 0 auto;
-}
-
-.child-created-debug {
-  width: 100%;
-  max-width: 100%;
-  text-align: left;
-}
-
-.child-created-debug summary {
-  cursor: pointer;
-  color: var(--muted);
-  font-weight: 800;
-}
-
-.child-created-debug-body {
-  display: grid;
-  padding-top: 0.65rem;
-  gap: 0.45rem;
-}
-
-.child-created-debug-body small {
-  overflow-wrap: anywhere;
-  word-break: break-all;
 }
 
 .child-created-actions {
