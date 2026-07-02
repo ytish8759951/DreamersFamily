@@ -1,4 +1,5 @@
-import { useMemo, useState, type FormEvent, type ReactNode } from 'react';
+import { Component, useMemo, useState, type ErrorInfo, type FormEvent, type ReactNode } from 'react';
+import QRCode from 'react-qr-code';
 import {
   Baby,
   Check,
@@ -41,10 +42,6 @@ function childDeviceUrl(child: LocalChild) {
     ? window.location.origin
     : productionOrigin;
   return `${origin}/child/${child.child_token}`;
-}
-
-function qrCodeUrl(value: string) {
-  return `https://api.qrserver.com/v1/create-qr-code/?size=220x220&margin=12&data=${encodeURIComponent(value)}`;
 }
 
 function onboardingTokenForChild(state: ReturnType<typeof useLocalDataState>, child: LocalChild) {
@@ -91,7 +88,55 @@ function logChildUrlDebug(input: {
     copyUrl: input.copyUrl
   });
 }
+class QRCodeRenderBoundary extends Component<
+  { value: string; children: ReactNode },
+  { error: Error | null }
+> {
+  state: { error: Error | null } = { error: null };
 
+  static getDerivedStateFromError(error: Error) {
+    return { error };
+  }
+
+  componentDidCatch(error: Error, errorInfo: ErrorInfo) {
+    console.error('[child onboarding] QR render failed', {
+      childDeviceUrl: this.props.value,
+      error,
+      stack: error.stack,
+      componentStack: errorInfo.componentStack
+    });
+  }
+
+  render() {
+    if (this.state.error) {
+      return (
+        <div className="local-form-error">
+          <strong>QR Code render failed.</strong>
+          <pre style={{ whiteSpace: 'pre-wrap' }}>{this.state.error.stack ?? this.state.error.message}</pre>
+        </div>
+      );
+    }
+    return this.props.children;
+  }
+}
+
+function LocalQRCode({ value, label }: { value: string; label: string }) {
+  console.log('childDeviceUrl', value);
+  return (
+    <QRCodeRenderBoundary value={value}>
+      <QRCode
+        aria-label={label}
+        bgColor="#ffffff"
+        fgColor="#111827"
+        level="M"
+        size={220}
+        style={{ height: 'auto', maxWidth: '100%', width: '220px' }}
+        value={value}
+        viewBox="0 0 256 256"
+      />
+    </QRCodeRenderBoundary>
+  );
+}
 async function copyText(value: string) {
   if (navigator.clipboard?.writeText) {
     await navigator.clipboard.writeText(value);
@@ -527,7 +572,6 @@ export function Children() {
               child={qrDialogChild}
               state={state}
               error={qrImageError}
-              onImageError={() => setQrImageError('QR Code image failed to load. Use the URL below or copy the link.')}
             />
             <footer className="child-created-actions">
               <button type="button" onClick={() => void copyChildUrl(qrDialogChild)}>
@@ -554,19 +598,17 @@ function CreatedChildQr({ child, state }: { child: LocalChild; state: ReturnType
     qrUrl: copyUrl,
     copyUrl
   });
-  return <img src={qrCodeUrl(copyUrl)} alt={`${child.display_name} 孩子專屬網址 QR Code`} />;
+  return <LocalQRCode value={copyUrl} label={`${child.display_name} QR Code`} />;
 }
 
 function QRCodeDialogContent({
   child,
   state,
-  error,
-  onImageError
+  error
 }: {
   child: LocalChild;
   state: ReturnType<typeof useLocalDataState>;
   error: string;
-  onImageError: () => void;
 }) {
   const copyUrl = childDeviceUrl(child);
   const onboardingToken = onboardingTokenForChild(state, child);
@@ -581,7 +623,7 @@ function QRCodeDialogContent({
     <div className="child-created-content">
       <strong>{child.display_name} QR Code</strong>
       {error ? <p className="local-form-error">{error}</p> : null}
-      <img src={qrCodeUrl(copyUrl)} alt={`${child.display_name} 孩子專屬網址 QR Code`} onError={onImageError} />
+      <LocalQRCode value={copyUrl} label={`${child.display_name} QR Code`} />
       <small>目前的 childDeviceUrl</small>
       <code>{copyUrl}</code>
       <small>childToken: {child.child_token || '(empty)'}</small>
@@ -621,7 +663,7 @@ function ChildDeviceSettings({
         <small>childToken: {child.child_token || '(empty)'}</small>
       </div>
       <div className="child-device-qr">
-        <img src={qrCodeUrl(url)} alt={`${child.display_name} 孩子專屬網址 QR Code`} />
+        <LocalQRCode value={url} label={`${child.display_name} QR Code`} />
       </div>
       <dl>
         <div><dt>裝置綁定狀態</dt><dd>{child.bound_device_id ? '已綁定' : '尚未綁定'}</dd></div>
