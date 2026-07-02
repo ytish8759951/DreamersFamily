@@ -14,6 +14,8 @@ export default defineConfig({
         'app-icon.svg',
         'app-icon-parent.svg',
         'app-icon-child.svg',
+        'app-icon-parent.png',
+        'app-icon-child.png',
         'app-icon-192.png',
         'app-icon-512.png'
       ]

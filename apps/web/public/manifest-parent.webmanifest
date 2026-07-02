@@ -1,7 +1,7 @@
 {
-  "name": "Dreamers Family 家長",
-  "short_name": "家長版",
-  "description": "Dreamers Family 家長",
+  "name": "Dreamers Family",
+  "short_name": "Dreamers Family",
+  "description": "Dreamers Family 家長版",
   "display": "standalone",
   "orientation": "portrait",
   "id": "/parent",
@@ -11,9 +11,9 @@
   "theme_color": "#7a8f6e",
   "icons": [
     {
-      "src": "/app-icon-parent.svg",
-      "sizes": "any",
-      "type": "image/svg+xml",
+      "src": "/app-icon-parent.png",
+      "sizes": "180x180",
+      "type": "image/png",
       "purpose": "any maskable"
     }
   ]

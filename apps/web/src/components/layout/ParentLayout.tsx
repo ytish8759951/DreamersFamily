@@ -70,12 +70,23 @@ export function ParentLayout() {
     if (typeof document === 'undefined') return;
     const linkId = 'app-manifest-link';
     const href = '/manifest-parent.webmanifest?v=20260702-parent-pwa-v1';
+    const iconHref = '/app-icon-parent.png?v=20260702-parent-pwa-v1';
     const existing = document.getElementById(linkId) as HTMLLinkElement | null;
     const link = existing ?? document.createElement('link');
     link.id = linkId;
     link.rel = 'manifest';
     link.href = href;
     if (!existing) document.head.appendChild(link);
+    let iconLink = document.querySelector('link[rel="apple-touch-icon"]') as HTMLLinkElement | null;
+    if (!iconLink) {
+      iconLink = document.createElement('link');
+      iconLink.rel = 'apple-touch-icon';
+      document.head.appendChild(iconLink);
+    }
+    iconLink.href = iconHref;
+    const title = document.querySelector('meta[name="apple-mobile-web-app-title"]');
+    if (title) title.setAttribute('content', 'Dreamers Family');
+    document.title = 'Dreamers Family';
   }, []);
 
   return (
