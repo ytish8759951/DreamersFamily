@@ -4,8 +4,9 @@
   "description": "Dreamers Family",
   "display": "standalone",
   "orientation": "portrait",
-  "start_url": "/parent/children",
-  "scope": "/",
+  "id": "/child/home",
+  "start_url": "/child/home",
+  "scope": "/child/",
   "background_color": "#fff7ed",
   "theme_color": "#7a8f6e",
   "icons": [

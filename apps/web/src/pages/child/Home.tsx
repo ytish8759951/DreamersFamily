@@ -35,20 +35,34 @@ export function ChildHome() {
   useDreamCoverMigration();
   const location = useLocation();
   const localState = useLocalDataState();
+  const currentChildIdentity = useMemo(() => {
+    if (typeof window === 'undefined') return null;
+    try {
+      const raw = window.localStorage.getItem('currentChildIdentity');
+      return raw ? (JSON.parse(raw) as { childId?: string; displayName?: string } | null) : null;
+    } catch {
+      return null;
+    }
+  }, []);
+  const deviceBinding = useMemo(() => {
+    if (typeof window === 'undefined') return null;
+    return window.localStorage.getItem('deviceBinding');
+  }, []);
+  const hasChildBinding = Boolean(localState.currentChildIdentity || localState.device_child_id || currentChildIdentity || deviceBinding);
   const selectedChildId = useMemo(() => {
     const childId = new URLSearchParams(location.search).get('childId');
-    return childId || localState.currentChildIdentity?.childId || localState.device_child_id || localState.active_child_id || null;
-  }, [location.search, localState.active_child_id, localState.currentChildIdentity?.childId, localState.device_child_id]);
+    return childId || localState.currentChildIdentity?.childId || currentChildIdentity?.childId || localState.device_child_id || deviceBinding || localState.active_child_id || null;
+  }, [currentChildIdentity?.childId, deviceBinding, location.search, localState.active_child_id, localState.currentChildIdentity?.childId, localState.device_child_id]);
   const selectedChild = selectedChildId
     ? localState.children.find((child) => child.id === selectedChildId && child.status === 'active')
     : null;
 
-  if (!selectedChild) {
+  if (!selectedChild && !hasChildBinding) {
     return (
       <div className="v1-page v1-home v2-home-page">
         <section className="child-home-install-banner">
-          <strong>尚未綁定裝置</strong>
-          <p>請先使用家長端產生的 QR Code 完成第一次綁定。</p>
+          <strong>尚未綁定此平板</strong>
+          <p>請家長重新掃描 QR Code</p>
         </section>
         <div className="child-home-empty-state">
           <h1>孩子首頁</h1>
@@ -58,7 +72,7 @@ export function ChildHome() {
     );
   }
 
-  const childName = selectedChild?.display_name ?? '小朋友';
+  const childName = selectedChild?.display_name ?? currentChildIdentity?.displayName ?? '小朋友';
   const childShares = selectedChild
     ? buildChildShares(localState).filter((share) => share.child_id === selectedChild.id).slice(0, 3)
     : [];
@@ -81,7 +95,7 @@ export function ChildHome() {
 
   return (
     <div className="v1-page v1-home v2-home-page">
-      {selectedChild ? (
+      {hasChildBinding ? (
         <section className="child-home-install-banner">
           <strong>孩子裝置已啟用</strong>
           <p>請在這個孩子首頁加入主畫面。</p>
