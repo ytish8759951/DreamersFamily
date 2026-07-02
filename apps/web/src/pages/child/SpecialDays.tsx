@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState, type FormEvent, type ReactNode } from 'react';
 import { CalendarHeart, Clock3, Gift, Plus, PartyPopper } from 'lucide-react';
+import { resolveCurrentChildId } from '../../lib/childSession';
 import { specialDayRepository } from '../../lib/specialDayRepository';
 import type { LocalSpecialDay, SpecialDayType } from '../../lib/localTypes';
 import { getBirthdaySpecialDays } from '../../lib/specialDays';
@@ -42,9 +43,8 @@ const manualTypeOptions: { value: ChildSpecialDayForm['type']; label: string; ic
 
 export function ChildSpecialDays() {
   const state = useLocalDataState();
-  const activeChild = state.children.find(
-    (child) => child.id === state.active_child_id && child.status === 'active'
-  ) ?? null;
+  const currentChildId = resolveCurrentChildId(state);
+  const activeChild = state.children.find((child) => child.id === currentChildId && child.status === 'active') ?? null;
   const [showForm, setShowForm] = useState(false);
   const [formError, setFormError] = useState('');
   const [form, setForm] = useState<ChildSpecialDayForm>(emptyForm);

@@ -1,5 +1,6 @@
 import { Clock3, History, ShieldCheck, Star } from 'lucide-react';
 import { useMemo, useState } from 'react';
+import { resolveCurrentChildId } from '../../lib/childSession';
 import { dataRepository } from '../../lib/dataRepository';
 import type { LocalScreenTimeLog } from '../../lib/localTypes';
 import { useLocalDataState } from '../../lib/useLocalData';
@@ -52,7 +53,8 @@ export function ChildScreenTime() {
   const state = useLocalDataState();
   const [page, setPage] = useState(1);
   const activeChildren = state.children.filter((child) => child.status === 'active');
-  const activeChild = activeChildren.find((child) => child.id === state.active_child_id) ?? activeChildren[0] ?? null;
+  const currentChildId = resolveCurrentChildId(state);
+  const activeChild = activeChildren.find((child) => child.id === currentChildId) ?? activeChildren[0] ?? null;
   const logs = activeChild ? dataRepository.getScreenTimeLogsByChild(activeChild.id) : [];
   const ledger = useMemo(() => buildLedger(logs), [logs]);
   const balance = activeChild ? dataRepository.getScreenTimeBalance(activeChild.id) : 0;

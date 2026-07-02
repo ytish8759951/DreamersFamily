@@ -1,13 +1,15 @@
 import type { ReactNode } from 'react';
 import { Activity, BookOpen, Ruler, Scale } from 'lucide-react';
+import { resolveCurrentChildId } from '../../lib/childSession';
 import { dataRepository } from '../../lib/dataRepository';
 import { useLocalDataState } from '../../lib/useLocalData';
 
 export function GrowthReview() {
   const state = useLocalDataState();
-  const selectedChild = state.children.find(
-    (child) => child.id === state.active_child_id && child.status === 'active'
-  );
+  const currentChildId = resolveCurrentChildId(state);
+  const selectedChild = currentChildId
+    ? state.children.find((child) => child.id === currentChildId && child.status === 'active')
+    : null;
   const records = selectedChild
     ? dataRepository.getGrowthRecordsByChild(selectedChild.id)
     : [];

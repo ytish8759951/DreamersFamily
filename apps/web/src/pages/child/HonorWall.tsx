@@ -1,5 +1,6 @@
 import type { ReactNode } from 'react';
 import { Award, CheckCircle2, MoonStar, Sparkles, Star, Trophy } from 'lucide-react';
+import { resolveCurrentChildId } from '../../lib/childSession';
 import { dataRepository } from '../../lib/dataRepository';
 import type { LocalChildBadge } from '../../lib/localTypes';
 import { useLocalDataState } from '../../lib/useLocalData';
@@ -16,7 +17,8 @@ type TimelineItem = {
 export function ChildHonorWall() {
   const state = useLocalDataState();
   const activeChildren = state.children.filter((child) => child.status === 'active');
-  const activeChild = activeChildren.find((child) => child.id === state.active_child_id) ?? activeChildren[0] ?? null;
+  const currentChildId = resolveCurrentChildId(state);
+  const activeChild = activeChildren.find((child) => child.id === currentChildId) ?? activeChildren[0] ?? null;
   const childBadges = activeChild
     ? state.child_badges
         .filter((record) => record.child_id === activeChild.id)

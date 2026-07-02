@@ -26,6 +26,7 @@ import { Link } from 'react-router-dom';
 import { LocalDreamCover, useLocalDreamCoverUrl } from '../../components/LocalDreamCover';
 import { LocalShareMedia as LocalShareMediaView } from '../../components/LocalShareMedia';
 import { LocalTaskMedia } from '../../components/LocalTaskMedia';
+import { resolveCurrentChildId } from '../../lib/childSession';
 import { dataRepository } from '../../lib/dataRepository';
 import { useDreamCoverMigration } from '../../lib/dreamCoverMigration';
 import { compressImageFile } from '../../lib/imageCompression';
@@ -98,9 +99,10 @@ function ChildPageHeader({ emoji, title, subtitle, accent }: { emoji: string; ti
 function HomePage() {
   useDreamCoverMigration();
   const localState = useLocalDataState();
-  const selectedChild = localState.children.find(
-    (child) => child.id === localState.active_child_id && child.status === 'active'
-  );
+  const currentChildId = resolveCurrentChildId(localState);
+  const selectedChild = currentChildId
+    ? localState.children.find((child) => child.id === currentChildId && child.status === 'active')
+    : null;
   const childName = selectedChild?.display_name ?? '小小夢想家';
   const childShares = selectedChild
     ? buildChildShares(localState).filter((share) => share.child_id === selectedChild.id).slice(0, 3)
@@ -271,9 +273,10 @@ function TaskPage() {
   const [redeemHistoryPage, setRedeemHistoryPage] = useState(1);
   const completionTimerRef = useRef<number | null>(null);
   const flyingTimerRef = useRef<number | null>(null);
-  const selectedChild = localState.children.find(
-    (child) => child.id === localState.active_child_id && child.status === 'active'
-  );
+  const currentChildId = resolveCurrentChildId(localState);
+  const selectedChild = currentChildId
+    ? localState.children.find((child) => child.id === currentChildId && child.status === 'active')
+    : null;
   const childTasks = selectedChild
     ? localState.tasks.filter((task) => task.child_id === selectedChild.id)
     : [];
@@ -585,9 +588,10 @@ function SharePage() {
     is_recording: false,
     recording_seconds: 0
   });
-  const selectedChild = localState.children.find(
-    (child) => child.id === localState.active_child_id && child.status === 'active'
-  );
+  const currentChildId = resolveCurrentChildId(localState);
+  const selectedChild = currentChildId
+    ? localState.children.find((child) => child.id === currentChildId && child.status === 'active')
+    : null;
   const totalStars = selectedChild
     ? localState.stars
         .filter((transaction) => transaction.child_id === selectedChild.id)
@@ -1324,9 +1328,10 @@ const dreamParts = [
 function DreamPage() {
   useDreamCoverMigration();
   const localState = useLocalDataState();
-  const selectedChild = localState.children.find(
-    (child) => child.id === localState.active_child_id && child.status === 'active'
-  );
+  const currentChildId = resolveCurrentChildId(localState);
+  const selectedChild = currentChildId
+    ? localState.children.find((child) => child.id === currentChildId && child.status === 'active')
+    : null;
   const childDreams = useMemo(
     () =>
       selectedChild
@@ -1550,9 +1555,10 @@ function MailboxPage() {
   const [selectedMessageId, setSelectedMessageId] = useState<string | null>(null);
   const [mailboxError, setMailboxError] = useState('');
   const [currentPage, setCurrentPage] = useState(1);
-  const selectedChild = localState.children.find(
-    (child) => child.id === localState.active_child_id && child.status === 'active'
-  );
+  const currentChildId = resolveCurrentChildId(localState);
+  const selectedChild = currentChildId
+    ? localState.children.find((child) => child.id === currentChildId && child.status === 'active')
+    : null;
   const childMessages = selectedChild
     ? localState.encouragement_cards
         .filter((message) => message.child_id === selectedChild.id)

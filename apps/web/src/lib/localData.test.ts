@@ -910,6 +910,55 @@ describe('local MVP data flows', () => {
     expect(data.getLatestGrowthRecordByChild(child.id)?.id).toBe(record.id);
   });
 
+  it('stores parent-created child data in the same childId-scoped repository', () => {
+    const child = data.createChild({ display_name: '同一個孩子' });
+
+    const task = data.createTask({
+      child_id: child.id,
+      title: '完成作業',
+      reward_stars: 5
+    });
+    const income = data.addPiggyIncome({ child_id: child.id, source: '家長給的零用錢', amount: 200 });
+    const product = data.createPiggyProduct({
+      child_id: child.id,
+      name: '積木',
+      price: 120,
+      main_media_id: 'product-media',
+      shelf_status: 'shelf'
+    });
+    const growth = data.createGrowthRecord({
+      child_id: child.id,
+      date: '2026-06-25',
+      height_cm: 118,
+      weight_kg: 21.2,
+      reading_count: 12
+    });
+    const dream = data.createDream({
+      child_id: child.id,
+      title: '買腳踏車',
+      target_amount: 1000
+    });
+    const share = data.createShare({
+      child_id: child.id,
+      caption: '今天完成了',
+      status: 'approved'
+    });
+
+    expect(task.child_id).toBe(child.id);
+    expect(income.child_id).toBe(child.id);
+    expect(product.child_id).toBe(child.id);
+    expect(growth.child_id).toBe(child.id);
+    expect(dream.child_id).toBe(child.id);
+    expect(share.child_id).toBe(child.id);
+
+    expect(data.listTasks(child.id).map((item) => item.id)).toContain(task.id);
+    expect(data.getPiggyIncomeRecords(child.id).map((item) => item.id)).toContain(income.id);
+    expect(data.listPiggyProducts(child.id).map((item) => item.id)).toContain(product.id);
+    expect(data.getGrowthRecordsByChild(child.id).map((item) => item.id)).toContain(growth.id);
+    expect(data.listDreams(child.id).map((item) => item.id)).toContain(dream.id);
+    expect(data.listShares(child.id).map((item) => item.id)).toContain(share.id);
+  });
+
   it('manages piggy income, coin deposits and silent over-limit rejection', () => {
     const child = data.createChild({ display_name: '樂樂' });
     data.addPiggyIncome({ child_id: child.id, source: '阿嬤給的', amount: 150 });

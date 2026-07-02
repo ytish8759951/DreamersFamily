@@ -185,6 +185,8 @@ function setCurrentChildIdentity(state: LocalDatabaseState, child: LocalChild, t
     boundAt: timestamp
   };
   state.deviceBinding = child.id;
+  state.device_child_id = child.id;
+  state.active_child_id = child.id;
 }
 
 function requireTask(state: LocalDatabaseState, taskId: UUID) {
