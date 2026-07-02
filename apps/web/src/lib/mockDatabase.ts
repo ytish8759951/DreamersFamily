@@ -98,6 +98,8 @@ function createEmptyState(): LocalDatabaseState {
     piggy_shelf_orders: [],
     piggyProductDisplaySettings: [],
     piggy_purchases: [],
+    annual_parent_notes: [],
+    memory_packs: [],
     updated_at: timestamp
   };
 }
@@ -207,6 +209,8 @@ function normalizeState(state: LocalDatabaseState): LocalDatabaseState {
     piggy_shelf_orders: state.piggy_shelf_orders ?? [],
     piggyProductDisplaySettings: state.piggyProductDisplaySettings ?? [],
     piggy_purchases: state.piggy_purchases ?? [],
+    annual_parent_notes: state.annual_parent_notes ?? [],
+    memory_packs: state.memory_packs ?? [],
     encouragement_cards: (state.encouragement_cards ?? []).map((message) => ({
       ...message,
       sender_role: message.sender_role ?? (message.sender_user_id === LOCAL_PARENT_USER_ID ? 'parent' : 'child'),

@@ -415,6 +415,13 @@ export interface LocalRepositoryDataSummary {
   purchase_count: number;
 }
 
+export interface AnnualParentNote {
+  childId: UUID;
+  year: number;
+  note: string;
+  updatedAt: ISODateTime;
+}
+
 export interface LocalPiggyIncome {
   id: UUID;
   family_id: UUID;
@@ -532,6 +539,8 @@ export interface LocalDatabaseState {
   piggy_shelf_orders: LocalPiggyShelfOrder[];
   piggyProductDisplaySettings: LocalPiggyProductDisplaySettings[];
   piggy_purchases: LocalPiggyPurchase[];
+  annual_parent_notes: AnnualParentNote[];
+  memory_packs: MemoryPack[];
   updated_at: ISODateTime;
 }
 

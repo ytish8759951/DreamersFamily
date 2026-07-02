@@ -9,7 +9,6 @@ import {
   MockDatabase
 } from './mockDatabase';
 import {
-  localData,
   LocalDataError,
   LocalDataService,
   type LocalDataRepository,
@@ -103,14 +102,21 @@ export function createSupabaseClient(config = getSupabaseConfig()): SupabaseClie
 
 export class SupabaseDataRepository implements LocalDataRepository {
   private readonly client: SupabaseClient | null;
-  private readonly cache: LocalDataService;
+  private readonly cache = new LocalDataService(new MockDatabase(undefined, SUPABASE_CACHE_KEY));
   private readonly listeners = new Set<Listener>();
   private hydratePromise: Promise<void> | null = null;
 
   constructor(client: SupabaseClient | null = createSupabaseClient()) {
     this.client = client;
-    this.cache = new LocalDataService(new MockDatabase(undefined, SUPABASE_CACHE_KEY));
     this.hydrateFromSupabase();
+  }
+
+  private delegate<K extends keyof LocalDataRepository>(method: K): LocalDataRepository[K] {
+    const target = this.cache[method];
+    if (typeof target !== 'function') return target;
+    return ((...args: unknown[]) => {
+      return (target as (...values: unknown[]) => unknown).apply(this.cache, args);
+    }) as LocalDataRepository[K];
   }
 
   getState(): LocalDatabaseState {
@@ -215,82 +221,90 @@ export class SupabaseDataRepository implements LocalDataRepository {
     return this.cache.listDeviceBindingRecords(childId);
   }
 
-  createTask = localData.createTask.bind(localData);
-  completeTask = localData.completeTask.bind(localData);
-  approveTask = localData.approveTask.bind(localData);
-  listTasks = localData.listTasks.bind(localData);
-  getStarBalance = localData.getStarBalance.bind(localData);
-  listStarTransactions = localData.listStarTransactions.bind(localData);
-  createDream = localData.createDream.bind(localData);
-  migrateDreamCoverToMedia = localData.migrateDreamCoverToMedia.bind(localData);
-  deleteDream = localData.deleteDream.bind(localData);
-  addDreamDeposit = localData.addDreamDeposit.bind(localData);
-  completeDream = localData.completeDream.bind(localData);
-  listDreams = localData.listDreams.bind(localData);
-  createShare = localData.createShare.bind(localData);
-  listShares = localData.listShares.bind(localData);
-  deleteShare = localData.deleteShare.bind(localData);
-  approveShare = localData.approveShare.bind(localData);
-  createMailboxMessage = localData.createMailboxMessage.bind(localData);
-  markMessageRead = localData.markMessageRead.bind(localData);
-  listMailboxMessages = localData.listMailboxMessages.bind(localData);
-  createBadge = localData.createBadge.bind(localData);
-  deleteBadge = localData.deleteBadge.bind(localData);
-  awardBadge = localData.awardBadge.bind(localData);
-  getBadges = localData.getBadges.bind(localData);
-  getChildBadges = localData.getChildBadges.bind(localData);
-  createSpecialDay = localData.createSpecialDay.bind(localData);
-  updateSpecialDay = localData.updateSpecialDay.bind(localData);
-  deleteSpecialDay = localData.deleteSpecialDay.bind(localData);
-  getSpecialDays = localData.getSpecialDays.bind(localData);
-  getUpcomingSpecialDays = localData.getUpcomingSpecialDays.bind(localData);
-  getSettings = localData.getSettings.bind(localData);
-  updateSettings = localData.updateSettings.bind(localData);
-  exportData = localData.exportData.bind(localData);
-  importData = localData.importData.bind(localData);
-  resetAllData = localData.resetAllData.bind(localData);
-  resetDemoData = localData.resetDemoData.bind(localData);
-  updateScreenTime = localData.updateScreenTime.bind(localData);
-  createScreenTimeRequest = localData.createScreenTimeRequest.bind(localData);
-  reviewScreenTimeRequest = localData.reviewScreenTimeRequest.bind(localData);
-  listScreenTimeRequests = localData.listScreenTimeRequests.bind(localData);
-  getScreenTimeBalance = localData.getScreenTimeBalance.bind(localData);
-  listScreenTimeLogs = localData.listScreenTimeLogs.bind(localData);
-  getWeeklyScreenTime = localData.getWeeklyScreenTime.bind(localData);
-  updatePlannedScreenTime = localData.updatePlannedScreenTime.bind(localData);
-  redeemStarsForScreenTime = localData.redeemStarsForScreenTime.bind(localData);
-  addScreenTime = localData.addScreenTime.bind(localData);
-  deductScreenTimePenalty = localData.deductScreenTimePenalty.bind(localData);
-  recordScreenTimeUsed = localData.recordScreenTimeUsed.bind(localData);
-  getScreenTimeLogsByChild = localData.getScreenTimeLogsByChild.bind(localData);
-  getTodayScreenTimeByChild = localData.getTodayScreenTimeByChild.bind(localData);
-  createGrowthRecord = localData.createGrowthRecord.bind(localData);
-  updateGrowthRecord = localData.updateGrowthRecord.bind(localData);
-  deleteGrowthRecord = localData.deleteGrowthRecord.bind(localData);
-  getGrowthRecords = localData.getGrowthRecords.bind(localData);
-  getLatestGrowthRecordByChild = localData.getLatestGrowthRecordByChild.bind(localData);
-  getGrowthRecordsByChild = localData.getGrowthRecordsByChild.bind(localData);
-  listNotifications = localData.listNotifications.bind(localData);
-  markNotificationRead = localData.markNotificationRead.bind(localData);
-  addPiggyIncome = localData.addPiggyIncome.bind(localData);
-  depositPiggyCoin = localData.depositPiggyCoin.bind(localData);
-  getPiggyBankSummary = localData.getPiggyBankSummary.bind(localData);
-  getPiggyIncomeRecords = localData.getPiggyIncomeRecords.bind(localData);
-  getPiggyBankLogs = localData.getPiggyBankLogs.bind(localData);
-  createPiggyProduct = localData.createPiggyProduct.bind(localData);
-  updatePiggyProduct = localData.updatePiggyProduct.bind(localData);
-  deletePiggyProduct = localData.deletePiggyProduct.bind(localData);
-  listPiggyProducts = localData.listPiggyProducts.bind(localData);
-  setPiggyProductShelfStatus = localData.setPiggyProductShelfStatus.bind(localData);
-  savePiggyShelfOrder = localData.savePiggyShelfOrder.bind(localData);
-  getPiggyShelfProducts = localData.getPiggyShelfProducts.bind(localData);
-  getPiggyProductDisplaySettings = localData.getPiggyProductDisplaySettings.bind(localData);
-  savePiggyProductDisplaySettings = localData.savePiggyProductDisplaySettings.bind(localData);
-  requestPiggyPurchase = localData.requestPiggyPurchase.bind(localData);
-  cancelPiggyPurchase = localData.cancelPiggyPurchase.bind(localData);
-  completePiggyPurchase = localData.completePiggyPurchase.bind(localData);
-  confirmPiggyPurchaseArrived = localData.confirmPiggyPurchaseArrived.bind(localData);
-  listPiggyPurchases = localData.listPiggyPurchases.bind(localData);
+  createTask = this.delegate('createTask');
+  completeTask = this.delegate('completeTask');
+  approveTask = this.delegate('approveTask');
+  listTasks = this.delegate('listTasks');
+  getStarBalance = this.delegate('getStarBalance');
+  listStarTransactions = this.delegate('listStarTransactions');
+  createDream = this.delegate('createDream');
+  migrateDreamCoverToMedia = this.delegate('migrateDreamCoverToMedia');
+  deleteDream = this.delegate('deleteDream');
+  addDreamDeposit = this.delegate('addDreamDeposit');
+  completeDream = this.delegate('completeDream');
+  listDreams = this.delegate('listDreams');
+  createShare = this.delegate('createShare');
+  listShares = this.delegate('listShares');
+  deleteShare = this.delegate('deleteShare');
+  approveShare = this.delegate('approveShare');
+  createMailboxMessage = this.delegate('createMailboxMessage');
+  markMessageRead = this.delegate('markMessageRead');
+  listMailboxMessages = this.delegate('listMailboxMessages');
+  createBadge = this.delegate('createBadge');
+  deleteBadge = this.delegate('deleteBadge');
+  awardBadge = this.delegate('awardBadge');
+  getBadges = this.delegate('getBadges');
+  getChildBadges = this.delegate('getChildBadges');
+  createSpecialDay = this.delegate('createSpecialDay');
+  updateSpecialDay = this.delegate('updateSpecialDay');
+  deleteSpecialDay = this.delegate('deleteSpecialDay');
+  getSpecialDays = this.delegate('getSpecialDays');
+  getUpcomingSpecialDays = this.delegate('getUpcomingSpecialDays');
+  getSettings = this.delegate('getSettings');
+  updateSettings = this.delegate('updateSettings');
+  exportData = this.delegate('exportData');
+  importData = this.delegate('importData');
+  resetAllData = this.delegate('resetAllData');
+  resetDemoData = this.delegate('resetDemoData');
+  updateScreenTime = this.delegate('updateScreenTime');
+  createScreenTimeRequest = this.delegate('createScreenTimeRequest');
+  reviewScreenTimeRequest = this.delegate('reviewScreenTimeRequest');
+  listScreenTimeRequests = this.delegate('listScreenTimeRequests');
+  getScreenTimeBalance = this.delegate('getScreenTimeBalance');
+  listScreenTimeLogs = this.delegate('listScreenTimeLogs');
+  getWeeklyScreenTime = this.delegate('getWeeklyScreenTime');
+  updatePlannedScreenTime = this.delegate('updatePlannedScreenTime');
+  redeemStarsForScreenTime = this.delegate('redeemStarsForScreenTime');
+  addScreenTime = this.delegate('addScreenTime');
+  deductScreenTimePenalty = this.delegate('deductScreenTimePenalty');
+  recordScreenTimeUsed = this.delegate('recordScreenTimeUsed');
+  getScreenTimeLogsByChild = this.delegate('getScreenTimeLogsByChild');
+  getTodayScreenTimeByChild = this.delegate('getTodayScreenTimeByChild');
+  createGrowthRecord = this.delegate('createGrowthRecord');
+  updateGrowthRecord = this.delegate('updateGrowthRecord');
+  deleteGrowthRecord = this.delegate('deleteGrowthRecord');
+  getGrowthRecords = this.delegate('getGrowthRecords');
+  getLatestGrowthRecordByChild = this.delegate('getLatestGrowthRecordByChild');
+  getGrowthRecordsByChild = this.delegate('getGrowthRecordsByChild');
+  listNotifications = this.delegate('listNotifications');
+  markNotificationRead = this.delegate('markNotificationRead');
+  addPiggyIncome = this.delegate('addPiggyIncome');
+  depositPiggyCoin = this.delegate('depositPiggyCoin');
+  getPiggyBankSummary = this.delegate('getPiggyBankSummary');
+  getPiggyIncomeRecords = this.delegate('getPiggyIncomeRecords');
+  getPiggyBankLogs = this.delegate('getPiggyBankLogs');
+  createPiggyProduct = this.delegate('createPiggyProduct');
+  updatePiggyProduct = this.delegate('updatePiggyProduct');
+  deletePiggyProduct = this.delegate('deletePiggyProduct');
+  listPiggyProducts = this.delegate('listPiggyProducts');
+  setPiggyProductShelfStatus = this.delegate('setPiggyProductShelfStatus');
+  savePiggyShelfOrder = this.delegate('savePiggyShelfOrder');
+  getPiggyShelfProducts = this.delegate('getPiggyShelfProducts');
+  getPiggyProductDisplaySettings = this.delegate('getPiggyProductDisplaySettings');
+  savePiggyProductDisplaySettings = this.delegate('savePiggyProductDisplaySettings');
+  requestPiggyPurchase = this.delegate('requestPiggyPurchase');
+  cancelPiggyPurchase = this.delegate('cancelPiggyPurchase');
+  completePiggyPurchase = this.delegate('completePiggyPurchase');
+  confirmPiggyPurchaseArrived = this.delegate('confirmPiggyPurchaseArrived');
+  listPiggyPurchases = this.delegate('listPiggyPurchases');
+  getAnnualParentNote = this.delegate('getAnnualParentNote');
+  saveAnnualParentNote = this.delegate('saveAnnualParentNote');
+  listAnnualParentNotes = this.delegate('listAnnualParentNotes');
+  saveMemoryPack = this.delegate('saveMemoryPack');
+  getMemoryPack = this.delegate('getMemoryPack');
+  exportMemoryPack = this.delegate('exportMemoryPack');
+  deleteMemoryPack = this.delegate('deleteMemoryPack');
+  listMemoryPacks = this.delegate('listMemoryPacks');
 
   private hydrateFromSupabase() {
     if (!this.client || this.hydratePromise) return;

@@ -1,58 +1,22 @@
-import { getLocalStorage, readJson, writeJson, type KeyValueStorage } from './storage';
+import { dataRepository } from './dataRepository';
+import type { LocalDataRepository } from './localData';
+import type { AnnualParentNote } from './localTypes';
 
-const MEMORY_BOOK_STORAGE_KEY = 'little-dreamers-family:memory-book:v1';
-
-export interface AnnualParentNote {
-  childId: string;
-  year: number;
-  note: string;
-  updatedAt: string;
-}
+export type { AnnualParentNote };
 
 export class MemoryBookRepository {
-  constructor(
-    private readonly storage: KeyValueStorage = getLocalStorage(),
-    private readonly storageKey = MEMORY_BOOK_STORAGE_KEY
-  ) {}
+  constructor(private readonly repository: LocalDataRepository = dataRepository) {}
 
   getAnnualParentNote(childId: string, year: number) {
-    return this.readNotes().find((note) => note.childId === childId && note.year === year) ?? null;
+    return this.repository.getAnnualParentNote(childId, year);
   }
 
   saveAnnualParentNote(childId: string, year: number, note: string) {
-    const notes = this.readNotes();
-    const normalized = note.trim();
-    const timestamp = new Date().toISOString();
-    const existing = notes.find((item) => item.childId === childId && item.year === year);
-
-    if (existing) {
-      existing.note = normalized;
-      existing.updatedAt = timestamp;
-      this.writeNotes(notes);
-      return existing;
-    }
-
-    const next: AnnualParentNote = {
-      childId,
-      year,
-      note: normalized,
-      updatedAt: timestamp
-    };
-    notes.push(next);
-    this.writeNotes(notes);
-    return next;
+    return this.repository.saveAnnualParentNote(childId, year, note);
   }
 
   listAnnualParentNotes() {
-    return this.readNotes().sort((a, b) => b.updatedAt.localeCompare(a.updatedAt));
-  }
-
-  private readNotes() {
-    return readJson<AnnualParentNote[]>(this.storage, this.storageKey) ?? [];
-  }
-
-  private writeNotes(notes: AnnualParentNote[]) {
-    writeJson(this.storage, this.storageKey, notes);
+    return this.repository.listAnnualParentNotes();
   }
 }
 

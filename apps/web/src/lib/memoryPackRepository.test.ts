@@ -26,10 +26,9 @@ describe('memory pack repository', () => {
 
   beforeEach(() => {
     const dataStorage = new TestStorage();
-    const packStorage = new TestStorage();
     data = new LocalDataService(new MockDatabase(dataStorage, 'test-db'));
     data.resetLocalData();
-    memoryPacks = new MemoryPackRepository(data, packStorage, 'test-memory-packs');
+    memoryPacks = new MemoryPackRepository(data);
   });
 
   it('builds, stores, exports and deletes a JSON memory pack with mediaId references only', () => {

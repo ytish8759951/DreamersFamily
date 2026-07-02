@@ -1,5 +1,6 @@
 import { dataRepository } from './dataRepository';
 import { mediaRepository } from './mediaRepository';
+import { getLocalStorageDiagnostics } from './storage';
 import type { LocalShareMedia, UUID } from './localTypes';
 import type { SaveMediaInput, UnifiedMediaType } from './mediaRepository';
 
@@ -41,7 +42,8 @@ export const shareRepository = {
   saveShareMedia,
   getMediaUrl,
   releaseMediaUrl,
-  downloadMedia
+  downloadMedia,
+  getStorageDiagnostics: getLocalStorageDiagnostics
 };
 
 function createRecordedMedia(input: {

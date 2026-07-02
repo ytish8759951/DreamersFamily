@@ -1,5 +1,7 @@
 import { beforeEach, describe, expect, it } from 'vitest';
+import { LocalDataService } from './localData';
 import { MemoryBookRepository } from './memoryBookRepository';
+import { MockDatabase } from './mockDatabase';
 import type { KeyValueStorage } from './storage';
 
 class TestStorage implements KeyValueStorage {
@@ -22,7 +24,9 @@ describe('memory book repository', () => {
   let repository: MemoryBookRepository;
 
   beforeEach(() => {
-    repository = new MemoryBookRepository(new TestStorage(), 'test-memory-book');
+    const data = new LocalDataService(new MockDatabase(new TestStorage(), 'test-db'));
+    data.resetLocalData();
+    repository = new MemoryBookRepository(data);
   });
 
   it('stores one editable annual parent note per child and year', () => {

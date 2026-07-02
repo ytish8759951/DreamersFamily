@@ -35,7 +35,6 @@ import { shareRepository, type ShareMediaChunk, type ShareRecordedMedia } from '
 import { mailboxRepository } from '../../lib/mailboxRepository';
 import { piggyRepository } from '../../lib/piggyRepository';
 import { taskRepository } from '../../lib/taskRepository';
-import { getLocalStorageDiagnostics } from '../../lib/storage';
 import type {
   DreamWithBalance,
   LocalChildBadge,
@@ -857,7 +856,7 @@ function SharePage() {
       }
       if (formMode === 'video') {
         logVideoStorageDiagnostics(mediaBlob);
-        const diagnostics = getLocalStorageDiagnostics();
+        const diagnostics = shareRepository.getStorageDiagnostics();
         console.info('[child/share] localStorage diagnostics before video share', {
           'JSON.stringify(localStorage).length': diagnostics.jsonStringifyLength,
           estimatedLocalStorageBytes: diagnostics.estimatedBytes,
@@ -901,7 +900,7 @@ function SharePage() {
       });
       closeShareForm();
     } catch (caught) {
-      const diagnostics = getLocalStorageDiagnostics();
+      const diagnostics = shareRepository.getStorageDiagnostics();
       console.error('[child/share] createShare failed', {
         'error.name': caught instanceof DOMException || caught instanceof Error ? caught.name : 'UnknownError',
         'error.message': caught instanceof DOMException || caught instanceof Error ? caught.message : String(caught),

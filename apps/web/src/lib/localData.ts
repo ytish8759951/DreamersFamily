@@ -13,6 +13,7 @@ import {
   type ChildDeviceTokenPayload
 } from './childDeviceToken';
 import type {
+  AnnualParentNote,
   DreamWithBalance,
   LocalBadge,
   LocalChildBadge,
@@ -40,6 +41,7 @@ import type {
   LocalSpecialDay,
   LocalStarTransaction,
   LocalTask,
+  MemoryPack,
   NotificationType,
   PiggyBankSummary,
   SpecialDayType,
@@ -774,6 +776,14 @@ export interface LocalDataRepository {
   completePiggyPurchase(purchaseId: UUID): LocalPiggyPurchase;
   confirmPiggyPurchaseArrived(purchaseId: UUID): LocalPiggyPurchase;
   listPiggyPurchases(childId?: UUID): LocalPiggyPurchase[];
+  getAnnualParentNote(childId: UUID, year: number): AnnualParentNote | null;
+  saveAnnualParentNote(childId: UUID, year: number, note: string): AnnualParentNote;
+  listAnnualParentNotes(): AnnualParentNote[];
+  saveMemoryPack(pack: MemoryPack): MemoryPack;
+  getMemoryPack(memoryPackId: UUID): MemoryPack | null;
+  exportMemoryPack(memoryPackId: UUID): string;
+  deleteMemoryPack(memoryPackId: UUID): MemoryPack;
+  listMemoryPacks(childId?: UUID): MemoryPack[];
 }
 
 export class LocalDataService implements LocalDataRepository {
@@ -1807,6 +1817,8 @@ export class LocalDataService implements LocalDataRepository {
       state.piggy_shelf_orders = [];
       state.piggyProductDisplaySettings = [];
       state.piggy_purchases = [];
+      state.annual_parent_notes = [];
+      state.memory_packs = [];
       state.family_settings = familySettings;
       return state;
     });
@@ -2570,6 +2582,76 @@ export class LocalDataService implements LocalDataRepository {
       .sort((a, b) => b.requested_at.localeCompare(a.requested_at));
   }
 
+  getAnnualParentNote(childId: UUID, year: number) {
+    return this.db
+      .read()
+      .annual_parent_notes.find((note) => note.childId === childId && note.year === year) ?? null;
+  }
+
+  saveAnnualParentNote(childId: UUID, year: number, note: string) {
+    return this.db.transaction((state) => {
+      const normalized = note.trim();
+      const timestamp = now();
+      const existing = state.annual_parent_notes.find((item) => item.childId === childId && item.year === year);
+      if (existing) {
+        existing.note = normalized;
+        existing.updatedAt = timestamp;
+        return existing;
+      }
+      const next: AnnualParentNote = {
+        childId,
+        year,
+        note: normalized,
+        updatedAt: timestamp
+      };
+      state.annual_parent_notes.push(next);
+      return next;
+    });
+  }
+
+  listAnnualParentNotes() {
+    return this.db
+      .read()
+      .annual_parent_notes
+      .slice()
+      .sort((a, b) => b.updatedAt.localeCompare(a.updatedAt));
+  }
+
+  saveMemoryPack(pack: MemoryPack) {
+    return this.db.transaction((state) => {
+      state.memory_packs = state.memory_packs.filter((item) => item.id !== pack.id);
+      state.memory_packs.push(pack);
+      return pack;
+    });
+  }
+
+  getMemoryPack(memoryPackId: UUID) {
+    return this.db.read().memory_packs.find((pack) => pack.id === memoryPackId) ?? null;
+  }
+
+  exportMemoryPack(memoryPackId: UUID) {
+    const pack = this.getMemoryPack(memoryPackId);
+    if (!pack) throw new LocalDataError('Memory pack not found', 'MEMORY_PACK_NOT_FOUND');
+    return JSON.stringify(pack, null, 2);
+  }
+
+  deleteMemoryPack(memoryPackId: UUID) {
+    return this.db.transaction((state) => {
+      const target = state.memory_packs.find((pack) => pack.id === memoryPackId);
+      if (!target) throw new LocalDataError('Memory pack not found', 'MEMORY_PACK_NOT_FOUND');
+      state.memory_packs = state.memory_packs.filter((pack) => pack.id !== memoryPackId);
+      return target;
+    });
+  }
+
+  listMemoryPacks(childId?: UUID) {
+    return this.db
+      .read()
+      .memory_packs
+      .filter((pack) => !childId || pack.childId === childId)
+      .sort((a, b) => b.createdAt.localeCompare(a.createdAt));
+  }
+
   private ensureDailyTaskInstances(targetDate = today()) {
     const state = this.db.read();
     const activeChildIds = new Set(state.children.filter((child) => child.status === 'active').map((child) => child.id));
@@ -2808,7 +2890,15 @@ export const {
   requestPiggyPurchase,
   cancelPiggyPurchase,
   completePiggyPurchase,
-  confirmPiggyPurchaseArrived
+  confirmPiggyPurchaseArrived,
+  getAnnualParentNote,
+  saveAnnualParentNote,
+  listAnnualParentNotes,
+  saveMemoryPack,
+  getMemoryPack,
+  exportMemoryPack,
+  deleteMemoryPack,
+  listMemoryPacks
 } = {
   createChild: localData.createChild.bind(localData),
   updateChild: localData.updateChild.bind(localData),
@@ -2865,7 +2955,15 @@ export const {
   requestPiggyPurchase: localData.requestPiggyPurchase.bind(localData),
   cancelPiggyPurchase: localData.cancelPiggyPurchase.bind(localData),
   completePiggyPurchase: localData.completePiggyPurchase.bind(localData),
-  confirmPiggyPurchaseArrived: localData.confirmPiggyPurchaseArrived.bind(localData)
+  confirmPiggyPurchaseArrived: localData.confirmPiggyPurchaseArrived.bind(localData),
+  getAnnualParentNote: localData.getAnnualParentNote.bind(localData),
+  saveAnnualParentNote: localData.saveAnnualParentNote.bind(localData),
+  listAnnualParentNotes: localData.listAnnualParentNotes.bind(localData),
+  saveMemoryPack: localData.saveMemoryPack.bind(localData),
+  getMemoryPack: localData.getMemoryPack.bind(localData),
+  exportMemoryPack: localData.exportMemoryPack.bind(localData),
+  deleteMemoryPack: localData.deleteMemoryPack.bind(localData),
+  listMemoryPacks: localData.listMemoryPacks.bind(localData)
 };
 
 export { LOCAL_DEVICE_ID, LOCAL_FAMILY_ID, LOCAL_PARENT_USER_ID };

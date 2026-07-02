@@ -1,6 +1,5 @@
-import { LOCAL_DATABASE_KEY } from './mockDatabase';
+import { dataRepository } from './dataRepository';
 import { mediaRepository, type MediaOwnerType, type UnifiedMediaType } from './mediaRepository';
-import { getLocalStorage, readJson, writeJson } from './storage';
 import type { LocalDatabaseState, UUID } from './localTypes';
 
 type MutableState = LocalDatabaseState & Record<string, unknown>;
@@ -11,8 +10,7 @@ export type MediaMigrationResult = {
 };
 
 export async function migrateLocalStorageMediaToRepository(): Promise<MediaMigrationResult> {
-  const storage = getLocalStorage();
-  const state = readJson<MutableState>(storage, LOCAL_DATABASE_KEY);
+  const state = dataRepository.getState() as MutableState;
   if (!state || state.schema_version !== 1) return { migratedCount: 0, migratedMediaIds: [] };
 
   const migratedMediaIds: string[] = [];
@@ -156,7 +154,7 @@ export async function migrateLocalStorageMediaToRepository(): Promise<MediaMigra
     }
   }
 
-  if (migratedMediaIds.length) writeJson(storage, LOCAL_DATABASE_KEY, state);
+  if (migratedMediaIds.length) dataRepository.importData(JSON.stringify(state));
   return { migratedCount: migratedMediaIds.length, migratedMediaIds };
 }
 

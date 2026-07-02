@@ -23,9 +23,6 @@ import type {
   ShareWithMedia,
   UUID
 } from './localTypes';
-import { getLocalStorage, readJson, writeJson, type KeyValueStorage } from './storage';
-
-const MEMORY_PACK_STORAGE_KEY = 'little-dreamers-family:memory-packs:v1';
 
 export interface BuildMemoryPackInput {
   childId: UUID;
@@ -33,11 +30,7 @@ export interface BuildMemoryPackInput {
 }
 
 export class MemoryPackRepository {
-  constructor(
-    private readonly localData: LocalDataRepository = dataRepository,
-    private readonly storage: KeyValueStorage = getLocalStorage(),
-    private readonly storageKey = MEMORY_PACK_STORAGE_KEY
-  ) {}
+  constructor(private readonly localData: LocalDataRepository = dataRepository) {}
 
   buildMemoryPack(input: BuildMemoryPackInput) {
     const state = this.localData.getState();
@@ -60,42 +53,23 @@ export class MemoryPackRepository {
       content
     };
 
-    const packs = this.readPacks().filter((item) => item.id !== pack.id);
-    packs.push(pack);
-    this.writePacks(packs);
-    return pack;
+    return this.localData.saveMemoryPack(pack);
   }
 
   getMemoryPack(memoryPackId: UUID) {
-    return this.readPacks().find((pack) => pack.id === memoryPackId) ?? null;
+    return this.localData.getMemoryPack(memoryPackId);
   }
 
   exportMemoryPack(memoryPackId: UUID) {
-    const pack = this.getMemoryPack(memoryPackId);
-    if (!pack) throw new LocalDataError('Memory pack not found', 'MEMORY_PACK_NOT_FOUND');
-    return JSON.stringify(pack, null, 2);
+    return this.localData.exportMemoryPack(memoryPackId);
   }
 
   deleteMemoryPack(memoryPackId: UUID) {
-    const packs = this.readPacks();
-    const target = packs.find((pack) => pack.id === memoryPackId);
-    if (!target) throw new LocalDataError('Memory pack not found', 'MEMORY_PACK_NOT_FOUND');
-    this.writePacks(packs.filter((pack) => pack.id !== memoryPackId));
-    return target;
+    return this.localData.deleteMemoryPack(memoryPackId);
   }
 
   listMemoryPacks(childId?: UUID) {
-    return this.readPacks()
-      .filter((pack) => !childId || pack.childId === childId)
-      .sort((a, b) => b.createdAt.localeCompare(a.createdAt));
-  }
-
-  private readPacks() {
-    return readJson<MemoryPack[]>(this.storage, this.storageKey) ?? [];
-  }
-
-  private writePacks(packs: MemoryPack[]) {
-    writeJson(this.storage, this.storageKey, packs);
+    return this.localData.listMemoryPacks(childId);
   }
 }
 
