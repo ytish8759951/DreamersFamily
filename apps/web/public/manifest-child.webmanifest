@@ -1,0 +1,20 @@
+{
+  "name": "Dreamers Family 孩子",
+  "short_name": "孩子版",
+  "description": "Dreamers Family 孩子",
+  "display": "standalone",
+  "orientation": "portrait",
+  "id": "/child/home",
+  "start_url": "/child/home",
+  "scope": "/child/",
+  "background_color": "#fff7ed",
+  "theme_color": "#7a8f6e",
+  "icons": [
+    {
+      "src": "/app-icon-child.svg",
+      "sizes": "any",
+      "type": "image/svg+xml",
+      "purpose": "any maskable"
+    }
+  ]
+}

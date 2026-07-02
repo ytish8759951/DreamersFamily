@@ -8,7 +8,15 @@ export default defineConfig({
     VitePWA({
       registerType: 'autoUpdate',
       manifest: false,
-      includeAssets: ['manifest.webmanifest', 'app-icon.svg', 'app-icon-192.png', 'app-icon-512.png']
+      includeAssets: [
+        'manifest-parent.webmanifest',
+        'manifest-child.webmanifest',
+        'app-icon.svg',
+        'app-icon-parent.svg',
+        'app-icon-child.svg',
+        'app-icon-192.png',
+        'app-icon-512.png'
+      ]
     })
   ]
 });

@@ -8,8 +8,21 @@
     <meta name="apple-mobile-web-app-capable" content="yes" />
     <meta name="apple-mobile-web-app-status-bar-style" content="default" />
     <meta name="apple-mobile-web-app-title" content="Dreamers" />
-    <link rel="manifest" href="/manifest.webmanifest?v=20260702-child-home" />
     <link rel="apple-touch-icon" href="/app-icon-192.png" />
+    <script>
+      (function () {
+        const path = window.location.pathname || '/';
+        const isChild = path.startsWith('/child');
+        const manifestHref = isChild
+          ? '/manifest-child.webmanifest?v=20260702-child-pwa-v1'
+          : '/manifest-parent.webmanifest?v=20260702-parent-pwa-v1';
+        const existing = document.querySelector('link[rel="manifest"]');
+        const link = existing || document.createElement('link');
+        link.setAttribute('rel', 'manifest');
+        link.setAttribute('href', manifestHref);
+        if (!existing) document.head.appendChild(link);
+      })();
+    </script>
     <title>Dreamers Family</title>
   </head>
   <body>

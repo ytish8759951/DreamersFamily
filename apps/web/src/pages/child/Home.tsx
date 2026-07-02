@@ -51,8 +51,8 @@ export function ChildHome() {
   const hasChildBinding = Boolean(localState.currentChildIdentity || localState.device_child_id || currentChildIdentity || deviceBinding);
   const selectedChildId = useMemo(() => {
     const childId = new URLSearchParams(location.search).get('childId');
-    return childId || localState.currentChildIdentity?.childId || currentChildIdentity?.childId || localState.device_child_id || deviceBinding || localState.active_child_id || null;
-  }, [currentChildIdentity?.childId, deviceBinding, location.search, localState.active_child_id, localState.currentChildIdentity?.childId, localState.device_child_id]);
+    return childId || localState.currentChildIdentity?.childId || currentChildIdentity?.childId || localState.device_child_id || deviceBinding || null;
+  }, [currentChildIdentity?.childId, deviceBinding, location.search, localState.currentChildIdentity?.childId, localState.device_child_id]);
   const selectedChild = selectedChildId
     ? localState.children.find((child) => child.id === selectedChildId && child.status === 'active')
     : null;
@@ -61,7 +61,7 @@ export function ChildHome() {
     return (
       <div className="v1-page v1-home v2-home-page">
         <section className="child-home-install-banner">
-          <strong>尚未綁定此平板</strong>
+          <strong>此平板尚未綁定孩子</strong>
           <p>請家長重新掃描 QR Code</p>
         </section>
         <div className="child-home-empty-state">

@@ -1,4 +1,5 @@
 import { Camera, Home, ListChecks, Mail, PiggyBank } from 'lucide-react';
+import { useLayoutEffect } from 'react';
 import { NavLink, Outlet, useLocation } from 'react-router-dom';
 
 const navItems = [
@@ -19,6 +20,18 @@ export function ChildLayout() {
   const isHonorPage = location.pathname === '/child/honor-wall';
   const isSpecialDaysPage = location.pathname === '/child/special-days';
   const isScreenTimePage = location.pathname === '/child/screen-time';
+
+  useLayoutEffect(() => {
+    if (typeof document === 'undefined') return;
+    const linkId = 'app-manifest-link';
+    const href = '/manifest-child.webmanifest?v=20260702-child-pwa-v1';
+    const existing = document.getElementById(linkId) as HTMLLinkElement | null;
+    const link = existing ?? document.createElement('link');
+    link.id = linkId;
+    link.rel = 'manifest';
+    link.href = href;
+    if (!existing) document.head.appendChild(link);
+  }, []);
 
   return (
     <div className={`ds-shell ds-child-shell${isHomePage ? ' ds-home-shell' : ''}${isTaskPage ? ' ds-task-shell' : ''}${isSharePage ? ' ds-share-shell' : ''}${isDreamPage ? ' ds-dream-shell' : ''}${isMailboxPage ? ' ds-mailbox-shell' : ''}${isHonorPage ? ' ds-honor-shell' : ''}${isSpecialDaysPage ? ' ds-special-days-shell' : ''}${isScreenTimePage ? ' ds-screen-time-shell' : ''}`}>

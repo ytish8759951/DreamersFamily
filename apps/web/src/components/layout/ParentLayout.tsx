@@ -12,7 +12,7 @@ import {
   Users,
   X
 } from 'lucide-react';
-import { useState } from 'react';
+import { useLayoutEffect, useState } from 'react';
 import { NavLink, Outlet, useLocation } from 'react-router-dom';
 import { useLocalDataState } from '../../lib/useLocalData';
 
@@ -65,6 +65,18 @@ export function ParentLayout() {
       ? growthBottomNav
       : dreamBottomNav;
   const pageClass = familyPath === '/parent/dreams' ? ' is-dream-page' : familyPath === '/parent/mailbox' ? ' is-mailbox-page' : '';
+
+  useLayoutEffect(() => {
+    if (typeof document === 'undefined') return;
+    const linkId = 'app-manifest-link';
+    const href = '/manifest-parent.webmanifest?v=20260702-parent-pwa-v1';
+    const existing = document.getElementById(linkId) as HTMLLinkElement | null;
+    const link = existing ?? document.createElement('link');
+    link.id = linkId;
+    link.rel = 'manifest';
+    link.href = href;
+    if (!existing) document.head.appendChild(link);
+  }, []);
 
   return (
     <div className={`ph-shell${pageClass}`}>
