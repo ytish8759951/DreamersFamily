@@ -266,34 +266,63 @@ function readChildSessionBootstrap(): { currentChildIdentity: LocalChildIdentity
   }
 }
 
-interface LocalParentBootstrap {
+export interface LocalParentBootstrap {
   schema_version: 1;
   family_id: string;
   parent_id: string | null;
   current_user_id: string;
-  active_child_id: string | null;
-  children: LocalChild[];
-  family_settings: LocalFamilySettings;
-  repository_summary: LocalRepositoryDataSummary[];
+  currentChildId: string | null;
+  children: LocalParentBootstrapChild[];
+  settings: LocalFamilySettings;
+  repositorySummary: LocalRepositoryDataSummary[];
   updated_at: string;
 }
 
-function readParentBootstrap(): LocalParentBootstrap | null {
+export type LocalParentBootstrapChild = Pick<
+  LocalChild,
+  | 'id'
+  | 'display_name'
+  | 'legal_name'
+  | 'birth_date'
+  | 'birthday'
+  | 'gender'
+  | 'avatar_path'
+  | 'avatar_media_id'
+  | 'theme_color'
+  | 'timezone'
+  | 'status'
+  | 'notes'
+  | 'child_token'
+  | 'child_token_updated_at'
+  | 'child_token_consumed_at'
+  | 'created_at'
+  | 'updated_at'
+  | 'archived_at'
+>;
+
+export function loadParentBootstrap(): LocalParentBootstrap | null {
   const raw = getCookieValue(LOCAL_PARENT_BOOTSTRAP_KEY);
   if (!raw) return null;
 
   try {
-    const parsed = JSON.parse(raw) as Partial<LocalParentBootstrap>;
-    if (parsed.schema_version !== 1 || !Array.isArray(parsed.children) || !parsed.family_settings) return null;
+    const parsed = JSON.parse(raw) as Partial<LocalParentBootstrap> & {
+      active_child_id?: string | null;
+      family_settings?: LocalFamilySettings;
+      repository_summary?: LocalRepositoryDataSummary[];
+    };
+    const settings = parsed.settings ?? parsed.family_settings;
+    const repositorySummary = parsed.repositorySummary ?? parsed.repository_summary ?? [];
+    const currentChildId = parsed.currentChildId ?? parsed.active_child_id ?? parsed.children?.[0]?.id ?? null;
+    if (parsed.schema_version !== 1 || !Array.isArray(parsed.children) || !settings) return null;
     return {
       schema_version: 1,
       family_id: parsed.family_id ?? LOCAL_FAMILY_ID,
       parent_id: parsed.parent_id ?? LOCAL_PARENT_USER_ID,
       current_user_id: parsed.current_user_id ?? parsed.parent_id ?? LOCAL_PARENT_USER_ID,
-      active_child_id: parsed.active_child_id ?? parsed.children[0]?.id ?? null,
+      currentChildId,
       children: parsed.children,
-      family_settings: parsed.family_settings,
-      repository_summary: parsed.repository_summary ?? [],
+      settings,
+      repositorySummary,
       updated_at: parsed.updated_at ?? now()
     };
   } catch {
@@ -358,33 +387,105 @@ function buildParentBootstrap(state: LocalDatabaseState): LocalParentBootstrap {
     family_id: state.family_id,
     parent_id: state.parent_id ?? state.current_user_id ?? LOCAL_PARENT_USER_ID,
     current_user_id: state.current_user_id ?? state.parent_id ?? LOCAL_PARENT_USER_ID,
-    active_child_id: state.active_child_id ?? activeChildren[0]?.id ?? null,
-    children: activeChildren,
-    family_settings: state.family_settings,
-    repository_summary: buildRepositorySummary(state),
+    currentChildId: state.active_child_id ?? activeChildren[0]?.id ?? null,
+    children: activeChildren.map(toParentBootstrapChild),
+    settings: state.family_settings,
+    repositorySummary: buildRepositorySummary(state),
     updated_at: state.updated_at
   };
 }
 
+function toParentBootstrapChild(child: LocalChild): LocalParentBootstrapChild {
+  return {
+    id: child.id,
+    display_name: child.display_name,
+    legal_name: child.legal_name,
+    birth_date: child.birth_date,
+    birthday: child.birthday,
+    gender: child.gender,
+    avatar_path: child.avatar_path,
+    avatar_media_id: child.avatar_media_id,
+    theme_color: child.theme_color,
+    timezone: child.timezone,
+    status: child.status,
+    notes: child.notes,
+    child_token: child.child_token || createChildDeviceTokenForChild(child),
+    child_token_updated_at: child.child_token_updated_at,
+    child_token_consumed_at: child.child_token_consumed_at,
+    created_at: child.created_at,
+    updated_at: child.updated_at,
+    archived_at: child.archived_at
+  };
+}
+
+function restoreChild(child: LocalParentBootstrapChild, state: LocalDatabaseState): LocalChild {
+  return {
+    id: child.id,
+    family_id: state.family_id,
+    display_name: child.display_name,
+    legal_name: child.legal_name ?? null,
+    birth_date: child.birth_date ?? null,
+    birthday: child.birthday ?? child.birth_date ?? null,
+    gender: child.gender ?? null,
+    avatar_path: child.avatar_path ?? null,
+    avatar_media_id: child.avatar_media_id ?? null,
+    theme_color: child.theme_color ?? null,
+    timezone: child.timezone || 'Asia/Taipei',
+    status: child.status ?? 'active',
+    notes: child.notes ?? null,
+    child_token: child.child_token,
+    child_token_updated_at: child.child_token_updated_at,
+    child_token_consumed_at: child.child_token_consumed_at ?? null,
+    binding_status: 'unbound',
+    bound_device_id: null,
+    bound_at: null,
+    last_login_at: null,
+    last_login_device: null,
+    created_by: state.current_user_id,
+    created_at: child.created_at,
+    updated_at: child.updated_at,
+    archived_at: child.archived_at ?? null
+  };
+}
+
+export function restoreChildren(state: LocalDatabaseState, bootstrap: LocalParentBootstrap): LocalChild[] {
+  return bootstrap.children.map((child) => restoreChild(child, state));
+}
+
+export function restoreCurrentChild(state: LocalDatabaseState, bootstrap: LocalParentBootstrap) {
+  const childIds = new Set(state.children.filter((child) => child.status === 'active').map((child) => child.id));
+  return bootstrap.currentChildId && childIds.has(bootstrap.currentChildId)
+    ? bootstrap.currentChildId
+    : state.children.find((child) => child.status === 'active')?.id ?? null;
+}
+
 function applyParentBootstrap(state: LocalDatabaseState, bootstrap: LocalParentBootstrap): LocalDatabaseState {
-  return normalizeState({
+  const baseState = {
     ...state,
     family_id: bootstrap.family_id,
     parent_id: bootstrap.parent_id,
     current_user_id: bootstrap.current_user_id,
-    active_child_id: bootstrap.active_child_id,
-    children: bootstrap.children,
-    child_onboarding_tokens: bootstrap.children
+    family_settings: bootstrap.settings,
+    parent_bootstrap_summary: bootstrap.repositorySummary,
+    updated_at: bootstrap.updated_at
+  };
+  const children = restoreChildren(baseState, bootstrap);
+  const nextState: LocalDatabaseState = {
+    ...baseState,
+    children,
+    active_child_id: null,
+    child_onboarding_tokens: children
       .filter((child) => child.status === 'active' && !child.child_token_consumed_at)
       .map((child) => ({
         childId: child.id,
         childName: child.display_name,
         childToken: child.child_token,
         createdAt: child.child_token_updated_at
-      })),
-    family_settings: bootstrap.family_settings,
-    parent_bootstrap_summary: bootstrap.repository_summary,
-    updated_at: bootstrap.updated_at
+      }))
+  };
+  nextState.active_child_id = restoreCurrentChild(nextState, bootstrap);
+  return normalizeState({
+    ...nextState
   });
 }
 
@@ -459,7 +560,7 @@ export class MockDatabase {
   read(): LocalDatabaseState {
     const stored = readJson<LocalDatabaseState>(this.storage, this.storageKey);
     const childBootstrap = readChildSessionBootstrap();
-    const parentBootstrap = readParentBootstrap();
+    const parentBootstrap = loadParentBootstrap();
     const isEmptyStoredState =
       stored ? (stored.children?.length ?? 0) === 0 && !stored.currentChildIdentity && !stored.deviceBinding && !stored.device_child_id : false;
     const canApplyParentBootstrap =

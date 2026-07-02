@@ -57,6 +57,7 @@ function installCookieJar() {
       }
     }
   });
+  return cookies;
 }
 function addDaysForTest(date: string, days: number) {
   const value = new Date(`${date}T00:00:00.000Z`);
@@ -161,7 +162,7 @@ describe('local MVP data flows', () => {
   });
 
   it('bootstraps parent home screen PWA from Safari parent data when localStorage is isolated', () => {
-    installCookieJar();
+    const cookies = installCookieJar();
     const safariParent = new LocalDataService(new MockDatabase(new TestStorage(), 'safari-parent-db'));
     safariParent.resetLocalData();
     safariParent.updateSettings({
@@ -175,6 +176,14 @@ describe('local MVP data flows', () => {
     });
     safariParent.createTask({ child_id: child.id, title: 'Parent task', reward_stars: 3 });
     safariParent.switchChild(child.id);
+    const bootstrapRaw = decodeURIComponent(cookies.get('little-dreamers-family:parent-bootstrap:v1') ?? '');
+    const bootstrap = JSON.parse(bootstrapRaw);
+    expect(bootstrap).toMatchObject({
+      currentChildId: child.id,
+      children: [expect.objectContaining({ id: child.id, display_name: 'Safari Kid' })],
+      repositorySummary: [expect.objectContaining({ child_id: child.id, task_count: 1 })]
+    });
+    expect(bootstrapRaw.length).toBeLessThan(4000);
 
     const homeScreenParent = new LocalDataService(new MockDatabase(new TestStorage(), 'home-screen-parent-db'));
     const restored = homeScreenParent.getState();
