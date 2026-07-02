@@ -81,6 +81,15 @@ function logChildUrlDebug(input: {
     copyUrl: input.copyUrl,
     qrAndCopyMatch: input.qrUrl === input.copyUrl
   });
+
+  console.log('[child onboarding qr/copy check]', {
+    childToken: childWithLegacyFields.childToken ?? input.child.child_token,
+    child_childToken: childWithLegacyFields.childToken,
+    child_child_token: input.child.child_token,
+    onboardingToken: input.onboardingToken,
+    qrUrl: input.qrUrl,
+    copyUrl: input.copyUrl
+  });
 }
 
 async function copyText(value: string) {
