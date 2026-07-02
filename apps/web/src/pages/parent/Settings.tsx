@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState, type ChangeEvent, type FormEvent } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { Database, Download, RotateCcw, Settings as SettingsIcon, Upload, UserRound } from 'lucide-react';
 import { settingsRepository } from '../../lib/settingsRepository';
 import type { LocalFamilySettings } from '../../lib/localTypes';
@@ -7,6 +8,7 @@ import { useLocalDataState } from '../../lib/useLocalData';
 type SettingsForm = Omit<LocalFamilySettings, 'family_created_at' | 'updated_at'>;
 
 export function Settings() {
+  const navigate = useNavigate();
   const state = useLocalDataState();
   const settings = state.family_settings;
   const [form, setForm] = useState<SettingsForm>(() => toForm(settings));
@@ -65,11 +67,16 @@ export function Settings() {
     }
   };
 
-  const resetAll = () => {
-    if (!window.confirm('確定要清除所有本機 MVP 資料嗎？')) return;
-    settingsRepository.resetAllData();
-    setForm(toForm(settingsRepository.getSettings()));
-    setMessage('資料已重設');
+  const resetDemoData = async () => {
+    if (!window.confirm('這會清除目前所有測試資料，回到乾淨狀態，是否繼續？')) return;
+    try {
+      await settingsRepository.resetDemoData();
+      setForm(toForm(settingsRepository.getSettings()));
+      setMessage('已回復初始狀態');
+      navigate('/parent/children', { replace: true });
+    } catch (caught) {
+      setMessage(caught instanceof Error ? caught.message : '回復初始狀態失敗');
+    }
   };
 
   return (
@@ -127,11 +134,11 @@ export function Settings() {
       </section>
 
       <section className="settings-data-panel">
-        <header><div><h2>資料管理</h2><p>localStorage 只保存文字、設定與 mediaId metadata。</p></div><Database size={28} /></header>
+        <header><div><h2>測試資料管理</h2><p>localStorage 只保存文字、設定與 mediaId metadata。</p></div><Database size={28} /></header>
         <div className="settings-data-actions">
           <button type="button" onClick={exportData}><Download size={18} /> 匯出 JSON</button>
           <label><Upload size={18} /> 匯入 JSON<input type="file" accept="application/json,.json" onChange={importData} /></label>
-          <button type="button" className="is-danger" onClick={resetAll}><RotateCcw size={18} /> 重設資料</button>
+          <button type="button" className="is-danger" onClick={() => void resetDemoData()}><RotateCcw size={18} /> 回復初始狀態</button>
         </div>
         <dl>
           <div><dt>localStorage 用量</dt><dd>{usage.kb} KB</dd></div>

@@ -627,6 +627,7 @@ export interface LocalDataRepository {
   exportData(): string;
   importData(raw: string): LocalDatabaseState;
   resetAllData(): LocalDatabaseState;
+  resetDemoData(): LocalDatabaseState;
   updateScreenTime(input: UpdateScreenTimeInput): LocalScreenTimeLog;
   getScreenTimeBalance(childId: UUID): number;
   listScreenTimeLogs(childId: UUID): LocalScreenTimeLog[];
@@ -1560,6 +1561,38 @@ export class LocalDataService implements LocalDataRepository {
 
   resetAllData() {
     return this.resetLocalData();
+  }
+
+  resetDemoData() {
+    return this.db.transaction((state) => {
+      const familySettings = state.family_settings;
+      state.children = [];
+      state.child_onboarding_tokens = [];
+      state.device_child_id = null;
+      state.currentChildIdentity = null;
+      state.active_child_id = null;
+      state.tasks = [];
+      state.stars = [];
+      state.dreams = [];
+      state.dream_funds = [];
+      state.shares = [];
+      state.share_media = [];
+      state.encouragement_cards = [];
+      state.badges = [];
+      state.child_badges = [];
+      state.special_days = [];
+      state.screen_time_schedules = [];
+      state.screen_time_logs = [];
+      state.growth_records = [];
+      state.piggy_incomes = [];
+      state.piggy_bank_logs = [];
+      state.piggy_products = [];
+      state.piggy_shelf_orders = [];
+      state.piggyProductDisplaySettings = [];
+      state.piggy_purchases = [];
+      state.family_settings = familySettings;
+      return state;
+    });
   }
 
   updateScreenTime(input: UpdateScreenTimeInput) {

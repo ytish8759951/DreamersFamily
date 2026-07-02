@@ -238,6 +238,10 @@ export class SupabaseDataRepository implements LocalDataRepository {
     return notEnabled();
   }
 
+  resetDemoData(): LocalDatabaseState {
+    return notEnabled();
+  }
+
   updateScreenTime(_input: UpdateScreenTimeInput): LocalScreenTimeLog {
     return notEnabled();
   }

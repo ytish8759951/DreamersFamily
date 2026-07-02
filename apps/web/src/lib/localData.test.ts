@@ -713,6 +713,34 @@ describe('local MVP data flows', () => {
     });
   });
 
+  it('resets demo data while keeping family settings', () => {
+    const child = data.createChild({ display_name: '樂樂' });
+    data.createTask({
+      child_id: child.id,
+      title: '整理書包',
+      reward_stars: 3
+    });
+    data.updateSettings({
+      family_name: '星星家庭',
+      default_theme_color: 'green',
+      allow_photo_sharing: false
+    });
+
+    const createdAt = data.getSettings().family_created_at;
+    data.resetDemoData();
+
+    expect(data.listChildren()).toHaveLength(0);
+    expect(data.getState().tasks).toHaveLength(0);
+    expect(data.getState().child_onboarding_tokens).toHaveLength(0);
+    expect(data.getState().currentChildIdentity).toBeNull();
+    expect(data.getSettings()).toMatchObject({
+      family_name: '星星家庭',
+      default_theme_color: 'green',
+      allow_photo_sharing: false,
+      family_created_at: createdAt
+    });
+  });
+
   it('keeps screen-time balance and immutable change history', () => {
     const child = data.createChild({ display_name: '樂樂' });
     data.updateScreenTime({ child_id: child.id, minutes_delta: 30, reason: '家長增加' });

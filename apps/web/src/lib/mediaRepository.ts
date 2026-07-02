@@ -80,6 +80,7 @@ export const mediaRepository = {
   listMedia,
   deleteOwnerMedia,
   clearMedia,
+  clearDemoMedia,
   cleanup,
   getMediaObjectUrl,
   acquireMediaObjectUrl,
@@ -258,6 +259,22 @@ export async function clearMedia() {
   cleanup();
   const db = await openMediaDb();
   await writeTransaction(db, (store) => store.clear());
+  db.close();
+}
+
+export async function clearDemoMedia() {
+  cleanup();
+  const records = await listMedia();
+  const demoRecords = records.filter((record) => record.ownerType !== 'avatar');
+  if (!demoRecords.length) return;
+
+  const db = await openMediaDb();
+  await writeTransaction(db, (store) => {
+    demoRecords.forEach((record) => {
+      revokeCachedObjectUrl(record.id);
+      store.delete(record.id);
+    });
+  });
   db.close();
 }
 

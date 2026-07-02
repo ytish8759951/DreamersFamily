@@ -1,5 +1,5 @@
 import { dataRepository } from './dataRepository';
-import { mediaRepository } from './mediaRepository';
+import { mediaRepository, clearDemoMedia } from './mediaRepository';
 
 export const settingsRepository = {
   getSettings: dataRepository.getSettings.bind(dataRepository),
@@ -8,6 +8,7 @@ export const settingsRepository = {
   exportData: dataRepository.exportData.bind(dataRepository),
   importData: dataRepository.importData.bind(dataRepository),
   resetAllData: dataRepository.resetAllData.bind(dataRepository),
+  resetDemoData,
   saveAvatar,
   saveAvatarFile,
   getAvatarUrl,
@@ -57,4 +58,9 @@ function downloadJson(raw: string, fileName: string) {
 
 function estimateJsonKb(raw: string) {
   return (new TextEncoder().encode(raw).length / 1024).toFixed(1);
+}
+
+async function resetDemoData() {
+  await clearDemoMedia();
+  return dataRepository.resetDemoData();
 }
