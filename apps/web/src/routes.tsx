@@ -33,6 +33,7 @@ function RootRedirect() {
 
 export const router = createBrowserRouter([
   { path: '/', element: <RootRedirect /> },
+  { path: '/launch', element: <RootRedirect /> },
   { path: '/preview/design-system', element: <DesignSystemPreview /> },
   {
     path: '/parent',
