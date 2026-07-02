@@ -5,7 +5,6 @@ import {
   Check,
   Copy,
   Edit3,
-  QrCode,
   RefreshCw,
   Plus,
   Star,
@@ -205,8 +204,6 @@ export function Children() {
   const [expandedDeviceId, setExpandedDeviceId] = useState<string | null>(null);
   const [createdChildId, setCreatedChildId] = useState<string | null>(null);
   const [copiedChildId, setCopiedChildId] = useState<string | null>(null);
-  const [qrDialogChildId, setQrDialogChildId] = useState<string | null>(null);
-  const [qrImageError, setQrImageError] = useState('');
 
   const activeChildren = useMemo(
     () => state.children.filter((child) => child.status === 'active'),
@@ -215,9 +212,6 @@ export function Children() {
   const activeChild = activeChildren.find((child) => child.id === state.active_child_id) ?? null;
   const createdChild = createdChildId
     ? activeChildren.find((child) => child.id === createdChildId) ?? null
-    : null;
-  const qrDialogChild = qrDialogChildId
-    ? activeChildren.find((child) => child.id === qrDialogChildId) ?? null
     : null;
 
   const starBalance = (childId: string) =>
@@ -308,33 +302,6 @@ export function Children() {
     await copyText(copyUrl);
     setCopiedChildId(child.id);
     window.setTimeout(() => setCopiedChildId((current) => current === child.id ? null : current), 1600);
-  };
-
-  const openQRCodeDialog = (child: LocalChild) => {
-    const copyUrl = childDeviceUrl(child);
-    const onboardingToken = onboardingTokenForChild(state, child);
-    console.log('[child onboarding] openQRCodeDialog called', {
-      childId: child.id,
-      childName: child.display_name,
-      childToken: child.child_token,
-      qrUrl: copyUrl,
-      copyUrl
-    });
-    logChildUrlDebug({
-      source: 'open qr dialog',
-      child,
-      onboardingToken,
-      qrUrl: copyUrl,
-      copyUrl
-    });
-    setCreatedChildId(null);
-    setQrImageError('');
-    setQrDialogChildId(child.id);
-  };
-
-  const closeQRCodeDialog = () => {
-    setQrDialogChildId(null);
-    setQrImageError('');
   };
 
   const regenerateChildUrl = (child: LocalChild) => {
@@ -560,7 +527,7 @@ export function Children() {
         </div>
       ) : null}
 
-      {createdChild && !qrDialogChild ? (
+      {createdChild ? (
         <div className="local-form-backdrop child-created-backdrop" role="presentation" onMouseDown={() => setCreatedChildId(null)}>
           <section
             className="local-form-dialog child-created-dialog"
@@ -572,20 +539,12 @@ export function Children() {
             <header>
               <div>
                 <small>DEVICE ONBOARDING</small>
-                <h2 id="child-created-title">🎉 孩子建立完成</h2>
+                <h2 id="child-created-title">孩子建立完成</h2>
               </div>
               <button type="button" aria-label="關閉" onClick={() => setCreatedChildId(null)}>×</button>
             </header>
-            <div className="child-created-content">
-              <strong>{createdChild.display_name} 的孩子專屬入口已建立</strong>
-              <CreatedChildQr child={createdChild} state={state} />
-              <small>childToken: {createdChild.child_token || '(empty)'}</small>
-              <code>{childDeviceUrl(createdChild)}</code>
-            </div>
+            <QRCodeDialogContent child={createdChild} state={state} />
             <footer className="child-created-actions">
-              <button type="button" onClick={() => openQRCodeDialog(createdChild)}>
-                <QrCode size={18} /> 顯示 QR Code
-              </button>
               <button type="button" onClick={() => void copyChildUrl(createdChild)}>
                 <Copy size={18} /> {copiedChildId === createdChild.id ? '已複製' : '複製網址'}
               </button>
@@ -596,66 +555,21 @@ export function Children() {
           </section>
         </div>
       ) : null}
-
-      {qrDialogChild ? (
-        <div className="local-form-backdrop child-created-backdrop" role="presentation" onMouseDown={closeQRCodeDialog}>
-          <section
-            className="local-form-dialog child-created-dialog"
-            role="dialog"
-            aria-modal="true"
-            aria-labelledby="child-qr-dialog-title"
-            onMouseDown={(event) => event.stopPropagation()}
-          >
-            <header>
-              <div>
-                <small>DEVICE ONBOARDING</small>
-                <h2 id="child-qr-dialog-title">QR Code</h2>
-              </div>
-              <button type="button" aria-label="關閉" onClick={closeQRCodeDialog}>×</button>
-            </header>
-            <QRCodeDialogContent
-              child={qrDialogChild}
-              state={state}
-              error={qrImageError}
-            />
-            <footer className="child-created-actions">
-              <button className="ds-primary-button" type="button" onClick={closeQRCodeDialog}>
-                <Check size={18} /> Done
-              </button>
-            </footer>
-          </section>
-        </div>
-      ) : null}
     </div>
   );
 }
 
-function CreatedChildQr({ child, state }: { child: LocalChild; state: ReturnType<typeof useLocalDataState> }) {
-  const copyUrl = childDeviceUrl(child);
-  const onboardingToken = onboardingTokenForChild(state, child);
-  logChildUrlDebug({
-    source: 'created child qr',
-    child,
-    onboardingToken,
-    qrUrl: copyUrl,
-    copyUrl
-  });
-  return <LocalQRCode value={copyUrl} label={`${child.display_name} QR Code`} />;
-}
-
 function QRCodeDialogContent({
   child,
-  state,
-  error
+  state
 }: {
   child: LocalChild;
   state: ReturnType<typeof useLocalDataState>;
-  error: string;
 }) {
   const copyUrl = childDeviceUrl(child);
   const onboardingToken = onboardingTokenForChild(state, child);
   logChildUrlDebug({
-    source: 'qr dialog',
+    source: 'created child modal',
     child,
     onboardingToken,
     qrUrl: copyUrl,
@@ -664,16 +578,20 @@ function QRCodeDialogContent({
   return (
     <div className="child-created-content">
       <strong>{child.display_name} QR Code</strong>
-      {error ? <p className="local-form-error">{error}</p> : null}
       <LocalQRCode value={copyUrl} label={`${child.display_name} QR Code`} />
       <div className="child-created-url">
-        <small>Current childDeviceUrl</small>
-        <textarea readOnly rows={3} value={copyUrl} />
         <button type="button" onClick={() => void copyText(copyUrl)}>
           <Copy size={16} /> Copy URL
         </button>
       </div>
-      <small>childToken: {child.child_token || '(empty)'}</small>
+      <details className="child-created-debug">
+        <summary>Debug</summary>
+        <div className="child-created-debug-body">
+          <small>childToken present: {child.child_token ? 'yes' : 'no'}</small>
+          <small>childDeviceUrl length: {copyUrl.length}</small>
+          <small>childDeviceUrl: {copyUrl}</small>
+        </div>
+      </details>
     </div>
   );
 }
@@ -693,25 +611,16 @@ function ChildDeviceSettings({
   onRegenerate: () => void;
   onUnbind: () => void;
 }) {
-  const url = childDeviceUrl(child);
   const onboardingToken = onboardingTokenForChild(state, child);
   logChildUrlDebug({
     source: 'expanded child qr',
     child,
     onboardingToken,
-    qrUrl: url,
-    copyUrl: url
+    qrUrl: childDeviceUrl(child),
+    copyUrl: childDeviceUrl(child)
   });
   return (
     <div className="child-device-settings">
-      <div className="child-device-url">
-        <small>孩子專屬網址</small>
-        <code>{url}</code>
-        <small>childToken: {child.child_token || '(empty)'}</small>
-      </div>
-      <div className="child-device-qr">
-        <LocalQRCode value={url} label={`${child.display_name} QR Code`} />
-      </div>
       <dl>
         <div><dt>裝置綁定狀態</dt><dd>{child.bound_device_id ? '已綁定' : '尚未綁定'}</dd></div>
         <div><dt>上次登入時間</dt><dd>{child.last_login_at ? formatDateTime(child.last_login_at) : '尚未登入'}</dd></div>

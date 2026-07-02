@@ -3012,6 +3012,12 @@ textarea {
   overflow-wrap: normal;
 }
 
+html,
+body,
+#root {
+  overflow-x: hidden;
+}
+
 body {
   margin: 0;
   min-width: 320px;
@@ -7384,6 +7390,29 @@ button.ds-primary-button {
   max-width: 80vw;
   height: auto;
   margin: 0 auto;
+}
+
+.child-created-debug {
+  width: 100%;
+  max-width: 100%;
+  text-align: left;
+}
+
+.child-created-debug summary {
+  cursor: pointer;
+  color: var(--muted);
+  font-weight: 800;
+}
+
+.child-created-debug-body {
+  display: grid;
+  padding-top: 0.65rem;
+  gap: 0.45rem;
+}
+
+.child-created-debug-body small {
+  overflow-wrap: anywhere;
+  word-break: break-all;
 }
 
 .child-created-actions {
