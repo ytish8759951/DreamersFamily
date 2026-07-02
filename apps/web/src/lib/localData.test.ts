@@ -1,4 +1,4 @@
-﻿import { beforeEach, describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { LocalDataService, LocalDataError } from './localData';
 import { MockDatabase } from './mockDatabase';
 import type { KeyValueStorage } from './storage';
@@ -27,6 +27,37 @@ class TestStorage implements KeyValueStorage {
   }
 }
 
+function installCookieJar() {
+  const cookies = new Map<string, string>();
+  vi.stubGlobal('window', {
+    dispatchEvent: vi.fn()
+  });
+  vi.stubGlobal('CustomEvent', class {
+    constructor(
+      public readonly type: string,
+      public readonly init?: CustomEventInit
+    ) {}
+  });
+  vi.stubGlobal('document', {
+    get cookie() {
+      return Array.from(cookies.entries())
+        .map(([key, value]) => `${key}=${value}`)
+        .join('; ');
+    },
+    set cookie(value: string) {
+      const [pair, ...attributes] = value.split(';').map((item) => item.trim());
+      const separator = pair.indexOf('=');
+      if (separator < 0) return;
+      const key = pair.slice(0, separator);
+      const cookieValue = pair.slice(separator + 1);
+      if (attributes.some((attribute) => attribute.toLowerCase() === 'max-age=0')) {
+        cookies.delete(key);
+      } else {
+        cookies.set(key, cookieValue);
+      }
+    }
+  });
+}
 function addDaysForTest(date: string, days: number) {
   const value = new Date(`${date}T00:00:00.000Z`);
   value.setUTCDate(value.getUTCDate() + days);
@@ -43,6 +74,9 @@ describe('local MVP data flows', () => {
     data.resetLocalData();
   });
 
+  afterEach(() => {
+    vi.unstubAllGlobals();
+  });
   it('exposes repository scope for future family, parent, child and device binding', () => {
     expect(data.getRepositoryScope()).toMatchObject({
       family_id: 'local-family',
@@ -126,6 +160,66 @@ describe('local MVP data flows', () => {
     expect(() => childDeviceData.bindChildDeviceByToken(child.child_token)).toThrowError(LocalDataError);
   });
 
+  it('bootstraps parent home screen PWA from Safari parent data when localStorage is isolated', () => {
+    installCookieJar();
+    const safariParent = new LocalDataService(new MockDatabase(new TestStorage(), 'safari-parent-db'));
+    safariParent.resetLocalData();
+    safariParent.updateSettings({
+      family_name: 'Dreamers Family',
+      parent_name: 'Mom'
+    });
+    const child = safariParent.createChild({
+      display_name: 'Safari Kid',
+      birth_date: '2020-01-02',
+      theme_color: 'green'
+    });
+    safariParent.createTask({ child_id: child.id, title: 'Parent task', reward_stars: 3 });
+    safariParent.switchChild(child.id);
+
+    const homeScreenParent = new LocalDataService(new MockDatabase(new TestStorage(), 'home-screen-parent-db'));
+    const restored = homeScreenParent.getState();
+
+    expect(restored.children).toHaveLength(1);
+    expect(restored.children[0]).toMatchObject({
+      id: child.id,
+      display_name: 'Safari Kid',
+      birth_date: '2020-01-02',
+      theme_color: 'green'
+    });
+    expect(restored.active_child_id).toBe(child.id);
+    expect(restored.family_settings).toMatchObject({
+      family_name: 'Dreamers Family',
+      parent_name: 'Mom'
+    });
+    expect(restored.parent_bootstrap_summary).toEqual([
+      expect.objectContaining({
+        child_id: child.id,
+        task_count: 1
+      })
+    ]);
+  });
+
+  it('refreshes an existing parent home screen PWA from newer Safari parent bootstrap', () => {
+    installCookieJar();
+    const safariParent = new LocalDataService(new MockDatabase(new TestStorage(), 'safari-parent-db'));
+    safariParent.resetLocalData();
+    const first = safariParent.createChild({ display_name: 'First Kid' });
+
+    const homeScreenStorage = new TestStorage();
+    const homeScreenParent = new LocalDataService(new MockDatabase(homeScreenStorage, 'home-screen-parent-db'));
+    expect(homeScreenParent.getState().children.map((child) => child.id)).toEqual([first.id]);
+
+    const second = safariParent.createChild({ display_name: 'Second Kid' });
+    safariParent.switchChild(second.id);
+    safariParent.updateSettings({ parent_name: 'Updated Parent' });
+
+    const relaunchedHomeScreenParent = new LocalDataService(new MockDatabase(homeScreenStorage, 'home-screen-parent-db'));
+    const restored = relaunchedHomeScreenParent.getState();
+
+    expect(restored.children.map((child) => child.id)).toEqual([first.id, second.id]);
+    expect(restored.active_child_id).toBe(second.id);
+    expect(restored.family_settings.parent_name).toBe('Updated Parent');
+  });
   it('opens a valid child token on empty localStorage and reaches the child home identity', () => {
     const child = data.createChild({ display_name: '空白裝置孩子', birth_date: '2022-01-02' });
     const emptyDeviceData = new LocalDataService(new MockDatabase(new TestStorage(), 'empty-child-device-db'));

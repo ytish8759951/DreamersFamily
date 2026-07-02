@@ -1,4 +1,10 @@
-import type { LocalChild, LocalChildIdentity, LocalDatabaseState } from './localTypes';
+import type {
+  LocalChild,
+  LocalChildIdentity,
+  LocalDatabaseState,
+  LocalFamilySettings,
+  LocalRepositoryDataSummary
+} from './localTypes';
 import { normalizeBadgeIcon } from './badgeIcons';
 import { createChildDeviceTokenForChild } from './childDeviceToken';
 import {
@@ -19,6 +25,7 @@ export const LOCAL_DEVICE_ID = 'local-device';
 const LOCAL_DEVICE_ID_KEY = 'little-dreamers-family:device-id:v1';
 const LOCAL_CURRENT_CHILD_IDENTITY_KEY = 'currentChildIdentity';
 const LOCAL_DEVICE_BINDING_KEY = 'deviceBinding';
+const LOCAL_PARENT_BOOTSTRAP_KEY = 'little-dreamers-family:parent-bootstrap:v1';
 
 type Listener = (state: LocalDatabaseState) => void;
 
@@ -65,6 +72,7 @@ function createEmptyState(): LocalDatabaseState {
     currentChildIdentity: null,
     current_user_id: LOCAL_PARENT_USER_ID,
     active_child_id: null,
+    parent_bootstrap_summary: [],
     children: [],
     child_onboarding_tokens: [],
     tasks: [],
@@ -150,6 +158,7 @@ function normalizeState(state: LocalDatabaseState): LocalDatabaseState {
     currentChildIdentity: state.currentChildIdentity ?? null,
     current_user_id: state.current_user_id ?? state.parent_id ?? LOCAL_PARENT_USER_ID,
     active_child_id: state.currentChildIdentity?.childId ?? state.deviceBinding ?? state.device_child_id ?? state.active_child_id ?? null,
+    parent_bootstrap_summary: state.parent_bootstrap_summary ?? buildRepositorySummary({ ...state, children } as LocalDatabaseState),
     children,
     child_onboarding_tokens,
     tasks: (state.tasks ?? []).map((task) => ({
@@ -257,6 +266,128 @@ function readChildSessionBootstrap(): { currentChildIdentity: LocalChildIdentity
   }
 }
 
+interface LocalParentBootstrap {
+  schema_version: 1;
+  family_id: string;
+  parent_id: string | null;
+  current_user_id: string;
+  active_child_id: string | null;
+  children: LocalChild[];
+  family_settings: LocalFamilySettings;
+  repository_summary: LocalRepositoryDataSummary[];
+  updated_at: string;
+}
+
+function readParentBootstrap(): LocalParentBootstrap | null {
+  const raw = getCookieValue(LOCAL_PARENT_BOOTSTRAP_KEY);
+  if (!raw) return null;
+
+  try {
+    const parsed = JSON.parse(raw) as Partial<LocalParentBootstrap>;
+    if (parsed.schema_version !== 1 || !Array.isArray(parsed.children) || !parsed.family_settings) return null;
+    return {
+      schema_version: 1,
+      family_id: parsed.family_id ?? LOCAL_FAMILY_ID,
+      parent_id: parsed.parent_id ?? LOCAL_PARENT_USER_ID,
+      current_user_id: parsed.current_user_id ?? parsed.parent_id ?? LOCAL_PARENT_USER_ID,
+      active_child_id: parsed.active_child_id ?? parsed.children[0]?.id ?? null,
+      children: parsed.children,
+      family_settings: parsed.family_settings,
+      repository_summary: parsed.repository_summary ?? [],
+      updated_at: parsed.updated_at ?? now()
+    };
+  } catch {
+    deleteCookieValue(LOCAL_PARENT_BOOTSTRAP_KEY);
+    return null;
+  }
+}
+
+function buildRepositorySummary(state: LocalDatabaseState): LocalRepositoryDataSummary[] {
+  return (state.children ?? [])
+    .filter((child) => child.status !== 'archived')
+    .map((child) => {
+      const childId = child.id;
+      const piggySavings = (state.piggy_bank_logs ?? [])
+        .filter((log) => log.child_id === childId)
+        .reduce((total, log) => total + (log.type === 'purchase_debit' ? -log.amount : log.amount), 0);
+      return {
+        child_id: childId,
+        task_count: (state.tasks ?? []).filter((item) => item.child_id === childId).length,
+        star_balance: (state.stars ?? []).filter((item) => item.child_id === childId).reduce((total, item) => total + item.amount, 0),
+        dream_count: (state.dreams ?? []).filter((item) => item.child_id === childId).length,
+        share_count: (state.shares ?? []).filter((item) => item.child_id === childId && !item.deleted_at).length,
+        mailbox_count: (state.encouragement_cards ?? []).filter((item) => item.child_id === childId).length,
+        special_day_count: (state.special_days ?? []).filter((item) => item.child_id === childId && !item.deleted_at).length,
+        growth_record_count: (state.growth_records ?? []).filter((item) => item.child_id === childId).length,
+        screen_time_balance: Math.max(
+          0,
+          (state.screen_time_logs ?? []).filter((item) => item.child_id === childId).reduce((total, item) => total + item.minutes_delta, 0)
+        ),
+        piggy_savings: Math.max(0, piggySavings),
+        product_count: (state.piggy_products ?? []).filter((item) => item.child_id === childId && !item.deleted_at).length,
+        purchase_count: (state.piggy_purchases ?? []).filter((item) => item.child_id === childId).length
+      };
+    });
+}
+
+function hasRepositoryDetailData(state: LocalDatabaseState) {
+  return [
+    state.tasks,
+    state.stars,
+    state.dreams,
+    state.dream_funds,
+    state.shares,
+    state.share_media,
+    state.encouragement_cards,
+    state.special_days,
+    state.screen_time_schedules,
+    state.screen_time_requests,
+    state.screen_time_logs,
+    state.growth_records,
+    state.piggy_incomes,
+    state.piggy_bank_logs,
+    state.piggy_products,
+    state.piggy_purchases
+  ].some((items) => (items?.length ?? 0) > 0);
+}
+
+function buildParentBootstrap(state: LocalDatabaseState): LocalParentBootstrap {
+  const activeChildren = state.children.filter((child) => child.status !== 'archived');
+  return {
+    schema_version: 1,
+    family_id: state.family_id,
+    parent_id: state.parent_id ?? state.current_user_id ?? LOCAL_PARENT_USER_ID,
+    current_user_id: state.current_user_id ?? state.parent_id ?? LOCAL_PARENT_USER_ID,
+    active_child_id: state.active_child_id ?? activeChildren[0]?.id ?? null,
+    children: activeChildren,
+    family_settings: state.family_settings,
+    repository_summary: buildRepositorySummary(state),
+    updated_at: state.updated_at
+  };
+}
+
+function applyParentBootstrap(state: LocalDatabaseState, bootstrap: LocalParentBootstrap): LocalDatabaseState {
+  return normalizeState({
+    ...state,
+    family_id: bootstrap.family_id,
+    parent_id: bootstrap.parent_id,
+    current_user_id: bootstrap.current_user_id,
+    active_child_id: bootstrap.active_child_id,
+    children: bootstrap.children,
+    child_onboarding_tokens: bootstrap.children
+      .filter((child) => child.status === 'active' && !child.child_token_consumed_at)
+      .map((child) => ({
+        childId: child.id,
+        childName: child.display_name,
+        childToken: child.child_token,
+        createdAt: child.child_token_updated_at
+      })),
+    family_settings: bootstrap.family_settings,
+    parent_bootstrap_summary: bootstrap.repository_summary,
+    updated_at: bootstrap.updated_at
+  });
+}
+
 function createBootstrapChild(identity: LocalChildIdentity, boundDeviceId: string): LocalChild {
   const timestamp = now();
   return {
@@ -308,6 +439,17 @@ function syncChildSessionKeys(storage: KeyValueStorage, state: LocalDatabaseStat
   }
 }
 
+function syncParentBootstrap(state: LocalDatabaseState) {
+  if (typeof window === 'undefined') return;
+
+  const bootstrap = buildParentBootstrap(state);
+  try {
+    setCookieValue(LOCAL_PARENT_BOOTSTRAP_KEY, JSON.stringify(bootstrap));
+  } catch (error) {
+    console.warn('[parent-bootstrap] write failed', error);
+  }
+}
+
 export class MockDatabase {
   constructor(
     private readonly storage: KeyValueStorage = getLocalStorage(),
@@ -316,17 +458,27 @@ export class MockDatabase {
 
   read(): LocalDatabaseState {
     const stored = readJson<LocalDatabaseState>(this.storage, this.storageKey);
-    const bootstrap = readChildSessionBootstrap();
+    const childBootstrap = readChildSessionBootstrap();
+    const parentBootstrap = readParentBootstrap();
     const isEmptyStoredState =
       stored ? (stored.children?.length ?? 0) === 0 && !stored.currentChildIdentity && !stored.deviceBinding && !stored.device_child_id : false;
-    if (!stored || stored.schema_version !== 1 || (bootstrap && isEmptyStoredState)) {
-      if (bootstrap) {
+    const canApplyParentBootstrap =
+      parentBootstrap &&
+      (!stored?.currentChildIdentity && !stored?.deviceBinding && !stored?.device_child_id) &&
+      (!stored?.updated_at || parentBootstrap.updated_at > stored.updated_at);
+    if (!stored || stored.schema_version !== 1 || (childBootstrap && isEmptyStoredState) || (parentBootstrap && isEmptyStoredState) || canApplyParentBootstrap) {
+      if (childBootstrap) {
         const seeded = createEmptyState();
-        seeded.children = [createBootstrapChild(bootstrap.currentChildIdentity, seeded.device_id ?? LOCAL_DEVICE_ID)];
-        seeded.deviceBinding = bootstrap.deviceBinding;
-        seeded.device_child_id = bootstrap.deviceBinding;
-        seeded.currentChildIdentity = bootstrap.currentChildIdentity;
-        seeded.active_child_id = bootstrap.deviceBinding;
+        seeded.children = [createBootstrapChild(childBootstrap.currentChildIdentity, seeded.device_id ?? LOCAL_DEVICE_ID)];
+        seeded.deviceBinding = childBootstrap.deviceBinding;
+        seeded.device_child_id = childBootstrap.deviceBinding;
+        seeded.currentChildIdentity = childBootstrap.currentChildIdentity;
+        seeded.active_child_id = childBootstrap.deviceBinding;
+        this.write(seeded);
+        return clone(seeded);
+      }
+      if (parentBootstrap) {
+        const seeded = applyParentBootstrap(stored?.schema_version === 1 ? stored : createEmptyState(), parentBootstrap);
         this.write(seeded);
         return clone(seeded);
       }
@@ -341,8 +493,13 @@ export class MockDatabase {
 
   write(state: LocalDatabaseState): LocalDatabaseState {
     const next = { ...clone(state), updated_at: now() };
+    next.parent_bootstrap_summary =
+      hasRepositoryDetailData(next) || !next.parent_bootstrap_summary?.length
+        ? buildRepositorySummary(next)
+        : next.parent_bootstrap_summary;
     writeJson(this.storage, this.storageKey, next);
     syncChildSessionKeys(this.storage, next);
+    if (!next.currentChildIdentity && !next.deviceBinding && !next.device_child_id) syncParentBootstrap(next);
     listeners.forEach((listener) => listener(clone(next)));
 
     if (typeof window !== 'undefined') {
@@ -363,6 +520,7 @@ export class MockDatabase {
     this.storage.removeItem(this.storageKey);
     this.storage.removeItem(LOCAL_CURRENT_CHILD_IDENTITY_KEY);
     this.storage.removeItem(LOCAL_DEVICE_BINDING_KEY);
+    deleteCookieValue(LOCAL_PARENT_BOOTSTRAP_KEY);
     return this.write(createEmptyState());
   }
 

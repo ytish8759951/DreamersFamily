@@ -400,6 +400,21 @@ export interface LocalDeviceBindingRecord {
   updated_at: ISODateTime;
 }
 
+export interface LocalRepositoryDataSummary {
+  child_id: UUID;
+  task_count: number;
+  star_balance: number;
+  dream_count: number;
+  share_count: number;
+  mailbox_count: number;
+  special_day_count: number;
+  growth_record_count: number;
+  screen_time_balance: number;
+  piggy_savings: number;
+  product_count: number;
+  purchase_count: number;
+}
+
 export interface LocalPiggyIncome {
   id: UUID;
   family_id: UUID;
@@ -491,6 +506,7 @@ export interface LocalDatabaseState {
   currentChildIdentity?: LocalChildIdentity | null;
   current_user_id: UUID;
   active_child_id: UUID | null;
+  parent_bootstrap_summary?: LocalRepositoryDataSummary[];
   children: LocalChild[];
   child_onboarding_tokens?: LocalChildOnboardingToken[];
   tasks: LocalTask[];
