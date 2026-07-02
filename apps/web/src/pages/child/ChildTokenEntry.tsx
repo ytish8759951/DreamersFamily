@@ -51,6 +51,61 @@ function hasArrayItems(value: unknown) {
   return Array.isArray(value) && value.length > 0;
 }
 
+function readLegacyChildren(): unknown[] {
+  if (typeof window === 'undefined') return [];
+  const raw = window.localStorage.getItem('children');
+  console.log('children raw', raw);
+
+  try {
+    const parsed = raw ? JSON.parse(raw) : null;
+    return Array.isArray(parsed) ? parsed : [];
+  } catch (caught) {
+    console.error('[child token debug] children localStorage parse failed', caught);
+    return [];
+  }
+}
+
+function logChildrenLookupDebug(token: string) {
+  const children = readLegacyChildren();
+  console.log('children parsed', children);
+
+  children.forEach((child, index) => {
+    const c = child as {
+      id?: unknown;
+      childToken?: unknown;
+      child_token?: unknown;
+      onboardingToken?: unknown;
+      childTokenLegacy?: unknown;
+    };
+    console.log(index, {
+      id: c.id,
+      childToken: c.childToken,
+      child_token: c.child_token,
+      onboardingToken: c.onboardingToken,
+      childTokenLegacy: c.childTokenLegacy
+    });
+  });
+
+  console.log('lookup token', token);
+  console.log(
+    'compare result',
+    children.map((child) => {
+      const c = child as {
+        id?: unknown;
+        childToken?: unknown;
+        child_token?: unknown;
+        onboardingToken?: unknown;
+      };
+      return {
+        id: c.id,
+        childToken: c.childToken === token,
+        child_token: c.child_token === token,
+        onboardingToken: c.onboardingToken === token
+      };
+    })
+  );
+}
+
 function createDebugSnapshot(input: {
   pathname: string;
   token: string;
@@ -63,6 +118,7 @@ function createDebugSnapshot(input: {
   let lookupSuccess = false;
 
   try {
+    logChildrenLookupDebug(input.token);
     lookupSuccess = Boolean(input.token && childrenRepository.getChildByToken(input.token));
   } catch (caught) {
     console.error('[child token debug] getChildByToken failed', caught);
