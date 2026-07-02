@@ -12,9 +12,12 @@ import type {
   MemoryPackContent,
   MemoryPackDreamHistoryItem,
   MemoryPackMailboxItem,
+  MemoryPackPiggyBankLogItem,
+  MemoryPackPiggyPurchaseItem,
   MemoryPackScreenTimeLogItem,
   MemoryPackShareHistoryItem,
   MemoryPackSpecialDayItem,
+  MemoryPackStarHistoryItem,
   MemoryPackStats,
   MemoryPackTaskHistoryItem,
   ShareWithMedia,
@@ -123,6 +126,10 @@ function buildContent(state: LocalDatabaseState, childId: UUID): MemoryPackConte
       .filter((task) => task.child_id === childId)
       .map(toTaskHistoryItem)
       .sort(sortByUpdatedAtDesc),
+    starHistory: state.stars
+      .filter((star) => star.child_id === childId)
+      .map(toStarHistoryItem)
+      .sort(sortByCreatedAtDesc),
     badgeHistory: state.child_badges
       .filter((record) => record.child_id === childId)
       .map((record): MemoryPackBadgeHistoryItem => {
@@ -140,6 +147,14 @@ function buildContent(state: LocalDatabaseState, childId: UUID): MemoryPackConte
       })
       .sort((a, b) => b.awardedAt.localeCompare(a.awardedAt)),
     shareHistory: shares.map(toShareHistoryItem).sort(sortByCreatedAtDesc),
+    piggyBankLogs: state.piggy_bank_logs
+      .filter((log) => log.child_id === childId)
+      .map(toPiggyBankLogItem)
+      .sort(sortByCreatedAtDesc),
+    piggyPurchases: state.piggy_purchases
+      .filter((purchase) => purchase.child_id === childId)
+      .map(toPiggyPurchaseItem)
+      .sort((a, b) => b.requestedAt.localeCompare(a.requestedAt)),
     screenTimeLogs: state.screen_time_logs
       .filter((log) => log.child_id === childId)
       .map(toScreenTimeLogItem)
@@ -149,7 +164,7 @@ function buildContent(state: LocalDatabaseState, childId: UUID): MemoryPackConte
       .map(toMailboxItem)
       .sort(sortByCreatedAtDesc),
     specialDays: state.special_days
-      .filter((day) => !day.deleted_at && (day.child_id === null || day.child_id === childId))
+      .filter((day) => !day.deleted_at && day.child_id === childId)
       .map(toSpecialDayItem)
       .sort((a, b) => b.date.localeCompare(a.date) || b.createdAt.localeCompare(a.createdAt))
   };
@@ -252,6 +267,44 @@ function toScreenTimeLogItem(log: LocalScreenTimeLog): MemoryPackScreenTimeLogIt
     starsUsed: log.starsUsed ?? null,
     note: log.note ?? log.reason,
     createdAt: log.created_at
+  };
+}
+
+function toStarHistoryItem(star: LocalDatabaseState['stars'][number]): MemoryPackStarHistoryItem {
+  return {
+    id: star.id,
+    amount: star.amount,
+    transactionType: star.transaction_type,
+    reason: star.reason,
+    taskId: star.task_id,
+    shareId: star.share_id,
+    dreamId: star.dream_id,
+    createdAt: star.created_at
+  };
+}
+
+function toPiggyBankLogItem(log: LocalDatabaseState['piggy_bank_logs'][number]): MemoryPackPiggyBankLogItem {
+  return {
+    id: log.id,
+    type: log.type,
+    amount: log.amount,
+    note: log.note,
+    productId: log.product_id,
+    purchaseId: log.purchase_id,
+    createdAt: log.created_at
+  };
+}
+
+function toPiggyPurchaseItem(purchase: LocalDatabaseState['piggy_purchases'][number]): MemoryPackPiggyPurchaseItem {
+  return {
+    id: purchase.id,
+    productId: purchase.product_id,
+    status: purchase.status,
+    amount: purchase.amount,
+    productName: purchase.product_snapshot.name,
+    requestedAt: purchase.requested_at,
+    purchasedAt: purchase.purchased_at,
+    cancelledAt: purchase.cancelled_at
   };
 }
 

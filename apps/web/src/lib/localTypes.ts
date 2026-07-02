@@ -8,6 +8,14 @@ export type DreamStatus = 'pending_approval' | 'active' | 'funded' | 'completed'
 export type ShareStatus = 'draft' | 'pending_review' | 'approved' | 'rejected' | 'archived';
 export type MailboxStatus = 'draft' | 'scheduled' | 'sent' | 'opened' | 'archived' | 'cancelled';
 export type SpecialDayType = 'birthday' | 'anniversary' | 'holiday' | 'family_event' | 'other';
+export type ScreenTimeRequestStatus = 'pending' | 'approved' | 'rejected' | 'cancelled';
+export type NotificationType =
+  | 'new_task'
+  | 'task_approved'
+  | 'stars_awarded'
+  | 'mailbox_new_message'
+  | 'special_day_reminder'
+  | 'screen_time_review';
 export type PiggyPurchaseStatus =
   | 'pendingPurchase'
   | 'arrived'
@@ -202,6 +210,7 @@ export interface LocalMailboxMessage {
   family_id: UUID;
   child_id: UUID;
   sender_user_id: UUID;
+  sender_role?: 'parent' | 'child' | 'system';
   title: string | null;
   message: string | null;
   card_type: 'text' | 'card' | 'audio' | 'image' | 'video' | 'mixed';
@@ -246,8 +255,8 @@ export interface LocalChildBadge {
 export interface LocalSpecialDay {
   id: UUID;
   family_id: UUID;
-  child_id: UUID | null;
-  childId?: UUID | null;
+  child_id: UUID;
+  childId?: UUID;
   title: string;
   date: ISODate;
   type: SpecialDayType;
@@ -312,6 +321,7 @@ export interface LocalScreenTimeLog {
 export interface LocalScreenTimeSchedule {
   id: UUID;
   family_id: UUID;
+  child_id: UUID;
   childId: UUID;
   weekStartDate: ISODate;
   date: ISODate;
@@ -319,6 +329,23 @@ export interface LocalScreenTimeSchedule {
   createdAt: ISODateTime;
   updatedAt: ISODateTime;
   source?: 'default' | 'manual';
+}
+
+export interface LocalScreenTimeRequest {
+  id: UUID;
+  family_id: UUID;
+  child_id: UUID;
+  requested_minutes: number;
+  requested_stars: number;
+  status: ScreenTimeRequestStatus;
+  note: string | null;
+  reviewed_by: UUID | null;
+  reviewed_at: ISODateTime | null;
+  rejection_reason: string | null;
+  screen_time_log_id: UUID | null;
+  created_by_device_id: UUID | null;
+  created_at: ISODateTime;
+  updated_at: ISODateTime;
 }
 
 export interface WeeklyScreenTimeDay {
@@ -339,8 +366,36 @@ export interface LocalGrowthRecord {
   date: ISODate;
   height_cm: number;
   weight_kg: number;
+  growth_photo_media_ids: UUID[];
   reading_count: number;
   note: string | null;
+  created_at: ISODateTime;
+  updated_at: ISODateTime;
+}
+
+export interface LocalNotification {
+  id: UUID;
+  family_id: UUID;
+  child_id: UUID;
+  type: NotificationType;
+  title: string;
+  body: string | null;
+  audience: 'parent' | 'child';
+  source_type: string | null;
+  source_id: UUID | null;
+  read_at: ISODateTime | null;
+  created_at: ISODateTime;
+}
+
+export interface LocalDeviceBindingRecord {
+  id: UUID;
+  family_id: UUID;
+  child_id: UUID;
+  device_id: UUID;
+  last_login_at: ISODateTime | null;
+  last_login_device: string | null;
+  binding_status: 'unbound' | 'bound';
+  qr_token_status: 'active' | 'consumed' | 'revoked';
   created_at: ISODateTime;
   updated_at: ISODateTime;
 }
@@ -450,8 +505,11 @@ export interface LocalDatabaseState {
   special_days: LocalSpecialDay[];
   family_settings: LocalFamilySettings;
   screen_time_schedules: LocalScreenTimeSchedule[];
+  screen_time_requests: LocalScreenTimeRequest[];
   screen_time_logs: LocalScreenTimeLog[];
   growth_records: LocalGrowthRecord[];
+  notifications: LocalNotification[];
+  device_binding_records: LocalDeviceBindingRecord[];
   piggy_incomes: LocalPiggyIncome[];
   piggy_bank_logs: LocalPiggyBankLog[];
   piggy_products: LocalPiggyProduct[];
@@ -564,6 +622,38 @@ export interface MemoryPackScreenTimeLogItem {
   createdAt: ISODateTime;
 }
 
+export interface MemoryPackStarHistoryItem {
+  id: UUID;
+  amount: number;
+  transactionType: LocalStarTransaction['transaction_type'];
+  reason: string | null;
+  taskId: UUID | null;
+  shareId: UUID | null;
+  dreamId: UUID | null;
+  createdAt: ISODateTime;
+}
+
+export interface MemoryPackPiggyBankLogItem {
+  id: UUID;
+  type: LocalPiggyBankLog['type'];
+  amount: number;
+  note: string | null;
+  productId: UUID | null;
+  purchaseId: UUID | null;
+  createdAt: ISODateTime;
+}
+
+export interface MemoryPackPiggyPurchaseItem {
+  id: UUID;
+  productId: UUID;
+  status: PiggyPurchaseStatus;
+  amount: number;
+  productName: string;
+  requestedAt: ISODateTime;
+  purchasedAt: ISODateTime | null;
+  cancelledAt: ISODateTime | null;
+}
+
 export interface MemoryPackMailboxItem {
   id: UUID;
   title: string | null;
@@ -593,8 +683,11 @@ export interface MemoryPackSpecialDayItem {
 export interface MemoryPackContent {
   dreamHistory: MemoryPackDreamHistoryItem[];
   taskHistory: MemoryPackTaskHistoryItem[];
+  starHistory: MemoryPackStarHistoryItem[];
   badgeHistory: MemoryPackBadgeHistoryItem[];
   shareHistory: MemoryPackShareHistoryItem[];
+  piggyBankLogs: MemoryPackPiggyBankLogItem[];
+  piggyPurchases: MemoryPackPiggyPurchaseItem[];
   screenTimeLogs: MemoryPackScreenTimeLogItem[];
   mailbox: MemoryPackMailboxItem[];
   specialDays: MemoryPackSpecialDayItem[];

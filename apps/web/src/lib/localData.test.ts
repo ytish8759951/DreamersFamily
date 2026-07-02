@@ -81,6 +81,14 @@ describe('local MVP data flows', () => {
 
     expect(child.child_token).toMatch(/^df1_[a-f0-9]{32}_/);
     expect(data.getChildByToken(child.child_token)?.id).toBe(child.id);
+    expect(data.listDeviceBindingRecords(child.id)[0]).toMatchObject({
+      child_id: child.id,
+      device_id: 'local-device',
+      last_login_at: null,
+      last_login_device: null,
+      binding_status: 'unbound',
+      qr_token_status: 'active'
+    });
     expect(data.getState().child_onboarding_tokens).toEqual([
       {
         childId: child.id,
@@ -107,6 +115,14 @@ describe('local MVP data flows', () => {
     });
     expect(childDeviceData.getState().children[0].child_token_consumed_at).toBeTruthy();
     expect(childDeviceData.getChildByToken(child.child_token)).toBeNull();
+    expect(childDeviceData.listDeviceBindingRecords(child.id)[0]).toMatchObject({
+      child_id: child.id,
+      device_id: 'local-device',
+      binding_status: 'bound',
+      qr_token_status: 'consumed'
+    });
+    expect(childDeviceData.listDeviceBindingRecords(child.id)[0].last_login_at).toBeTruthy();
+    expect(childDeviceData.listDeviceBindingRecords(child.id)[0].last_login_device).toBeTruthy();
     expect(() => childDeviceData.bindChildDeviceByToken(child.child_token)).toThrowError(LocalDataError);
   });
 
@@ -957,6 +973,127 @@ describe('local MVP data flows', () => {
     expect(data.getGrowthRecordsByChild(child.id).map((item) => item.id)).toContain(growth.id);
     expect(data.listDreams(child.id).map((item) => item.id)).toContain(dream.id);
     expect(data.listShares(child.id).map((item) => item.id)).toContain(share.id);
+  });
+
+  it('keeps all parent and child flows in one childId-scoped source of truth', () => {
+    const first = data.createChild({ display_name: '同源孩子' });
+    const second = data.createChild({ display_name: '隔離孩子' });
+
+    const task = data.createTask({ child_id: first.id, title: '收玩具', reward_stars: 5 });
+    expect(data.listTasks(first.id).map((item) => item.id)).toContain(task.id);
+    expect(data.listTasks(second.id)).toHaveLength(0);
+
+    data.completeTask(task.id, '孩子完成');
+    expect(data.listTasks(first.id).find((item) => item.id === task.id)).toMatchObject({
+      status: 'submitted',
+      completion_note: '孩子完成'
+    });
+
+    data.approveTask(task.id);
+    expect(data.listTasks(first.id).find((item) => item.id === task.id)).toMatchObject({ status: 'approved' });
+    expect(data.getStarBalance(first.id)).toBe(5);
+    expect(data.listNotifications(first.id, 'child').map((item) => item.type)).toEqual(
+      expect.arrayContaining(['new_task', 'task_approved', 'stars_awarded'])
+    );
+
+    data.addPiggyIncome({ child_id: first.id, source: '零用錢', amount: 300 });
+    expect(data.getPiggyBankSummary(first.id).availableToDepositToday).toBe(300);
+    data.depositPiggyCoin(first.id, 200);
+    expect(data.getPiggyBankSummary(first.id).currentSavings).toBe(200);
+
+    const product = data.createPiggyProduct({
+      child_id: first.id,
+      name: '積木',
+      price: 120,
+      main_media_id: 'lego-media',
+      shelf_status: 'shelf'
+    });
+    expect(data.getPiggyShelfProducts(first.id).map((item) => item.id)).toContain(product.id);
+    const purchase = data.requestPiggyPurchase(first.id, product.id);
+    expect(data.listPiggyPurchases(first.id).map((item) => item.id)).toContain(purchase.id);
+
+    const share = data.createShare({
+      child_id: first.id,
+      caption: '分享照片影片語音',
+      media: [
+        { media_type: 'photo', mime_type: 'image/jpeg', file_name: 'photo.jpg' },
+        { media_type: 'video', mime_type: 'video/mp4', file_name: 'video.mp4' },
+        { media_type: 'audio', mime_type: 'audio/webm', file_name: 'voice.webm' }
+      ]
+    });
+    expect(data.listShares(first.id).find((item) => item.id === share.id)?.media.map((item) => item.media_type)).toEqual([
+      'photo',
+      'video',
+      'audio'
+    ]);
+
+    const childLetter = data.createMailboxMessage({
+      child_id: first.id,
+      sender_role: 'child',
+      message: '孩子寫信'
+    });
+    const parentReply = data.createMailboxMessage({
+      child_id: first.id,
+      sender_role: 'parent',
+      message: '家長回信'
+    });
+    expect(data.listMailboxMessages(first.id).map((item) => item.id)).toEqual(
+      expect.arrayContaining([childLetter.id, parentReply.id])
+    );
+
+    const parentDay = data.createSpecialDay({
+      child_id: first.id,
+      title: '露營日',
+      date: '2099-01-01',
+      type: 'family_event',
+      createdBy: 'parent'
+    });
+    const childDay = data.createSpecialDay({
+      child_id: first.id,
+      title: '孩子紀念日',
+      date: '2099-02-01',
+      type: 'anniversary',
+      createdBy: 'child'
+    });
+    expect(data.getUpcomingSpecialDays(first.id).map((item) => item.id)).toEqual(
+      expect.arrayContaining([parentDay.id, childDay.id])
+    );
+    expect(data.listNotifications(first.id, 'parent').map((item) => item.source_id)).toContain(childDay.id);
+
+    const growth = data.createGrowthRecord({
+      child_id: first.id,
+      date: '2026-07-02',
+      height_cm: 120,
+      weight_kg: 22,
+      growth_photo_media_ids: ['growth-photo'],
+      reading_count: 10,
+      note: '長高了'
+    });
+    expect(data.getGrowthRecordsByChild(first.id)[0]).toMatchObject({
+      id: growth.id,
+      growth_photo_media_ids: ['growth-photo']
+    });
+
+    const screenRequest = data.createScreenTimeRequest({
+      child_id: first.id,
+      requested_stars: 2,
+      note: '想看卡通'
+    });
+    expect(data.listScreenTimeRequests(first.id)).toMatchObject([{ id: screenRequest.id, status: 'pending' }]);
+    data.reviewScreenTimeRequest(screenRequest.id, { status: 'approved' });
+    expect(data.listScreenTimeRequests(first.id)[0]).toMatchObject({ id: screenRequest.id, status: 'approved' });
+    expect(data.getStarBalance(first.id)).toBe(3);
+    expect(data.getScreenTimeBalance(first.id)).toBe(2);
+    expect(data.listNotifications(first.id, 'child').map((item) => item.type)).toContain('screen_time_review');
+
+    expect(data.listTasks(second.id)).toHaveLength(0);
+    expect(data.listShares(second.id)).toHaveLength(0);
+    expect(data.listMailboxMessages(second.id)).toHaveLength(0);
+    expect(data.getSpecialDays(second.id)).toHaveLength(0);
+    expect(data.getGrowthRecordsByChild(second.id)).toHaveLength(0);
+    expect(data.listScreenTimeRequests(second.id)).toHaveLength(0);
+    expect(data.getPiggyBankLogs(second.id)).toHaveLength(0);
+    expect(data.listPiggyPurchases(second.id)).toHaveLength(0);
   });
 
   it('manages piggy income, coin deposits and silent over-limit rejection', () => {

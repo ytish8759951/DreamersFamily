@@ -8,10 +8,12 @@ import type {
   CreateMailboxMessageInput,
   CreatePiggyProductInput,
   CreateShareInput,
+  CreateScreenTimeRequestInput,
   CreateSpecialDayInput,
   CreateTaskInput,
   LocalDataRepository,
   MigrateDreamCoverInput,
+  ReviewScreenTimeRequestInput,
   UpdateChildInput,
   UpdateGrowthRecordInput,
   UpdatePiggyProductInput,
@@ -38,11 +40,14 @@ import type {
   LocalPiggyPurchase,
   LocalPiggyShelfOrder,
   LocalScreenTimeLog,
+  LocalScreenTimeRequest,
   LocalScreenTimeSchedule,
   LocalShare,
   LocalSpecialDay,
   LocalStarTransaction,
   LocalTask,
+  LocalNotification,
+  LocalDeviceBindingRecord,
   PiggyBankSummary,
   ShareWithMedia,
   WeeklyScreenTimeDay,
@@ -99,6 +104,10 @@ export class SupabaseDataRepository implements LocalDataRepository {
   }
 
   unbindChildDevice(_childId: UUID): LocalChild {
+    return notEnabled();
+  }
+
+  listDeviceBindingRecords(_childId?: UUID): LocalDeviceBindingRecord[] {
     return notEnabled();
   }
 
@@ -246,6 +255,18 @@ export class SupabaseDataRepository implements LocalDataRepository {
     return notEnabled();
   }
 
+  createScreenTimeRequest(_input: CreateScreenTimeRequestInput): LocalScreenTimeRequest {
+    return notEnabled();
+  }
+
+  reviewScreenTimeRequest(_requestId: UUID, _input: ReviewScreenTimeRequestInput): LocalScreenTimeRequest {
+    return notEnabled();
+  }
+
+  listScreenTimeRequests(_childId?: UUID): LocalScreenTimeRequest[] {
+    return notEnabled();
+  }
+
   getScreenTimeBalance(_childId: UUID): number {
     return notEnabled();
   }
@@ -307,6 +328,14 @@ export class SupabaseDataRepository implements LocalDataRepository {
   }
 
   getGrowthRecordsByChild(_childId: UUID): LocalGrowthRecord[] {
+    return notEnabled();
+  }
+
+  listNotifications(_childId?: UUID, _audience?: LocalNotification['audience']): LocalNotification[] {
+    return notEnabled();
+  }
+
+  markNotificationRead(_notificationId: UUID): LocalNotification {
     return notEnabled();
   }
 

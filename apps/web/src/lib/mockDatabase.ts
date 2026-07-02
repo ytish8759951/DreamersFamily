@@ -79,8 +79,11 @@ function createEmptyState(): LocalDatabaseState {
     special_days: [],
     family_settings: createDefaultSettings(timestamp),
     screen_time_schedules: [],
+    screen_time_requests: [],
     screen_time_logs: [],
     growth_records: [],
+    notifications: [],
+    device_binding_records: [],
     piggy_incomes: [],
     piggy_bank_logs: [],
     piggy_products: [],
@@ -159,6 +162,8 @@ function normalizeState(state: LocalDatabaseState): LocalDatabaseState {
     child_badges: state.child_badges ?? [],
     special_days: (state.special_days ?? []).map((day) => ({
       ...day,
+      child_id: day.child_id ?? day.childId ?? state.active_child_id ?? children.find((child) => child.status === 'active')?.id ?? children[0]?.id ?? '',
+      childId: day.child_id ?? day.childId ?? state.active_child_id ?? children.find((child) => child.status === 'active')?.id ?? children[0]?.id ?? '',
       image_media_id: day.image_media_id ?? null
     })),
     family_settings: {
@@ -167,9 +172,19 @@ function normalizeState(state: LocalDatabaseState): LocalDatabaseState {
       family_avatar_media_id: settings.family_avatar_media_id ?? null,
       parent_avatar_media_id: settings.parent_avatar_media_id ?? null
     },
-    screen_time_schedules: state.screen_time_schedules ?? [],
+    screen_time_schedules: (state.screen_time_schedules ?? []).map((schedule) => ({
+      ...schedule,
+      child_id: schedule.child_id ?? schedule.childId,
+      childId: schedule.child_id ?? schedule.childId
+    })),
+    screen_time_requests: state.screen_time_requests ?? [],
     screen_time_logs: state.screen_time_logs ?? [],
-    growth_records: state.growth_records ?? [],
+    growth_records: (state.growth_records ?? []).map((record) => ({
+      ...record,
+      growth_photo_media_ids: record.growth_photo_media_ids ?? []
+    })),
+    notifications: state.notifications ?? [],
+    device_binding_records: state.device_binding_records ?? [],
     piggy_incomes: state.piggy_incomes ?? [],
     piggy_bank_logs: state.piggy_bank_logs ?? [],
     piggy_products: (state.piggy_products ?? []).map((product) => ({
@@ -185,6 +200,7 @@ function normalizeState(state: LocalDatabaseState): LocalDatabaseState {
     piggy_purchases: state.piggy_purchases ?? [],
     encouragement_cards: (state.encouragement_cards ?? []).map((message) => ({
       ...message,
+      sender_role: message.sender_role ?? (message.sender_user_id === LOCAL_PARENT_USER_ID ? 'parent' : 'child'),
       media_id: message.media_id ?? null
     })),
     share_media: state.share_media ?? []

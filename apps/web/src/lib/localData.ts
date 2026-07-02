@@ -23,6 +23,7 @@ import type {
   LocalDreamFund,
   LocalFamilySettings,
   LocalGrowthRecord,
+  LocalNotification,
   LocalMailboxMessage,
   LocalRepositoryScope,
   LocalPiggyBankLog,
@@ -32,12 +33,14 @@ import type {
   LocalPiggyPurchase,
   LocalPiggyShelfOrder,
   LocalScreenTimeLog,
+  LocalScreenTimeRequest,
   LocalScreenTimeSchedule,
   LocalShare,
   LocalShareMedia,
   LocalSpecialDay,
   LocalStarTransaction,
   LocalTask,
+  NotificationType,
   PiggyBankSummary,
   SpecialDayType,
   ShareWithMedia,
@@ -362,6 +365,77 @@ function createScreenTimeLog(
   return log;
 }
 
+function resolveRequiredChildId(state: LocalDatabaseState, childId?: UUID | null) {
+  const resolved = childId ?? state.active_child_id ?? state.children.find((child) => child.status === 'active')?.id ?? null;
+  if (!resolved) throw new LocalDataError('child_id is required', 'CHILD_ID_REQUIRED');
+  requireChild(state, resolved);
+  return resolved;
+}
+
+function pushNotification(
+  state: LocalDatabaseState,
+  input: {
+    childId: UUID;
+    type: NotificationType;
+    title: string;
+    body?: string | null;
+    audience: LocalNotification['audience'];
+    sourceType?: string | null;
+    sourceId?: UUID | null;
+  }
+) {
+  state.notifications.push({
+    id: id(),
+    family_id: state.family_id,
+    child_id: input.childId,
+    type: input.type,
+    title: requiredText(input.title, 'notification title'),
+    body: input.body?.trim() || null,
+    audience: input.audience,
+    source_type: input.sourceType ?? null,
+    source_id: input.sourceId ?? null,
+    read_at: null,
+    created_at: now()
+  });
+}
+
+function upsertDeviceBindingRecord(
+  state: LocalDatabaseState,
+  childId: UUID,
+  input: {
+    bindingStatus: 'unbound' | 'bound';
+    qrTokenStatus: 'active' | 'consumed' | 'revoked';
+    lastLoginAt?: string | null;
+    lastLoginDevice?: string | null;
+  }
+) {
+  const timestamp = now();
+  const deviceId = state.device_id ?? LOCAL_DEVICE_ID;
+  let record = state.device_binding_records.find((item) => item.child_id === childId && item.device_id === deviceId);
+  if (!record) {
+    record = {
+      id: id(),
+      family_id: state.family_id,
+      child_id: childId,
+      device_id: deviceId,
+      last_login_at: input.lastLoginAt ?? null,
+      last_login_device: input.lastLoginDevice ?? null,
+      binding_status: input.bindingStatus,
+      qr_token_status: input.qrTokenStatus,
+      created_at: timestamp,
+      updated_at: timestamp
+    };
+    state.device_binding_records.push(record);
+    return record;
+  }
+  record.last_login_at = input.lastLoginAt ?? record.last_login_at;
+  record.last_login_device = input.lastLoginDevice ?? record.last_login_device;
+  record.binding_status = input.bindingStatus;
+  record.qr_token_status = input.qrTokenStatus;
+  record.updated_at = timestamp;
+  return record;
+}
+
 function getLedgerBalance(state: LocalDatabaseState, childId: UUID) {
   return Math.max(
     0,
@@ -492,6 +566,7 @@ export interface CreateShareInput {
 
 export interface CreateMailboxMessageInput {
   child_id: UUID;
+  sender_role?: 'parent' | 'child' | 'system';
   title?: string | null;
   message?: string | null;
   card_type?: LocalMailboxMessage['card_type'];
@@ -553,11 +628,24 @@ export interface UpdateScreenTimeInput {
   session_ended_at?: string | null;
 }
 
+export interface CreateScreenTimeRequestInput {
+  child_id: UUID;
+  requested_minutes?: number;
+  requested_stars: number;
+  note?: string | null;
+}
+
+export interface ReviewScreenTimeRequestInput {
+  status: 'approved' | 'rejected';
+  rejection_reason?: string | null;
+}
+
 export interface CreateGrowthRecordInput {
   child_id: UUID;
   date: string;
   height_cm: number;
   weight_kg: number;
+  growth_photo_media_ids?: UUID[];
   reading_count: number;
   note?: string | null;
 }
@@ -567,6 +655,7 @@ export interface UpdateGrowthRecordInput {
   date?: string;
   height_cm?: number;
   weight_kg?: number;
+  growth_photo_media_ids?: UUID[];
   reading_count?: number;
   note?: string | null;
 }
@@ -608,6 +697,7 @@ export interface LocalDataRepository {
   bindChildDeviceByToken(token: string): LocalChild;
   regenerateChildToken(childId: UUID): LocalChild;
   unbindChildDevice(childId: UUID): LocalChild;
+  listDeviceBindingRecords(childId?: UUID): LocalDatabaseState['device_binding_records'];
   createTask(input: CreateTaskInput): LocalTask;
   completeTask(taskId: UUID, completionNote?: string | null): LocalTask;
   approveTask(taskId: UUID): LocalTask;
@@ -644,6 +734,9 @@ export interface LocalDataRepository {
   resetAllData(): LocalDatabaseState;
   resetDemoData(): LocalDatabaseState;
   updateScreenTime(input: UpdateScreenTimeInput): LocalScreenTimeLog;
+  createScreenTimeRequest(input: CreateScreenTimeRequestInput): LocalScreenTimeRequest;
+  reviewScreenTimeRequest(requestId: UUID, input: ReviewScreenTimeRequestInput): LocalScreenTimeRequest;
+  listScreenTimeRequests(childId?: UUID): LocalScreenTimeRequest[];
   getScreenTimeBalance(childId: UUID): number;
   listScreenTimeLogs(childId: UUID): LocalScreenTimeLog[];
   getWeeklyScreenTime(childId: UUID, weekStartDate: string): WeeklyScreenTimeDay[];
@@ -660,6 +753,8 @@ export interface LocalDataRepository {
   getGrowthRecords(childId?: UUID): LocalGrowthRecord[];
   getLatestGrowthRecordByChild(childId: UUID): LocalGrowthRecord | null;
   getGrowthRecordsByChild(childId: UUID): LocalGrowthRecord[];
+  listNotifications(childId?: UUID, audience?: LocalNotification['audience']): LocalNotification[];
+  markNotificationRead(notificationId: UUID): LocalNotification;
   addPiggyIncome(input: AddPiggyIncomeInput): LocalPiggyIncome;
   depositPiggyCoin(childId: UUID, amount: number): LocalPiggyBankLog;
   getPiggyBankSummary(childId: UUID): PiggyBankSummary;
@@ -747,6 +842,12 @@ export class LocalDataService implements LocalDataRepository {
       };
       state.children.push(child);
       upsertChildOnboardingToken(state, child);
+      upsertDeviceBindingRecord(state, child.id, {
+        bindingStatus: 'unbound',
+        qrTokenStatus: 'active',
+        lastLoginAt: child.last_login_at,
+        lastLoginDevice: child.last_login_device
+      });
       state.active_child_id ??= child.id;
       return child;
     });
@@ -865,6 +966,12 @@ export class LocalDataService implements LocalDataRepository {
       state.device_child_id = child.id;
       state.active_child_id = child.id;
       setCurrentChildIdentity(state, child, normalized, timestamp);
+      upsertDeviceBindingRecord(state, child.id, {
+        bindingStatus: 'bound',
+        qrTokenStatus: 'consumed',
+        lastLoginAt: timestamp,
+        lastLoginDevice: child.last_login_device
+      });
       return child;
     });
   }
@@ -883,6 +990,12 @@ export class LocalDataService implements LocalDataRepository {
       child.last_login_device = null;
       child.updated_at = timestamp;
       upsertChildOnboardingToken(state, child);
+      upsertDeviceBindingRecord(state, child.id, {
+        bindingStatus: 'unbound',
+        qrTokenStatus: 'active',
+        lastLoginAt: child.last_login_at,
+        lastLoginDevice: child.last_login_device
+      });
       if (state.device_child_id === childId || state.deviceBinding === childId) {
         state.device_child_id = null;
         state.currentChildIdentity = null;
@@ -899,6 +1012,12 @@ export class LocalDataService implements LocalDataRepository {
       child.binding_status = 'unbound';
       child.bound_at = null;
       child.updated_at = now();
+      upsertDeviceBindingRecord(state, child.id, {
+        bindingStatus: 'unbound',
+        qrTokenStatus: 'revoked',
+        lastLoginAt: child.last_login_at,
+        lastLoginDevice: child.last_login_device
+      });
       if (state.device_child_id === childId || state.deviceBinding === childId) {
         state.device_child_id = null;
         state.currentChildIdentity = null;
@@ -906,6 +1025,13 @@ export class LocalDataService implements LocalDataRepository {
       }
       return child;
     });
+  }
+
+  listDeviceBindingRecords(childId?: UUID) {
+    return this.db
+      .read()
+      .device_binding_records.filter((record) => !childId || record.child_id === childId)
+      .sort((a, b) => b.updated_at.localeCompare(a.updated_at));
   }
 
   createTask(input: CreateTaskInput) {
@@ -949,6 +1075,15 @@ export class LocalDataService implements LocalDataRepository {
         archived_at: null
       };
       state.tasks.push(task);
+      pushNotification(state, {
+        childId: task.child_id,
+        type: 'new_task',
+        title: '新任務',
+        body: task.title || '家長新增了一個任務',
+        audience: 'child',
+        sourceType: 'task',
+        sourceId: task.id
+      });
       return task;
     });
   }
@@ -1001,7 +1136,26 @@ export class LocalDataService implements LocalDataRepository {
           created_by: state.current_user_id,
           created_at: timestamp
         });
+        pushNotification(state, {
+          childId: task.child_id,
+          type: 'stars_awarded',
+          title: '星星已發放',
+          body: `${task.reward_stars} 顆星星`,
+          audience: 'child',
+          sourceType: 'task',
+          sourceId: task.id
+        });
       }
+
+      pushNotification(state, {
+        childId: task.child_id,
+        type: 'task_approved',
+        title: '任務通過',
+        body: task.title || null,
+        audience: 'child',
+        sourceType: 'task',
+        sourceId: task.id
+      });
 
       return task;
     });
@@ -1233,6 +1387,15 @@ export class LocalDataService implements LocalDataRepository {
         };
       });
       state.share_media.push(...records);
+      pushNotification(state, {
+        childId: share.child_id,
+        type: 'mailbox_new_message',
+        title: sourceType === 'child_device' ? '孩子有新的分享' : '新的分享紀錄',
+        body: share.caption,
+        audience: sourceType === 'child_device' ? 'parent' : 'child',
+        sourceType: 'share',
+        sourceId: share.id
+      });
       return { ...share, media: records };
     });
   }
@@ -1314,6 +1477,7 @@ export class LocalDataService implements LocalDataRepository {
         family_id: state.family_id,
         child_id: input.child_id,
         sender_user_id: state.current_user_id,
+        sender_role: input.sender_role ?? 'parent',
         title: input.title?.trim() || null,
         message: input.message?.trim() || null,
         card_type: input.card_type ?? (input.media ? 'mixed' : 'text'),
@@ -1334,6 +1498,15 @@ export class LocalDataService implements LocalDataRepository {
         updated_at: timestamp
       };
       state.encouragement_cards.push(message);
+      pushNotification(state, {
+        childId: message.child_id,
+        type: 'mailbox_new_message',
+        title: input.sender_role === 'child' ? '孩子有新回覆' : '信箱新訊息',
+        body: message.title ?? message.message,
+        audience: input.sender_role === 'child' ? 'parent' : 'child',
+        sourceType: 'mailbox',
+        sourceId: message.id
+      });
       return message;
     });
   }
@@ -1457,13 +1630,13 @@ export class LocalDataService implements LocalDataRepository {
 
   createSpecialDay(input: CreateSpecialDayInput) {
     return this.db.transaction((state) => {
-      if (input.child_id) requireChild(state, input.child_id);
+      const childId = resolveRequiredChildId(state, input.child_id);
       const timestamp = now();
       const specialDay: LocalSpecialDay = {
         id: id(),
         family_id: state.family_id,
-        child_id: input.child_id ?? null,
-        childId: input.child_id ?? null,
+        child_id: childId,
+        childId,
         title: requiredText(input.title, 'title'),
         date: validateDate(input.date, 'date'),
         type: input.type,
@@ -1478,6 +1651,15 @@ export class LocalDataService implements LocalDataRepository {
         deleted_at: null
       };
       state.special_days.push(specialDay);
+      pushNotification(state, {
+        childId,
+        type: 'special_day_reminder',
+        title: '特殊日提醒',
+        body: specialDay.title,
+        audience: input.createdBy === 'child' ? 'parent' : 'child',
+        sourceType: 'special_day',
+        sourceId: specialDay.id
+      });
       return specialDay;
     });
   }
@@ -1486,9 +1668,9 @@ export class LocalDataService implements LocalDataRepository {
     return this.db.transaction((state) => {
       const specialDay = requireSpecialDay(state, specialDayId);
       if (input.child_id !== undefined) {
-        if (input.child_id) requireChild(state, input.child_id);
-        specialDay.child_id = input.child_id ?? null;
-        specialDay.childId = input.child_id ?? null;
+        const childId = resolveRequiredChildId(state, input.child_id);
+        specialDay.child_id = childId;
+        specialDay.childId = childId;
       }
       if (input.title !== undefined) specialDay.title = requiredText(input.title, 'title');
       if (input.date !== undefined) specialDay.date = validateDate(input.date, 'date');
@@ -1518,7 +1700,7 @@ export class LocalDataService implements LocalDataRepository {
       .special_days.filter(
         (item) =>
           (includeDeleted || !item.deleted_at) &&
-          (childId === undefined || item.child_id === null || item.child_id === childId)
+          (childId === undefined || item.child_id === childId)
       )
       .sort((a, b) => a.date.localeCompare(b.date));
   }
@@ -1614,8 +1796,11 @@ export class LocalDataService implements LocalDataRepository {
       state.child_badges = [];
       state.special_days = [];
       state.screen_time_schedules = [];
+      state.screen_time_requests = [];
       state.screen_time_logs = [];
       state.growth_records = [];
+      state.notifications = [];
+      state.device_binding_records = [];
       state.piggy_incomes = [];
       state.piggy_bank_logs = [];
       state.piggy_products = [];
@@ -1677,6 +1862,119 @@ export class LocalDataService implements LocalDataRepository {
     });
   }
 
+  createScreenTimeRequest(input: CreateScreenTimeRequestInput) {
+    return this.db.transaction((state) => {
+      requireChild(state, input.child_id);
+      if (!Number.isInteger(input.requested_stars) || input.requested_stars <= 0) {
+        throw new LocalDataError('requested_stars must be a positive integer', 'VALIDATION_ERROR');
+      }
+      const requestedMinutes = input.requested_minutes ?? input.requested_stars * STAR_TO_SCREEN_MINUTES;
+      if (!Number.isInteger(requestedMinutes) || requestedMinutes <= 0) {
+        throw new LocalDataError('requested_minutes must be a positive integer', 'VALIDATION_ERROR');
+      }
+      const currentStars = sum(state.stars.filter((item) => item.child_id === input.child_id).map((item) => item.amount));
+      if (currentStars < input.requested_stars) {
+        throw new LocalDataError('Not enough stars to request screen time', 'INSUFFICIENT_STARS');
+      }
+      const timestamp = now();
+      const request: LocalScreenTimeRequest = {
+        id: id(),
+        family_id: state.family_id,
+        child_id: input.child_id,
+        requested_minutes: requestedMinutes,
+        requested_stars: input.requested_stars,
+        status: 'pending',
+        note: input.note?.trim() || null,
+        reviewed_by: null,
+        reviewed_at: null,
+        rejection_reason: null,
+        screen_time_log_id: null,
+        created_by_device_id: state.device_id,
+        created_at: timestamp,
+        updated_at: timestamp
+      };
+      state.screen_time_requests.push(request);
+      pushNotification(state, {
+        childId: input.child_id,
+        type: 'screen_time_review',
+        title: '平板時間待審核',
+        body: `${input.requested_stars} 顆星星兌換 ${requestedMinutes} 分鐘`,
+        audience: 'parent',
+        sourceType: 'screen_time_request',
+        sourceId: request.id
+      });
+      return request;
+    });
+  }
+
+  reviewScreenTimeRequest(requestId: UUID, input: ReviewScreenTimeRequestInput) {
+    return this.db.transaction((state) => {
+      const request = state.screen_time_requests.find((item) => item.id === requestId);
+      if (!request) throw new LocalDataError('Screen time request not found', 'SCREEN_TIME_REQUEST_NOT_FOUND');
+      if (request.status !== 'pending') {
+        throw new LocalDataError('Only pending screen time requests can be reviewed', 'INVALID_SCREEN_TIME_REQUEST_STATUS');
+      }
+      const timestamp = now();
+      request.status = input.status;
+      request.reviewed_by = state.current_user_id;
+      request.reviewed_at = timestamp;
+      request.updated_at = timestamp;
+      if (input.status === 'approved') {
+        const currentStars = sum(state.stars.filter((item) => item.child_id === request.child_id).map((item) => item.amount));
+        if (currentStars < request.requested_stars) {
+          throw new LocalDataError('Not enough stars to approve screen time request', 'INSUFFICIENT_STARS');
+        }
+        const log = createScreenTimeLog(state, {
+          childId: request.child_id,
+          date: today(),
+          type: 'redeem',
+          minutes: request.requested_minutes,
+          starsUsed: request.requested_stars,
+          note: request.note ?? `${request.requested_stars} stars approved for screen time`,
+          idempotencyKey: `screen-time-request:${request.id}`
+        });
+        request.screen_time_log_id = log.id;
+        state.stars.push({
+          id: id(),
+          family_id: state.family_id,
+          child_id: request.child_id,
+          type: 'spent',
+          amount: -request.requested_stars,
+          transaction_type: 'manual_adjustment',
+          reason: request.note ?? `Approved ${request.requested_stars} stars for ${request.requested_minutes} screen-time minutes`,
+          sourceType: 'screen_time_request',
+          sourceId: request.id,
+          task_id: null,
+          share_id: null,
+          dream_id: null,
+          reversal_of_id: null,
+          idempotency_key: `screen-time-request:${request.id}:stars`,
+          created_by: state.current_user_id,
+          created_at: timestamp
+        });
+      } else {
+        request.rejection_reason = input.rejection_reason?.trim() || null;
+      }
+      pushNotification(state, {
+        childId: request.child_id,
+        type: 'screen_time_review',
+        title: input.status === 'approved' ? '平板時間已通過' : '平板時間未通過',
+        body: input.status === 'approved' ? `${request.requested_minutes} 分鐘` : request.rejection_reason,
+        audience: 'child',
+        sourceType: 'screen_time_request',
+        sourceId: request.id
+      });
+      return request;
+    });
+  }
+
+  listScreenTimeRequests(childId?: UUID) {
+    return this.db
+      .read()
+      .screen_time_requests.filter((request) => !childId || request.child_id === childId)
+      .sort((a, b) => b.created_at.localeCompare(a.created_at));
+  }
+
   getScreenTimeBalance(childId: UUID) {
     const state = this.db.read();
     requireChild(state, childId, true);
@@ -1707,7 +2005,7 @@ export class LocalDataService implements LocalDataRepository {
       validateNonNegativeInteger(plannedMinutes, 'plannedMinutes');
       const weekStartDate = getWeekStartDate(normalizedDate);
       const timestamp = now();
-      let schedule = state.screen_time_schedules.find((item) => item.childId === childId && item.date === normalizedDate);
+      let schedule = state.screen_time_schedules.find((item) => item.child_id === childId && item.date === normalizedDate);
       if (schedule) {
         schedule.plannedMinutes = plannedMinutes;
         schedule.updatedAt = timestamp;
@@ -1715,6 +2013,7 @@ export class LocalDataService implements LocalDataRepository {
         schedule = {
           id: id(),
           family_id: state.family_id,
+          child_id: childId,
           childId,
           weekStartDate,
           date: normalizedDate,
@@ -1834,6 +2133,7 @@ export class LocalDataService implements LocalDataRepository {
         date: validateDate(input.date, 'date'),
         height_cm: validateNonNegativeNumber(input.height_cm, 'height_cm'),
         weight_kg: validateNonNegativeNumber(input.weight_kg, 'weight_kg'),
+        growth_photo_media_ids: input.growth_photo_media_ids ?? [],
         reading_count: validateNonNegativeInteger(input.reading_count, 'reading_count'),
         note: input.note?.trim() || null,
         created_at: timestamp,
@@ -1854,6 +2154,7 @@ export class LocalDataService implements LocalDataRepository {
       if (input.date !== undefined) record.date = validateDate(input.date, 'date');
       if (input.height_cm !== undefined) record.height_cm = validateNonNegativeNumber(input.height_cm, 'height_cm');
       if (input.weight_kg !== undefined) record.weight_kg = validateNonNegativeNumber(input.weight_kg, 'weight_kg');
+      if (input.growth_photo_media_ids !== undefined) record.growth_photo_media_ids = input.growth_photo_media_ids;
       if (input.reading_count !== undefined) record.reading_count = validateNonNegativeInteger(input.reading_count, 'reading_count');
       if (input.note !== undefined) record.note = input.note?.trim() || null;
       record.updated_at = now();
@@ -1886,6 +2187,26 @@ export class LocalDataService implements LocalDataRepository {
 
   getGrowthRecordsByChild(childId: UUID) {
     return this.getGrowthRecords(childId);
+  }
+
+  listNotifications(childId?: UUID, audience?: LocalNotification['audience']) {
+    return this.db
+      .read()
+      .notifications.filter(
+        (notification) =>
+          (!childId || notification.child_id === childId) &&
+          (!audience || notification.audience === audience)
+      )
+      .sort((a, b) => b.created_at.localeCompare(a.created_at));
+  }
+
+  markNotificationRead(notificationId: UUID) {
+    return this.db.transaction((state) => {
+      const notification = state.notifications.find((item) => item.id === notificationId);
+      if (!notification) throw new LocalDataError('Notification not found', 'NOTIFICATION_NOT_FOUND');
+      notification.read_at ??= now();
+      return notification;
+    });
   }
 
   addPiggyIncome(input: AddPiggyIncomeInput) {
@@ -2440,6 +2761,7 @@ export const {
   bindChildDeviceByToken,
   regenerateChildToken,
   unbindChildDevice,
+  listDeviceBindingRecords,
   createTask,
   completeTask,
   approveTask,
@@ -2461,6 +2783,9 @@ export const {
   deleteSpecialDay,
   updateSettings,
   updateScreenTime,
+  createScreenTimeRequest,
+  reviewScreenTimeRequest,
+  listScreenTimeRequests,
   updatePlannedScreenTime,
   redeemStarsForScreenTime,
   addScreenTime,
@@ -2469,6 +2794,8 @@ export const {
   createGrowthRecord,
   updateGrowthRecord,
   deleteGrowthRecord,
+  listNotifications,
+  markNotificationRead,
   addPiggyIncome,
   depositPiggyCoin,
   createPiggyProduct,
@@ -2491,6 +2818,7 @@ export const {
   bindChildDeviceByToken: localData.bindChildDeviceByToken.bind(localData),
   regenerateChildToken: localData.regenerateChildToken.bind(localData),
   unbindChildDevice: localData.unbindChildDevice.bind(localData),
+  listDeviceBindingRecords: localData.listDeviceBindingRecords.bind(localData),
   createTask: localData.createTask.bind(localData),
   completeTask: localData.completeTask.bind(localData),
   approveTask: localData.approveTask.bind(localData),
@@ -2512,6 +2840,9 @@ export const {
   deleteSpecialDay: localData.deleteSpecialDay.bind(localData),
   updateSettings: localData.updateSettings.bind(localData),
   updateScreenTime: localData.updateScreenTime.bind(localData),
+  createScreenTimeRequest: localData.createScreenTimeRequest.bind(localData),
+  reviewScreenTimeRequest: localData.reviewScreenTimeRequest.bind(localData),
+  listScreenTimeRequests: localData.listScreenTimeRequests.bind(localData),
   updatePlannedScreenTime: localData.updatePlannedScreenTime.bind(localData),
   redeemStarsForScreenTime: localData.redeemStarsForScreenTime.bind(localData),
   addScreenTime: localData.addScreenTime.bind(localData),
@@ -2520,6 +2851,8 @@ export const {
   createGrowthRecord: localData.createGrowthRecord.bind(localData),
   updateGrowthRecord: localData.updateGrowthRecord.bind(localData),
   deleteGrowthRecord: localData.deleteGrowthRecord.bind(localData),
+  listNotifications: localData.listNotifications.bind(localData),
+  markNotificationRead: localData.markNotificationRead.bind(localData),
   addPiggyIncome: localData.addPiggyIncome.bind(localData),
   depositPiggyCoin: localData.depositPiggyCoin.bind(localData),
   createPiggyProduct: localData.createPiggyProduct.bind(localData),

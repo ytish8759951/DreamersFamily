@@ -88,6 +88,16 @@ describe('memory pack repository', () => {
     });
     data.addScreenTime(child.id, '2026-06-27', 30, '家長增加');
     data.recordScreenTimeUsed(child.id, '2026-06-27', 10);
+    data.addPiggyIncome({ child_id: child.id, source: 'allowance', amount: 200 });
+    data.depositPiggyCoin(child.id, 200);
+    const product = data.createPiggyProduct({
+      child_id: child.id,
+      name: 'lego',
+      price: 100,
+      main_media_id: 'product-media',
+      shelf_status: 'shelf'
+    });
+    const purchase = data.requestPiggyPurchase(child.id, product.id);
     data.createSpecialDay({
       child_id: child.id,
       title: '家庭露營',
@@ -128,6 +138,17 @@ describe('memory pack repository', () => {
       mimeType: 'image/jpeg'
     });
     expect(parsed.content.dreamHistory[0].coverMediaId).toBe('dream-cover-media-id');
+    expect(parsed.content.starHistory).toHaveLength(2);
+    expect(parsed.content.piggyBankLogs.map((item: { type: string }) => item.type)).toEqual([
+      'purchase_debit',
+      'coin_deposit'
+    ]);
+    expect(parsed.content.piggyPurchases[0]).toMatchObject({
+      id: purchase.id,
+      productId: product.id,
+      productName: 'lego',
+      status: 'pendingPurchase'
+    });
     expect(parsed.summary).toContain('1 個任務');
     expect(parsed.summary).toContain('累積 15 顆星星');
     expect(exported).not.toContain('Blob');
