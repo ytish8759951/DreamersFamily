@@ -1,4 +1,4 @@
-﻿import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useState } from 'react';
 import { Navigate, useLocation, useNavigate } from 'react-router-dom';
 import { childrenRepository } from '../../lib/childrenRepository';
 import { useLocalDataState } from '../../lib/useLocalData';
@@ -21,11 +21,8 @@ export function ChildTokenEntry() {
   const navigate = useNavigate();
   const state = useLocalDataState();
   const [invalid, setInvalid] = useState(false);
-  const reservedChildRoute = useMemo(() => childRoutes.has(token), [token]);
-  const childHomeTarget = useMemo(() => {
-    const childId = state.currentChildIdentity?.childId ?? state.device_child_id ?? null;
-    return childId ? `/child/home?childId=${encodeURIComponent(childId)}` : '/child/home';
-  }, [state.currentChildIdentity?.childId, state.device_child_id]);
+  const reservedChildRoute = childRoutes.has(token);
+  const childHomeTarget = '/child/home';
 
   useEffect(() => {
     if (reservedChildRoute) return;
@@ -35,8 +32,8 @@ export function ChildTokenEntry() {
     }
 
     try {
-      const child = childrenRepository.bindChildDeviceByToken(token);
-      navigate(`/child/home?childId=${encodeURIComponent(child.id)}`, { replace: true });
+      childrenRepository.bindChildDeviceByToken(token);
+      navigate('/child/home', { replace: true });
     } catch {
       setInvalid(true);
     }

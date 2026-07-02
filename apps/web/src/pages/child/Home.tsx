@@ -84,7 +84,7 @@ export function ChildHome() {
       {selectedChild ? (
         <section className="child-home-install-banner">
           <strong>孩子裝置已啟用</strong>
-          <p>請把這個頁面加入主畫面，之後會直接開啟孩子首頁。</p>
+          <p>請在這個孩子首頁加入主畫面。</p>
         </section>
       ) : null}
       <header className="v1-brand-header">

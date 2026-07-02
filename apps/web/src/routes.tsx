@@ -1,4 +1,4 @@
-import { createBrowserRouter, Navigate } from 'react-router-dom';
+import { createBrowserRouter, Navigate, useLocation } from 'react-router-dom';
 import { ParentLayout } from './components/layout/ParentLayout';
 import { ChildLayout } from './components/layout/ChildLayout';
 import { Children } from './pages/parent/Children';
@@ -25,10 +25,16 @@ import { DesignSystemPreview } from './pages/preview/DesignSystemPreview';
 import { useLocalDataState } from './lib/useLocalData';
 
 function RootRedirect() {
+  const location = useLocation();
   const state = useLocalDataState();
-  const childId = state.currentChildIdentity?.childId ?? state.device_child_id;
+  const childIdentity = typeof window !== 'undefined' ? window.localStorage.getItem('currentChildIdentity') : null;
+  const deviceBinding = typeof window !== 'undefined' ? window.localStorage.getItem('deviceBinding') : null;
 
-  return <Navigate to={childId ? `/child/home?childId=${encodeURIComponent(childId)}` : '/parent/children'} replace />;
+  if (location.pathname === '/' && (childIdentity || deviceBinding)) {
+    return <Navigate to="/child/home" replace />;
+  }
+
+  return <Navigate to={state.currentChildIdentity?.childId || state.device_child_id ? '/child/home' : '/parent/children'} replace />;
 }
 
 export const router = createBrowserRouter([

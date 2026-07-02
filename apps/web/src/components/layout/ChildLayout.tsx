@@ -1,7 +1,6 @@
 import { Camera, Home, ListChecks, Mail, PiggyBank } from 'lucide-react';
-import { useEffect, useMemo } from 'react';
+import { useEffect } from 'react';
 import { NavLink, Outlet, useLocation } from 'react-router-dom';
-import { useLocalDataState } from '../../lib/useLocalData';
 
 const navItems = [
   { label: '我的家', href: '/child/home', icon: Home },
@@ -13,11 +12,6 @@ const navItems = [
 
 export function ChildLayout() {
   const location = useLocation();
-  const localState = useLocalDataState();
-  const manifestStartUrl = useMemo(() => {
-    const childId = new URLSearchParams(location.search).get('childId') ?? localState.currentChildIdentity?.childId ?? localState.device_child_id ?? null;
-    return childId ? `/child/home?childId=${encodeURIComponent(childId)}` : location.pathname + location.search;
-  }, [location.pathname, location.search, localState.currentChildIdentity?.childId, localState.device_child_id]);
   const isHomePage = location.pathname === '/child/home';
   const isTaskPage = location.pathname === '/child/tasks';
   const isSharePage = location.pathname === '/child/share';
@@ -38,7 +32,7 @@ export function ChildLayout() {
       description: 'Dreamers Family',
       display: 'standalone',
       orientation: 'portrait',
-      start_url: manifestStartUrl,
+      start_url: '/child/home',
       scope: '/child/',
       background_color: '#fff7ed',
       theme_color: '#7a8f6e',
@@ -63,7 +57,7 @@ export function ChildLayout() {
       }
       URL.revokeObjectURL(href);
     };
-  }, [manifestStartUrl]);
+  }, []);
 
   return (
     <div className={`ds-shell ds-child-shell${isHomePage ? ' ds-home-shell' : ''}${isTaskPage ? ' ds-task-shell' : ''}${isSharePage ? ' ds-share-shell' : ''}${isDreamPage ? ' ds-dream-shell' : ''}${isMailboxPage ? ' ds-mailbox-shell' : ''}${isHonorPage ? ' ds-honor-shell' : ''}${isSpecialDaysPage ? ' ds-special-days-shell' : ''}${isScreenTimePage ? ' ds-screen-time-shell' : ''}`}>

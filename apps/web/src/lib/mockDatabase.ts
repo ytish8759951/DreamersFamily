@@ -9,6 +9,8 @@ export const LOCAL_FAMILY_ID = 'local-family';
 export const LOCAL_PARENT_USER_ID = 'local-parent';
 export const LOCAL_DEVICE_ID = 'local-device';
 const LOCAL_DEVICE_ID_KEY = 'little-dreamers-family:device-id:v1';
+const LOCAL_CURRENT_CHILD_IDENTITY_KEY = 'currentChildIdentity';
+const LOCAL_DEVICE_BINDING_KEY = 'deviceBinding';
 
 type Listener = (state: LocalDatabaseState) => void;
 
@@ -204,6 +206,22 @@ function createDefaultSettings(timestamp: string) {
   };
 }
 
+function syncChildSessionKeys(storage: KeyValueStorage, state: LocalDatabaseState) {
+  if (typeof window === 'undefined') return;
+
+  if (state.currentChildIdentity) {
+    storage.setItem(LOCAL_CURRENT_CHILD_IDENTITY_KEY, JSON.stringify(state.currentChildIdentity));
+  } else {
+    storage.removeItem(LOCAL_CURRENT_CHILD_IDENTITY_KEY);
+  }
+
+  if (state.device_child_id) {
+    storage.setItem(LOCAL_DEVICE_BINDING_KEY, state.device_child_id);
+  } else {
+    storage.removeItem(LOCAL_DEVICE_BINDING_KEY);
+  }
+}
+
 export class MockDatabase {
   constructor(
     private readonly storage: KeyValueStorage = getLocalStorage(),
@@ -225,6 +243,7 @@ export class MockDatabase {
   write(state: LocalDatabaseState): LocalDatabaseState {
     const next = { ...clone(state), updated_at: now() };
     writeJson(this.storage, this.storageKey, next);
+    syncChildSessionKeys(this.storage, next);
     listeners.forEach((listener) => listener(clone(next)));
 
     if (typeof window !== 'undefined') {
@@ -243,6 +262,8 @@ export class MockDatabase {
 
   reset(): LocalDatabaseState {
     this.storage.removeItem(this.storageKey);
+    this.storage.removeItem(LOCAL_CURRENT_CHILD_IDENTITY_KEY);
+    this.storage.removeItem(LOCAL_DEVICE_BINDING_KEY);
     return this.write(createEmptyState());
   }
 
