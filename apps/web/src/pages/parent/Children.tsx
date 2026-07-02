@@ -47,6 +47,42 @@ function qrCodeUrl(value: string) {
   return `https://api.qrserver.com/v1/create-qr-code/?size=220x220&margin=12&data=${encodeURIComponent(value)}`;
 }
 
+function onboardingTokenForChild(state: ReturnType<typeof useLocalDataState>, child: LocalChild) {
+  return state.child_onboarding_tokens?.find((token) => token.childId === child.id) ?? null;
+}
+
+function logChildUrlDebug(input: {
+  source: string;
+  child: LocalChild;
+  onboardingToken: ReturnType<typeof onboardingTokenForChild>;
+  qrUrl: string;
+  copyUrl: string;
+}) {
+  const childWithLegacyFields = input.child as LocalChild & {
+    childToken?: string;
+    childTokenLegacy?: string;
+    onboardingToken?: string;
+  };
+
+  console.log('[child onboarding url debug]', {
+    source: input.source,
+    'child.childToken': childWithLegacyFields.childToken,
+    childId: input.child.id,
+    child_child_token: input.child.child_token,
+    child: {
+      childToken: childWithLegacyFields.childToken,
+      child_token: input.child.child_token,
+      childTokenLegacy: childWithLegacyFields.childTokenLegacy,
+      onboardingToken: childWithLegacyFields.onboardingToken
+    },
+    childToken: childWithLegacyFields.childToken,
+    onboardingToken: input.onboardingToken,
+    qrUrl: input.qrUrl,
+    copyUrl: input.copyUrl,
+    qrAndCopyMatch: input.qrUrl === input.copyUrl
+  });
+}
+
 async function copyText(value: string) {
   if (navigator.clipboard?.writeText) {
     await navigator.clipboard.writeText(value);
@@ -157,7 +193,16 @@ export function Children() {
   };
 
   const copyChildUrl = async (child: LocalChild) => {
-    await copyText(childDeviceUrl(child));
+    const copyUrl = childDeviceUrl(child);
+    const onboardingToken = onboardingTokenForChild(state, child);
+    logChildUrlDebug({
+      source: 'copy button',
+      child,
+      onboardingToken,
+      qrUrl: copyUrl,
+      copyUrl
+    });
+    await copyText(copyUrl);
     setCopiedChildId(child.id);
     window.setTimeout(() => setCopiedChildId((current) => current === child.id ? null : current), 1600);
   };
@@ -264,6 +309,7 @@ export function Children() {
                     {expandedDeviceId === child.id ? (
                       <ChildDeviceSettings
                         child={child}
+                        state={state}
                         copied={copiedChildId === child.id}
                         onCopy={() => void copyChildUrl(child)}
                         onRegenerate={() => regenerateChildUrl(child)}
@@ -402,7 +448,7 @@ export function Children() {
             </header>
             <div className="child-created-content">
               <strong>{createdChild.display_name} 的孩子專屬入口已建立</strong>
-              <img src={qrCodeUrl(childDeviceUrl(createdChild))} alt={`${createdChild.display_name} 孩子專屬網址 QR Code`} />
+              <CreatedChildQr child={createdChild} state={state} />
               <small>childToken: {createdChild.child_token || '(empty)'}</small>
               <code>{childDeviceUrl(createdChild)}</code>
             </div>
@@ -424,20 +470,43 @@ export function Children() {
   );
 }
 
+function CreatedChildQr({ child, state }: { child: LocalChild; state: ReturnType<typeof useLocalDataState> }) {
+  const copyUrl = childDeviceUrl(child);
+  const onboardingToken = onboardingTokenForChild(state, child);
+  logChildUrlDebug({
+    source: 'created child qr',
+    child,
+    onboardingToken,
+    qrUrl: copyUrl,
+    copyUrl
+  });
+  return <img src={qrCodeUrl(copyUrl)} alt={`${child.display_name} 孩子專屬網址 QR Code`} />;
+}
+
 function ChildDeviceSettings({
   child,
+  state,
   copied,
   onCopy,
   onRegenerate,
   onUnbind
 }: {
   child: LocalChild;
+  state: ReturnType<typeof useLocalDataState>;
   copied: boolean;
   onCopy: () => void;
   onRegenerate: () => void;
   onUnbind: () => void;
 }) {
   const url = childDeviceUrl(child);
+  const onboardingToken = onboardingTokenForChild(state, child);
+  logChildUrlDebug({
+    source: 'expanded child qr',
+    child,
+    onboardingToken,
+    qrUrl: url,
+    copyUrl: url
+  });
   return (
     <div className="child-device-settings">
       <div className="child-device-url">
