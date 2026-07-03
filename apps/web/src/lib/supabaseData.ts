@@ -19,6 +19,9 @@ import type {
   LocalChild,
   LocalDatabaseState,
   LocalDeviceBindingRecord,
+  LocalDream,
+  LocalDreamFund,
+  LocalMailboxMessage,
   LocalPiggyBankLog,
   LocalPiggyIncome,
   LocalPiggyProduct,
@@ -26,6 +29,9 @@ import type {
   LocalPiggyPurchase,
   LocalPiggyShelfOrder,
   LocalRepositoryScope,
+  LocalShare,
+  LocalShareMedia,
+  LocalSpecialDay,
   LocalStarTransaction,
   LocalTask,
   UUID
@@ -201,6 +207,123 @@ interface SupabasePurchaseRow {
   payload: { local_purchase?: LocalPiggyPurchase } | null;
   created_at: string;
   updated_at: string;
+}
+
+interface SupabaseDreamRow {
+  id: UUID;
+  family_id: UUID;
+  child_id: UUID;
+  title: string;
+  description: string | null;
+  cover_path: string | null;
+  target_amount: number;
+  currency: string;
+  status: LocalDream['status'];
+  priority: number;
+  requested_by_child: boolean;
+  approved_by: UUID | null;
+  approved_at: string | null;
+  target_date: string | null;
+  completed_at: string | null;
+  created_by: UUID | null;
+  created_at: string;
+  updated_at: string;
+  archived_at: string | null;
+}
+
+interface SupabaseDreamFundRow {
+  id: UUID;
+  family_id: UUID;
+  child_id: UUID;
+  dream_id: UUID;
+  amount: number;
+  transaction_type: LocalDreamFund['transaction_type'];
+  note: string | null;
+  source_star_id: UUID | null;
+  reversal_of_id: UUID | null;
+  idempotency_key: string | null;
+  created_by: UUID | null;
+  created_at: string;
+}
+
+interface SupabaseShareRow {
+  id: UUID;
+  family_id: UUID;
+  child_id: UUID;
+  title: string | null;
+  caption: string | null;
+  share_type: LocalShare['share_type'];
+  source_type: LocalShare['source_type'];
+  status: LocalShare['status'];
+  submitted_at: string;
+  reviewed_by: UUID | null;
+  reviewed_at: string | null;
+  rejection_reason: string | null;
+  published_at: string | null;
+  created_by_user_id: UUID | null;
+  created_by_device_id: UUID | null;
+  created_at: string;
+  updated_at: string;
+  deleted_at: string | null;
+}
+
+interface SupabaseShareMediaRow {
+  id: UUID;
+  family_id: UUID;
+  child_id: UUID;
+  share_id: UUID;
+  media_type: LocalShareMedia['media_type'];
+  bucket: string;
+  storage_path: string;
+  mime_type: string;
+  file_size_bytes: number;
+  width: number | null;
+  height: number | null;
+  duration_seconds: number | null;
+  thumbnail_path: string | null;
+  sort_order: number;
+  created_at: string;
+}
+
+interface SupabaseMailboxRow {
+  id: UUID;
+  family_id: UUID;
+  child_id: UUID;
+  title: string | null;
+  message: string | null;
+  status: LocalMailboxMessage['status'];
+  sent_at: string | null;
+  opened_at: string | null;
+  created_by: UUID;
+  created_at: string;
+  updated_at: string;
+  sender_user_id: UUID;
+  card_type: 'text' | 'photo' | 'audio' | 'video' | 'mixed';
+  template_key: string | null;
+  media_bucket: string | null;
+  media_path: string | null;
+  media_mime_type: string | null;
+  scheduled_at: string | null;
+  archived_at: string | null;
+}
+
+interface SupabaseSpecialDayRow {
+  id: UUID;
+  family_id: UUID;
+  child_id: UUID | null;
+  event_type: string;
+  title: string;
+  description: string | null;
+  event_date: string;
+  is_recurring: boolean;
+  recurrence_rule: string | null;
+  reminder_enabled: boolean;
+  remind_days_before: number;
+  cover_path: string | null;
+  created_by: UUID;
+  created_at: string;
+  updated_at: string;
+  archived_at: string | null;
 }
 
 export function getSupabaseConfig(): SupabaseConfig | null {
@@ -494,7 +617,13 @@ export class SupabaseDataRepository implements LocalDataRepository {
       starResult,
       piggyRecordResult,
       storeItemResult,
-      purchaseResult
+      purchaseResult,
+      dreamResult,
+      dreamFundResult,
+      shareResult,
+      shareMediaResult,
+      mailboxResult,
+      specialDayResult
     ] = await Promise.all([
       this.client.from('parents').select('*').eq('id', SUPABASE_PARENT_ID).maybeSingle(),
       this.client.from('children').select('*').eq('family_id', SUPABASE_FAMILY_ID).order('created_at'),
@@ -506,7 +635,13 @@ export class SupabaseDataRepository implements LocalDataRepository {
       this.client.from('stars').select('*').eq('family_id', SUPABASE_FAMILY_ID).order('created_at', { ascending: false }),
       this.client.from('piggy_bank_records').select('*').eq('family_id', SUPABASE_FAMILY_ID).order('created_at', { ascending: false }),
       this.client.from('store_items').select('*').eq('family_id', SUPABASE_FAMILY_ID).order('updated_at', { ascending: false }),
-      this.client.from('purchases').select('*').eq('family_id', SUPABASE_FAMILY_ID).order('updated_at', { ascending: false })
+      this.client.from('purchases').select('*').eq('family_id', SUPABASE_FAMILY_ID).order('updated_at', { ascending: false }),
+      this.client.from('dreams').select('*').eq('family_id', SUPABASE_FAMILY_ID).order('updated_at', { ascending: false }),
+      this.client.from('dream_funds').select('*').eq('family_id', SUPABASE_FAMILY_ID).order('created_at', { ascending: false }),
+      this.client.from('shares').select('*').eq('family_id', SUPABASE_FAMILY_ID).order('updated_at', { ascending: false }),
+      this.client.from('share_media').select('*').eq('family_id', SUPABASE_FAMILY_ID).order('created_at', { ascending: false }),
+      this.client.from('encouragement_cards').select('*').eq('family_id', SUPABASE_FAMILY_ID).order('updated_at', { ascending: false }),
+      this.client.from('special_days').select('*').eq('family_id', SUPABASE_FAMILY_ID).order('updated_at', { ascending: false })
     ]);
     if (parentError) throw parentError;
     if (childrenError) throw childrenError;
@@ -518,6 +653,12 @@ export class SupabaseDataRepository implements LocalDataRepository {
     if (piggyRecordResult.error) throw piggyRecordResult.error;
     if (storeItemResult.error) throw storeItemResult.error;
     if (purchaseResult.error) throw purchaseResult.error;
+    if (dreamResult.error) throw dreamResult.error;
+    if (dreamFundResult.error) throw dreamFundResult.error;
+    if (shareResult.error) throw shareResult.error;
+    if (shareMediaResult.error) throw shareMediaResult.error;
+    if (mailboxResult.error) throw mailboxResult.error;
+    if (specialDayResult.error) throw specialDayResult.error;
 
     const parentState = readRepositoryState((parent as SupabaseParentRow | null)?.settings ?? null);
     const remoteChildren = ((children ?? []) as SupabaseChildRow[]).map(fromSupabaseChild);
@@ -536,12 +677,48 @@ export class SupabaseDataRepository implements LocalDataRepository {
       products: (storeItemResult.data ?? []) as SupabaseStoreItemRow[],
       purchases: (purchaseResult.data ?? []) as SupabasePurchaseRow[]
     });
+    const remoteDreams = mergeById(
+      baseState.dreams,
+      ((dreamResult.data ?? []) as SupabaseDreamRow[]).map(fromSupabaseDream),
+      (dream) => dream.updated_at
+    ).sort((first, second) => second.created_at.localeCompare(first.created_at));
+    const remoteDreamFunds = mergeById(
+      baseState.dream_funds,
+      ((dreamFundResult.data ?? []) as SupabaseDreamFundRow[]).map(fromSupabaseDreamFund),
+      (fund) => fund.created_at
+    ).sort((first, second) => second.created_at.localeCompare(first.created_at));
+    const remoteShares = mergeById(
+      baseState.shares,
+      ((shareResult.data ?? []) as SupabaseShareRow[]).map(fromSupabaseShare),
+      (share) => share.updated_at
+    ).sort((first, second) => second.created_at.localeCompare(first.created_at));
+    const remoteShareMedia = mergeById(
+      baseState.share_media,
+      ((shareMediaResult.data ?? []) as SupabaseShareMediaRow[]).map(fromSupabaseShareMedia),
+      (media) => media.created_at
+    ).sort((first, second) => first.sort_order - second.sort_order || first.created_at.localeCompare(second.created_at));
+    const remoteMailbox = mergeById(
+      baseState.encouragement_cards,
+      ((mailboxResult.data ?? []) as SupabaseMailboxRow[]).map(fromSupabaseMailbox),
+      (message) => message.updated_at
+    ).sort((first, second) => second.created_at.localeCompare(first.created_at));
+    const remoteSpecialDays = mergeById(
+      baseState.special_days,
+      ((specialDayResult.data ?? []) as SupabaseSpecialDayRow[]).map(fromSupabaseSpecialDay),
+      (day) => day.updated_at
+    ).sort((first, second) => first.date.localeCompare(second.date));
     const updatedAt = maxIsoDate([
       parentState?.updated_at,
       (parent as SupabaseParentRow | null)?.settings?.repository_updated_at,
       ...mergedChildren.map((child) => child.updated_at),
       ...remoteTasks.map((task) => task.updated_at),
       ...remoteStars.map((star) => star.created_at),
+      ...remoteDreams.map((dream) => dream.updated_at),
+      ...remoteDreamFunds.map((fund) => fund.created_at),
+      ...remoteShares.map((share) => share.updated_at),
+      ...remoteShareMedia.map((media) => media.created_at),
+      ...remoteMailbox.map((message) => message.updated_at),
+      ...remoteSpecialDays.map((day) => day.updated_at),
       ...piggyState.piggy_incomes.map((income) => income.created_at),
       ...piggyState.piggy_bank_logs.map((log) => log.created_at),
       ...piggyState.piggy_products.map((product) => product.updated_at),
@@ -559,6 +736,12 @@ export class SupabaseDataRepository implements LocalDataRepository {
       children: mergedChildren,
       tasks: remoteTasks,
       stars: remoteStars,
+      dreams: remoteDreams,
+      dream_funds: remoteDreamFunds,
+      shares: remoteShares,
+      share_media: remoteShareMedia,
+      encouragement_cards: remoteMailbox,
+      special_days: remoteSpecialDays,
       piggy_incomes: piggyState.piggy_incomes,
       piggy_bank_logs: piggyState.piggy_bank_logs,
       piggy_products: piggyState.piggy_products,
@@ -607,7 +790,9 @@ export class SupabaseDataRepository implements LocalDataRepository {
     const state = toSupabaseRepositoryState(this.cache.getState());
     await this.pushRepositorySnapshot(state);
     await this.pushChildrenAndBindings(state);
+    await this.pushDreamShareMailboxSpecialTables(state);
     await this.pushTaskStarPiggyTables(state);
+    await this.pushDreamFunds(state);
     this.lastRemoteUpdatedAt = state.updated_at;
     this.retryAttempt = 0;
   }
@@ -660,8 +845,15 @@ export class SupabaseDataRepository implements LocalDataRepository {
     }
 
     const taskIds = new Set(state.tasks.map((task) => task.id));
+    const shareIds = new Set(state.shares.map((share) => share.id));
+    const dreamIds = new Set(state.dreams.map((dream) => dream.id));
     const stars = state.stars
-      .filter((star) => (!star.task_id || taskIds.has(star.task_id)) && !star.share_id && !star.dream_id)
+      .filter(
+        (star) =>
+          (!star.task_id || taskIds.has(star.task_id)) &&
+          (!star.share_id || shareIds.has(star.share_id)) &&
+          (!star.dream_id || dreamIds.has(star.dream_id))
+      )
       .map(toSupabaseStar);
     if (stars.length) {
       const { error } = await this.client.from('stars').upsert(stars, { onConflict: 'id' });
@@ -669,6 +861,59 @@ export class SupabaseDataRepository implements LocalDataRepository {
     }
 
     await this.pushPiggyTables(state);
+  }
+
+  private async pushDreamShareMailboxSpecialTables(state: LocalDatabaseState) {
+    if (!this.client) return;
+
+    await deleteMissingRows(this.client, 'dream_funds', state.dream_funds.map((fund) => fund.id));
+    await deleteMissingRows(this.client, 'dreams', state.dreams.map((dream) => dream.id));
+    await deleteMissingRows(this.client, 'share_media', state.share_media.map((media) => media.id));
+
+    const dreams = state.dreams.map(toSupabaseDream);
+    if (dreams.length) {
+      const { error } = await this.client.from('dreams').upsert(dreams, { onConflict: 'id' });
+      if (error) throw error;
+    }
+
+    const shares = state.shares.map(toSupabaseShare);
+    if (shares.length) {
+      const { error } = await this.client.from('shares').upsert(shares, { onConflict: 'id' });
+      if (error) throw error;
+    }
+
+    const shareMedia = state.share_media
+      .filter((media) => state.shares.some((share) => share.id === media.share_id))
+      .map(toSupabaseShareMedia);
+    if (shareMedia.length) {
+      const { error } = await this.client.from('share_media').upsert(shareMedia, { onConflict: 'id' });
+      if (error) throw error;
+    }
+
+    const mailbox = state.encouragement_cards.map(toSupabaseMailbox);
+    if (mailbox.length) {
+      const { error } = await this.client.from('encouragement_cards').upsert(mailbox, { onConflict: 'id' });
+      if (error) throw error;
+    }
+
+    const specialDays = state.special_days.map(toSupabaseSpecialDay);
+    if (specialDays.length) {
+      const { error } = await this.client.from('special_days').upsert(specialDays, { onConflict: 'id' });
+      if (error) throw error;
+    }
+  }
+
+  private async pushDreamFunds(state: LocalDatabaseState) {
+    if (!this.client) return;
+    const dreamIds = new Set(state.dreams.map((dream) => dream.id));
+    const starIds = new Set(state.stars.map((star) => star.id));
+    const dreamFunds = state.dream_funds
+      .filter((fund) => dreamIds.has(fund.dream_id) && (!fund.source_star_id || starIds.has(fund.source_star_id)))
+      .map(toSupabaseDreamFund);
+    if (dreamFunds.length) {
+      const { error } = await this.client.from('dream_funds').upsert(dreamFunds, { onConflict: 'id' });
+      if (error) throw error;
+    }
   }
 
   private async pushPiggyTables(state: LocalDatabaseState) {
@@ -767,6 +1012,36 @@ export class SupabaseDataRepository implements LocalDataRepository {
       .on(
         'postgres_changes',
         { event: '*', schema: 'public', table: 'purchases', filter: `family_id=eq.${SUPABASE_FAMILY_ID}` },
+        () => this.hydrateFromSupabase()
+      )
+      .on(
+        'postgres_changes',
+        { event: '*', schema: 'public', table: 'dreams', filter: `family_id=eq.${SUPABASE_FAMILY_ID}` },
+        () => this.hydrateFromSupabase()
+      )
+      .on(
+        'postgres_changes',
+        { event: '*', schema: 'public', table: 'dream_funds', filter: `family_id=eq.${SUPABASE_FAMILY_ID}` },
+        () => this.hydrateFromSupabase()
+      )
+      .on(
+        'postgres_changes',
+        { event: '*', schema: 'public', table: 'shares', filter: `family_id=eq.${SUPABASE_FAMILY_ID}` },
+        () => this.hydrateFromSupabase()
+      )
+      .on(
+        'postgres_changes',
+        { event: '*', schema: 'public', table: 'share_media', filter: `family_id=eq.${SUPABASE_FAMILY_ID}` },
+        () => this.hydrateFromSupabase()
+      )
+      .on(
+        'postgres_changes',
+        { event: '*', schema: 'public', table: 'encouragement_cards', filter: `family_id=eq.${SUPABASE_FAMILY_ID}` },
+        () => this.hydrateFromSupabase()
+      )
+      .on(
+        'postgres_changes',
+        { event: '*', schema: 'public', table: 'special_days', filter: `family_id=eq.${SUPABASE_FAMILY_ID}` },
         () => this.hydrateFromSupabase()
       )
       .subscribe((status) => {
@@ -984,13 +1259,310 @@ function toSupabaseStar(star: LocalStarTransaction): SupabaseStarRow {
     transaction_type: star.transaction_type,
     reason: star.reason,
     task_id: star.task_id,
-    share_id: null,
-    dream_id: null,
+    share_id: star.share_id,
+    dream_id: star.dream_id,
     reversal_of_id: star.reversal_of_id,
     idempotency_key: star.idempotency_key,
     created_by: star.created_by ? SUPABASE_PARENT_ID : null,
     created_at: star.created_at
   };
+}
+
+function toSupabaseDream(dream: LocalDream): SupabaseDreamRow {
+  return {
+    id: dream.id,
+    family_id: SUPABASE_FAMILY_ID,
+    child_id: dream.child_id,
+    title: dream.title,
+    description: dream.description,
+    cover_path: dream.cover_path ?? dream.coverUrl ?? dream.imageUrl ?? null,
+    target_amount: dream.target_amount,
+    currency: dream.currency || 'TWD',
+    status: dream.status,
+    priority: dream.priority,
+    requested_by_child: dream.requested_by_child,
+    approved_by: dream.approved_by ? SUPABASE_PARENT_ID : null,
+    approved_at: dream.approved_at,
+    target_date: dream.target_date,
+    completed_at: dream.completed_at,
+    created_by: dream.created_by ? SUPABASE_PARENT_ID : null,
+    created_at: dream.created_at,
+    updated_at: dream.updated_at,
+    archived_at: dream.archived_at
+  };
+}
+
+function fromSupabaseDream(row: SupabaseDreamRow): LocalDream {
+  return {
+    id: row.id,
+    family_id: SUPABASE_FAMILY_ID,
+    child_id: row.child_id,
+    title: row.title,
+    description: row.description,
+    cover_path: row.cover_path,
+    coverUrl: row.cover_path,
+    imageUrl: row.cover_path,
+    cover_media_id: null,
+    coverMediaId: null,
+    cover_mime_type: null,
+    cover_file_name: null,
+    target_amount: Number(row.target_amount),
+    currency: row.currency,
+    status: row.status,
+    priority: row.priority,
+    requested_by_child: row.requested_by_child,
+    approved_by: row.approved_by,
+    approved_at: row.approved_at,
+    target_date: row.target_date,
+    completed_at: row.completed_at,
+    created_by: row.created_by,
+    created_at: row.created_at,
+    updated_at: row.updated_at,
+    archived_at: row.archived_at
+  };
+}
+
+function toSupabaseDreamFund(fund: LocalDreamFund): SupabaseDreamFundRow {
+  return {
+    id: fund.id,
+    family_id: SUPABASE_FAMILY_ID,
+    child_id: fund.child_id,
+    dream_id: fund.dream_id,
+    amount: fund.amount,
+    transaction_type: fund.transaction_type,
+    note: fund.note,
+    source_star_id: fund.source_star_id,
+    reversal_of_id: fund.reversal_of_id,
+    idempotency_key: fund.idempotency_key,
+    created_by: fund.created_by ? SUPABASE_PARENT_ID : null,
+    created_at: fund.created_at
+  };
+}
+
+function fromSupabaseDreamFund(row: SupabaseDreamFundRow): LocalDreamFund {
+  return {
+    id: row.id,
+    family_id: SUPABASE_FAMILY_ID,
+    child_id: row.child_id,
+    dream_id: row.dream_id,
+    amount: Number(row.amount),
+    transaction_type: row.transaction_type,
+    note: row.note,
+    source_star_id: row.source_star_id,
+    reversal_of_id: row.reversal_of_id,
+    idempotency_key: row.idempotency_key,
+    created_by: row.created_by,
+    created_at: row.created_at
+  };
+}
+
+function toSupabaseShare(share: LocalShare): SupabaseShareRow {
+  const sourceType: LocalShare['source_type'] = share.source_type === 'parent' ? 'parent' : 'system';
+  const reviewedAt =
+    share.status === 'approved' || share.status === 'rejected'
+      ? share.reviewed_at ?? share.updated_at
+      : share.reviewed_at;
+  return {
+    id: share.id,
+    family_id: SUPABASE_FAMILY_ID,
+    child_id: share.child_id,
+    title: share.title,
+    caption: share.caption,
+    share_type: share.share_type,
+    source_type: sourceType,
+    status: share.status,
+    submitted_at: share.submitted_at,
+    reviewed_by: reviewedAt ? SUPABASE_PARENT_ID : null,
+    reviewed_at: reviewedAt,
+    rejection_reason: share.rejection_reason,
+    published_at: share.status === 'approved' ? share.published_at ?? share.updated_at : share.published_at,
+    created_by_user_id: sourceType === 'parent' ? SUPABASE_PARENT_ID : null,
+    created_by_device_id: null,
+    created_at: share.created_at,
+    updated_at: share.updated_at,
+    deleted_at: share.deleted_at
+  };
+}
+
+function fromSupabaseShare(row: SupabaseShareRow): LocalShare {
+  return {
+    id: row.id,
+    family_id: SUPABASE_FAMILY_ID,
+    child_id: row.child_id,
+    title: row.title,
+    caption: row.caption,
+    share_type: row.share_type,
+    type: row.share_type,
+    mediaUrl: null,
+    source_type: row.source_type,
+    status: row.status,
+    submitted_at: row.submitted_at,
+    reviewed_by: row.reviewed_by,
+    reviewed_at: row.reviewed_at,
+    rejection_reason: row.rejection_reason,
+    published_at: row.published_at,
+    created_by_user_id: row.created_by_user_id,
+    created_by_device_id: row.created_by_device_id,
+    created_at: row.created_at,
+    updated_at: row.updated_at,
+    deleted_at: row.deleted_at
+  };
+}
+
+function toSupabaseShareMedia(media: LocalShareMedia): SupabaseShareMediaRow {
+  return {
+    id: media.id,
+    family_id: SUPABASE_FAMILY_ID,
+    child_id: media.child_id,
+    share_id: media.share_id,
+    media_type: media.media_type,
+    bucket: media.bucket,
+    storage_path: media.storage_path,
+    mime_type: media.mime_type,
+    file_size_bytes: media.file_size_bytes,
+    width: media.width,
+    height: media.height,
+    duration_seconds: media.duration_seconds,
+    thumbnail_path: media.thumbnail_path,
+    sort_order: media.sort_order,
+    created_at: media.created_at
+  };
+}
+
+function fromSupabaseShareMedia(row: SupabaseShareMediaRow): LocalShareMedia {
+  return {
+    id: row.id,
+    family_id: SUPABASE_FAMILY_ID,
+    child_id: row.child_id,
+    share_id: row.share_id,
+    media_type: row.media_type,
+    bucket: 'local-media',
+    storage_path: row.storage_path,
+    mime_type: row.mime_type,
+    file_size_bytes: Number(row.file_size_bytes),
+    width: row.width,
+    height: row.height,
+    duration_seconds: row.duration_seconds === null ? null : Number(row.duration_seconds),
+    thumbnail_path: row.thumbnail_path,
+    sort_order: row.sort_order,
+    created_at: row.created_at,
+    local_data_url: null
+  };
+}
+
+function toSupabaseMailbox(message: LocalMailboxMessage): SupabaseMailboxRow {
+  return {
+    id: message.id,
+    family_id: SUPABASE_FAMILY_ID,
+    child_id: message.child_id,
+    title: message.title,
+    message: message.message,
+    status: message.status,
+    sent_at: message.status === 'sent' || message.status === 'opened' ? message.sent_at ?? message.created_at : message.sent_at,
+    opened_at: message.status === 'opened' ? message.opened_at ?? message.updated_at : message.opened_at,
+    created_by: SUPABASE_PARENT_ID,
+    created_at: message.created_at,
+    updated_at: message.updated_at,
+    sender_user_id: SUPABASE_PARENT_ID,
+    card_type: toSupabaseMailboxCardType(message.card_type),
+    template_key: message.template_key,
+    media_bucket: message.media_bucket,
+    media_path: message.media_path,
+    media_mime_type: message.media_mime_type,
+    scheduled_at: message.scheduled_at,
+    archived_at: message.archived_at
+  };
+}
+
+function fromSupabaseMailbox(row: SupabaseMailboxRow): LocalMailboxMessage {
+  return {
+    id: row.id,
+    family_id: SUPABASE_FAMILY_ID,
+    child_id: row.child_id,
+    sender_user_id: row.sender_user_id,
+    sender_role: 'parent',
+    title: row.title,
+    message: row.message,
+    card_type: fromSupabaseMailboxCardType(row.card_type),
+    template_key: row.template_key,
+    media_bucket: row.media_bucket === 'local-media' ? 'local-media' : null,
+    media_path: row.media_path,
+    media_id: null,
+    media_mime_type: row.media_mime_type,
+    local_data_url: null,
+    status: row.status,
+    scheduled_at: row.scheduled_at,
+    sent_at: row.sent_at,
+    opened_at: row.opened_at,
+    archived_at: row.archived_at,
+    created_at: row.created_at,
+    updated_at: row.updated_at
+  };
+}
+
+function toSupabaseSpecialDay(day: LocalSpecialDay): SupabaseSpecialDayRow {
+  return {
+    id: day.id,
+    family_id: SUPABASE_FAMILY_ID,
+    child_id: day.child_id,
+    event_type: toSupabaseSpecialDayType(day.type),
+    title: day.title,
+    description: day.description,
+    event_date: day.date,
+    is_recurring: day.type === 'birthday' || day.source === 'child_birthday',
+    recurrence_rule: day.type === 'birthday' || day.source === 'child_birthday' ? 'FREQ=YEARLY' : null,
+    reminder_enabled: true,
+    remind_days_before: 7,
+    cover_path: day.image_media_id ?? null,
+    created_by: SUPABASE_PARENT_ID,
+    created_at: day.created_at,
+    updated_at: day.updated_at,
+    archived_at: day.deleted_at
+  };
+}
+
+function fromSupabaseSpecialDay(row: SupabaseSpecialDayRow): LocalSpecialDay {
+  const type = fromSupabaseSpecialDayType(row.event_type);
+  return {
+    id: row.id,
+    family_id: SUPABASE_FAMILY_ID,
+    child_id: row.child_id ?? '',
+    childId: row.child_id ?? '',
+    title: row.title,
+    date: row.event_date,
+    type,
+    description: row.description,
+    image_media_id: row.cover_path,
+    image_data_url: null,
+    created_by: row.created_by,
+    createdBy: 'parent',
+    source: type === 'birthday' ? 'child_birthday' : 'manual',
+    created_at: row.created_at,
+    updated_at: row.updated_at,
+    deleted_at: row.archived_at
+  };
+}
+
+function toSupabaseMailboxCardType(type: LocalMailboxMessage['card_type']) {
+  if (type === 'card') return 'text';
+  if (type === 'image') return 'photo';
+  return type;
+}
+
+function fromSupabaseMailboxCardType(type: SupabaseMailboxRow['card_type']): LocalMailboxMessage['card_type'] {
+  return type === 'photo' ? 'image' : type;
+}
+
+function toSupabaseSpecialDayType(type: LocalSpecialDay['type']) {
+  if (type === 'birthday') return 'birthday';
+  if (type === 'holiday') return 'holiday';
+  return 'custom';
+}
+
+function fromSupabaseSpecialDayType(type: string): LocalSpecialDay['type'] {
+  if (type === 'birthday') return 'birthday';
+  if (type === 'holiday') return 'holiday';
+  return 'other';
 }
 
 function fromSupabaseStar(row: SupabaseStarRow): LocalStarTransaction {
@@ -1192,7 +1764,7 @@ function mergeById<T extends { id: string }>(localItems: T[], remoteItems: T[], 
   const byId = new Map<string, T>();
   [...localItems, ...remoteItems].forEach((item) => {
     const existing = byId.get(item.id);
-    if (!existing || getTimestamp(item) >= getTimestamp(existing)) byId.set(item.id, item);
+    if (!existing || getTimestamp(item) > getTimestamp(existing)) byId.set(item.id, item);
   });
   return [...byId.values()];
 }
@@ -1314,4 +1886,10 @@ function toSupabaseUuid(value: string | null | undefined, fallback: string) {
 function maxIsoDate(values: Array<string | null | undefined>) {
   const sorted = values.filter((value): value is string => Boolean(value)).sort();
   return sorted.length ? sorted[sorted.length - 1] : null;
+}
+
+async function deleteMissingRows(client: SupabaseClient, table: string, ids: string[]) {
+  const query = client.from(table).delete().eq('family_id', SUPABASE_FAMILY_ID);
+  const { error } = ids.length ? await query.not('id', 'in', `(${ids.join(',')})`) : await query;
+  if (error) throw error;
 }
