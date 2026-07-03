@@ -1,7 +1,7 @@
-import { useMemo, useState, type FormEvent } from 'react';
+import { useEffect, useMemo, useState, type FormEvent } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 import {
-  ensureProductionFamily,
+  getProductionFamilyInvitePreview,
   joinProductionFamily,
   signInParentWithPassword,
   signOutParent,
@@ -19,8 +19,27 @@ export function AuthPage() {
   const [displayName, setDisplayName] = useState('');
   const [inviteFamilyId, setInviteFamilyId] = useState(searchParams.get('familyId') ?? '');
   const [inviteCode, setInviteCode] = useState(searchParams.get('inviteCode') ?? '');
+  const [inviteFamilyName, setInviteFamilyName] = useState('');
   const [message, setMessage] = useState('');
   const isJoinIntent = useMemo(() => Boolean(searchParams.get('familyId') && searchParams.get('inviteCode')), [searchParams]);
+
+  useEffect(() => {
+    let cancelled = false;
+    if (!inviteFamilyId || !inviteCode) {
+      setInviteFamilyName('');
+      return;
+    }
+    void getProductionFamilyInvitePreview(inviteFamilyId, inviteCode)
+      .then((preview) => {
+        if (!cancelled) setInviteFamilyName(preview?.family_name ?? '');
+      })
+      .catch(() => {
+        if (!cancelled) setInviteFamilyName('');
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [inviteFamilyId, inviteCode]);
 
   const submitAuth = async (event: FormEvent) => {
     event.preventDefault();
@@ -28,12 +47,11 @@ export function AuthPage() {
     try {
       if (mode === 'signin') {
         await signInParentWithPassword(email, password);
-        await ensureProductionFamily(displayName ? `${displayName} 的家庭` : 'Dreamers Family');
-        navigate('/parent', { replace: true });
+        if (!isJoinIntent) navigate('/', { replace: true });
       } else {
         await signUpParentWithPassword(email, password, displayName);
       }
-      setMessage(mode === 'signin' ? '登入成功' : '帳號已建立；首次登入會自動建立自己的 familyId。');
+      setMessage(mode === 'signin' ? '登入成功' : '帳號已建立；首次登入後請建立家庭。');
     } catch (caught) {
       setMessage(caught instanceof Error ? caught.message : '登入失敗');
     }
@@ -84,7 +102,8 @@ export function AuthPage() {
 
         <section className="auth-family-actions">
           <h2>家庭加入</h2>
-          <p>每個測試家庭註冊後會自動建立自己的 familyId。第二位家長只能透過邀請碼加入同一個 familyId。</p>
+          {inviteFamilyName ? <p className="auth-invite-preview">你即將加入：<strong>【{inviteFamilyName}】</strong></p> : null}
+          <p>每個測試家庭登入後自行建立家庭。第二位家長只能透過邀請碼加入同一個 familyId。</p>
           <label>familyId<input value={inviteFamilyId} onChange={(event) => setInviteFamilyId(event.target.value)} /></label>
           <label>inviteCode<input value={inviteCode} onChange={(event) => setInviteCode(event.target.value)} /></label>
           <button type="button" onClick={() => void joinFamily()} disabled={!runtimeInfo.userId || !inviteFamilyId || !inviteCode}>
@@ -93,9 +112,7 @@ export function AuthPage() {
         </section>
 
         <footer>
-          <code>auth={runtimeInfo.authStatus}</code>
-          <code>userId={runtimeInfo.userId ?? '-'}</code>
-          <code>familyId={runtimeInfo.familyId ?? '-'}</code>
+          {runtimeInfo.authStatus === 'needs_family' ? <button type="button" onClick={() => navigate('/create-family')}>建立家庭</button> : null}
           {runtimeInfo.userId ? <button type="button" onClick={() => void logout()}>登出</button> : null}
         </footer>
         {message ? <p className="auth-message">{message}</p> : null}

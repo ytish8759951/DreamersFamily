@@ -46,9 +46,7 @@ export function ParentLayout() {
   const location = useLocation();
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
   const localState = useLocalDataState();
-  const activeChild = localState.children.find(
-    (child) => child.id === localState.active_child_id && child.status === 'active'
-  );
+  const familyName = localState.family_settings.family_name || '小小夢想家 Family';
 
   const familyPath = location.pathname;
   const pickNavigation = (paths: string[]) =>
@@ -87,14 +85,14 @@ export function ParentLayout() {
     }
     iconLink.href = iconHref;
     const title = document.querySelector('meta[name="apple-mobile-web-app-title"]');
-    if (title) title.setAttribute('content', 'Dreamers Family');
-    document.title = 'Dreamers Family';
-  }, []);
+    if (title) title.setAttribute('content', familyName);
+    document.title = familyName;
+  }, [familyName]);
 
   return (
     <div className={`ph-shell${pageClass}`}>
       <aside className="ph-sidebar">
-        <Brand />
+        <Brand familyName={familyName} />
         <nav>
           {navigation.map(({ label, to, icon: Icon, count }) => (
             <NavLink key={to} to={to} className={({ isActive }) => isActive ? 'is-active' : ''}>
@@ -118,9 +116,9 @@ export function ParentLayout() {
           >
             <Menu size={20} />
           </button>
-          <Brand />
+          <Brand familyName={familyName} />
           <div className="ph-top-copy">
-            <small>{activeChild ? `${activeChild.display_name} 目前使用中` : '尚未選擇孩子'}</small>
+            <small>{familyName}</small>
             <strong>家長管理中心</strong>
           </div>
           <NavLink to="/child/home">孩子首頁</NavLink>
@@ -140,7 +138,7 @@ export function ParentLayout() {
         aria-label="家長端選單"
       >
         <div className="ph-mobile-drawer-head">
-          <Brand />
+          <Brand familyName={familyName} />
           <button type="button" aria-label="關閉選單" onClick={() => setIsMobileMenuOpen(false)}>
             <X size={20} />
           </button>
@@ -171,11 +169,11 @@ export function ParentLayout() {
   );
 }
 
-function Brand() {
+function Brand({ familyName }: { familyName: string }) {
   return (
     <div className="ph-brand">
       <span>夢</span>
-      <div><small>Little Dreamers Family</small><strong>家長管理中心</strong></div>
+      <div><small>{familyName}</small><strong>家長管理中心</strong></div>
     </div>
   );
 }

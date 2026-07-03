@@ -5267,61 +5267,6 @@ p {
   font-size: 13px;
 }
 
-.ph-runtime-status {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  margin-top: 10px;
-  gap: 8px;
-}
-
-.ph-runtime-status span {
-  border-radius: 999px;
-  background: #e8f4e5;
-  padding: 5px 9px;
-  color: #3f7338;
-  font-size: 11px;
-  font-weight: 800;
-}
-
-.ph-runtime-status small {
-  color: #8a8177;
-  font-size: 11px;
-  font-weight: 700;
-}
-
-.ph-auth-audit {
-  display: grid;
-  grid-template-columns: repeat(5, minmax(0, 1fr));
-  gap: 10px;
-}
-
-.ph-auth-audit article {
-  min-width: 0;
-  border: 1px solid #ecdfcf;
-  border-radius: 14px;
-  background: #fff;
-  padding: 11px 12px;
-  box-shadow: 0 8px 18px rgba(77, 59, 35, .05);
-}
-
-.ph-auth-audit small {
-  display: block;
-  color: #8a8177;
-  font-size: 11px;
-  font-weight: 800;
-}
-
-.ph-auth-audit strong {
-  display: block;
-  overflow: hidden;
-  margin-top: 5px;
-  color: #3f3328;
-  font-size: 12px;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
 .ph-welcome button {
   z-index: 1;
   display: inline-flex;
@@ -20767,6 +20712,38 @@ body.modal-open {
   color: #a65c58;
 }
 
+.settings-subtitle {
+  margin: 0;
+  color: #5b3a1d;
+  font-size: 15px;
+}
+
+.settings-invite-card {
+  display: grid;
+  grid-template-columns: 156px minmax(0, 1fr);
+  align-items: center;
+  gap: 14px;
+}
+
+.settings-invite-qr {
+  display: grid;
+  width: 156px;
+  height: 156px;
+  place-items: center;
+  border: 1px solid #eee3d4;
+  border-radius: 18px;
+  background: #fff;
+}
+
+.settings-invite-empty {
+  margin: 0;
+  border-radius: 15px;
+  background: #fbf7ef;
+  padding: 12px;
+  color: #776b5f;
+  font-weight: 800;
+}
+
 .settings-data-panel dl {
   display: grid;
   grid-template-columns: repeat(3, 1fr);
@@ -20786,6 +20763,7 @@ body.modal-open {
 }
 
 .settings-data-panel dd {
+  overflow-wrap: anywhere;
   margin: 6px 0 0;
   color: #3f352c;
   font-weight: 900;
@@ -20793,7 +20771,8 @@ body.modal-open {
 
 @media (max-width: 900px) {
   .settings-grid,
-  .settings-data-panel dl {
+  .settings-data-panel dl,
+  .settings-invite-card {
     grid-template-columns: 1fr;
   }
 

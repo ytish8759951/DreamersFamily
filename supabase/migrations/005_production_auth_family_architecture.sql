@@ -53,7 +53,7 @@ declare
   created_family_id uuid;
   existing_family_id uuid;
   existing_role text;
-  safe_name text := coalesce(nullif(trim(family_name), ''), 'Dreamers Family');
+  safe_name text := coalesce(nullif(trim(family_name), ''), '小小夢想家 Family');
 begin
   current_user_id := public.ensure_profile_for_current_user();
 
@@ -161,6 +161,39 @@ begin
 end;
 $$;
 
+create or replace function public.get_family_invite_preview(target_family_id uuid, invite_code text)
+returns table(family_id uuid, family_name text, parent_role text)
+language plpgsql
+security definer
+set search_path = public
+as $$
+declare
+  invitation record;
+  safe_code text := upper(trim(invite_code));
+begin
+  select fi.family_id, f.name, fi.role, fi.token_hash
+    into invitation
+  from public.family_invitations fi
+  join public.families f on f.id = fi.family_id
+  where fi.family_id = target_family_id
+    and fi.invite_code = safe_code
+    and fi.status = 'active'
+    and fi.expires_at > now()
+  order by fi.created_at desc
+  limit 1;
+
+  if invitation.family_id is null then
+    raise exception 'Invalid or expired invite code';
+  end if;
+
+  if invitation.token_hash is not null and invitation.token_hash <> crypt(safe_code, invitation.token_hash) then
+    raise exception 'Invalid invite code';
+  end if;
+
+  return query select invitation.family_id, invitation.name, invitation.role::text;
+end;
+$$;
+
 create or replace function public.join_family_with_invite_code(target_family_id uuid, invite_code text)
 returns table(family_id uuid, parent_id uuid, parent_role text)
 language plpgsql
@@ -231,4 +264,5 @@ $$;
 grant execute on function public.ensure_profile_for_current_user() to authenticated;
 grant execute on function public.create_family_for_current_user(text) to authenticated;
 grant execute on function public.create_family_invite_code(text) to authenticated;
+grant execute on function public.get_family_invite_preview(uuid, text) to anon, authenticated;
 grant execute on function public.join_family_with_invite_code(uuid, text) to authenticated;

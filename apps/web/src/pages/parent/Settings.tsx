@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState, type ChangeEvent, type FormEvent } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { Database, Download, RotateCcw, Settings as SettingsIcon, Upload, UserRound } from 'lucide-react';
+import QRCode from 'react-qr-code';
 import { dataMode, dataModeLabel } from '../../lib/dataRepository';
 import { createProductionFamilyInvite } from '../../lib/supabaseData';
 import { settingsRepository } from '../../lib/settingsRepository';
@@ -18,6 +19,7 @@ export function Settings() {
   const [form, setForm] = useState<SettingsForm>(() => toForm(settings));
   const [message, setMessage] = useState('');
   const [inviteLink, setInviteLink] = useState('');
+  const [inviteCode, setInviteCode] = useState('');
   const usage = useMemo(() => estimateStorageUsage(), [state]);
 
   const update = <K extends keyof SettingsForm>(key: K, value: SettingsForm[K]) => {
@@ -91,6 +93,7 @@ export function Settings() {
       const origin = typeof window === 'undefined' ? '' : window.location.origin;
       const link = invite?.join_path ? `${origin}${invite.join_path}` : '';
       setInviteLink(link);
+      setInviteCode(invite?.invite_code ?? '');
       setMessage(invite?.invite_code ? `邀請碼已建立：${invite.invite_code}` : '邀請碼已建立');
     } catch (caught) {
       setMessage(caught instanceof Error ? caught.message : '建立邀請碼失敗');
@@ -167,17 +170,26 @@ export function Settings() {
       </section>
 
       <section className="settings-data-panel">
-        <header><div><h2>家庭邀請</h2><p>Owner 可產生邀請碼或分享連結，另一位家長登入後即可加入同一個 familyId。</p></div><UserRound size={28} /></header>
+        <header><div><h2>家庭管理</h2><p>邀請第二位家長加入目前家庭，加入後會共用同一份家庭資料。</p></div><UserRound size={28} /></header>
+        <h3 className="settings-subtitle">邀請家長</h3>
         <div className="settings-data-actions">
           <button type="button" onClick={() => void createInvite()} disabled={dataMode !== 'supabase' || runtimeInfo.parentRole !== 'owner'}>
             產生邀請碼
           </button>
         </div>
-        <dl>
-          <div><dt>familyId</dt><dd>{runtimeInfo.familyId ?? '-'}</dd></div>
-          <div><dt>parentRole</dt><dd>{runtimeInfo.parentRole ?? '-'}</dd></div>
-          <div><dt>邀請連結</dt><dd>{inviteLink || '-'}</dd></div>
-        </dl>
+        {inviteLink ? (
+          <div className="settings-invite-card">
+            <div className="settings-invite-qr" aria-label="邀請連結 QR Code">
+              <QRCode value={inviteLink} size={132} />
+            </div>
+            <dl>
+              <div><dt>邀請碼</dt><dd>{inviteCode || '-'}</dd></div>
+              <div><dt>邀請連結</dt><dd>{inviteLink}</dd></div>
+            </dl>
+          </div>
+        ) : (
+          <p className="settings-invite-empty">尚未產生邀請。Owner 可產生邀請碼、連結與 QR Code。</p>
+        )}
       </section>
     </form>
   );

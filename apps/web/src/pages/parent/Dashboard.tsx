@@ -18,11 +18,9 @@ import {
   Target,
   Video
 } from 'lucide-react';
-import { dataMode, dataModeBadgeLabel, dataRepository } from '../../lib/dataRepository';
-import { APP_BUNDLE_VERSION } from '../../lib/appRuntime';
+import { dataRepository } from '../../lib/dataRepository';
 import type { LocalDatabaseState, LocalTask, ShareWithMedia } from '../../lib/localTypes';
 import { useLocalDataState } from '../../lib/useLocalData';
-import { useSupabaseRuntimeInfo } from '../../lib/useSupabaseRuntimeInfo';
 
 type Tone = 'blue' | 'green' | 'pink' | 'yellow';
 
@@ -152,7 +150,7 @@ function buildLatestActivity(state: LocalDatabaseState): DashboardActivity[] {
 
 export function Dashboard() {
   const state = useLocalDataState();
-  const runtimeInfo = useSupabaseRuntimeInfo();
+  const familyName = state.family_settings.family_name || '小小夢想家 Family';
 
   const dashboard = useMemo(() => {
     const date = todayKey();
@@ -234,22 +232,10 @@ export function Dashboard() {
     <div className="ph-page">
       <section className="ph-welcome">
         <div>
-          <h1>家庭總覽<span> Dashboard</span></h1>
-          <p>{state.family_settings.family_name} 的 {dataMode === 'supabase' ? 'Supabase Repository' : 'localStorage Repository'} 即時資料摘要。</p>
-          <div className="ph-runtime-status" aria-label="目前資料模式">
-            <span>{dataModeBadgeLabel}</span>
-            <small>dataMode={dataMode} · auth={runtimeInfo.authStatus} · bundle={APP_BUNDLE_VERSION}</small>
-          </div>
+          <h1>{familyName}</h1>
+          <p>家長管理中心</p>
         </div>
         <button type="button"><Plus size={17} /> 新增家庭資料</button>
-      </section>
-
-      <section className="ph-auth-audit" aria-label="正式登入架構驗收">
-        <article><small>familyId</small><strong>{runtimeInfo.familyId ?? state.family_id ?? '-'}</strong></article>
-        <article><small>parentId</small><strong>{runtimeInfo.parentId ?? state.parent_id ?? '-'}</strong></article>
-        <article><small>userId</small><strong>{runtimeInfo.userId ?? state.current_user_id ?? '-'}</strong></article>
-        <article><small>parentRole</small><strong>{runtimeInfo.parentRole ?? '-'}</strong></article>
-        <article><small>dataMode</small><strong>{dataMode}</strong></article>
       </section>
 
       <section className="ph-stats" aria-label="家庭摘要">

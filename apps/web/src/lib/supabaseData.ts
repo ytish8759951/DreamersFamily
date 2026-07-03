@@ -64,7 +64,7 @@ export interface SupabaseRuntimeInfo {
   parentId: string | null;
   familyId: string | null;
   parentRole: ParentRole | null;
-  authStatus: 'initializing' | 'signed_out' | 'ready' | 'missing_config';
+  authStatus: 'initializing' | 'signed_out' | 'needs_family' | 'ready' | 'missing_config';
 }
 
 let runtimeInfo: SupabaseRuntimeInfo = {
@@ -469,6 +469,35 @@ interface ProductionAuthScope {
   role: ParentRole | null;
 }
 
+interface ProductionFamilyScopeRow {
+  family_id: string;
+  parent_id: string;
+  parent_role: ParentRole;
+}
+
+interface ProductionInviteRow {
+  family_id: string;
+  invite_code: string;
+  join_path: string;
+}
+
+interface ProductionInvitePreviewRow {
+  family_id: string;
+  family_name: string;
+  parent_role: ParentRole;
+}
+
+function firstRpcRow<T>(data: T | T[] | null): T | null {
+  if (Array.isArray(data)) return data[0] ?? null;
+  return data;
+}
+
+async function refreshAuthSessionAfterScopeChange() {
+  if (!supabaseClient) return;
+  const { error } = await supabaseClient.auth.refreshSession();
+  if (error) console.warn('[supabase-repository] auth session refresh failed after family scope change', error);
+}
+
 export async function signInParentWithPassword(email: string, password: string) {
   if (!supabaseClient) throw new Error('Supabase is not configured.');
   const { error } = await supabaseClient.auth.signInWithPassword({ email, password });
@@ -477,13 +506,12 @@ export async function signInParentWithPassword(email: string, password: string) 
 
 export async function signUpParentWithPassword(email: string, password: string, displayName?: string) {
   if (!supabaseClient) throw new Error('Supabase is not configured.');
-  const { data, error } = await supabaseClient.auth.signUp({
+  const { error } = await supabaseClient.auth.signUp({
     email,
     password,
     options: { data: { display_name: displayName || email.split('@')[0] } }
   });
   if (error) throw error;
-  if (data.session) await createProductionFamily(displayName ? `${displayName} 的家庭` : 'Dreamers Family');
 }
 
 export async function signOutParent() {
@@ -495,17 +523,21 @@ export async function signOutParent() {
 export async function createProductionFamily(familyName: string) {
   if (!supabaseClient) throw new Error('Supabase is not configured.');
   const { data, error } = await supabaseClient.rpc('create_family_for_current_user', {
-    family_name: familyName.trim() || 'Dreamers Family'
+    family_name: familyName.trim() || '小小夢想家 Family'
   });
   if (error) throw error;
-  return data as { family_id: string; parent_id: string; parent_role: ParentRole } | null;
-}
-
-export async function ensureProductionFamily(familyName = 'Dreamers Family') {
-  if (!supabaseClient) throw new Error('Supabase is not configured.');
-  const scope = await resolveProductionAuthScope(supabaseClient);
-  if (scope?.familyId) return { family_id: scope.familyId, parent_id: scope.userId, parent_role: scope.role };
-  return createProductionFamily(familyName);
+  const row = firstRpcRow(data as ProductionFamilyScopeRow | ProductionFamilyScopeRow[] | null);
+  if (row) {
+    setRuntimeInfo({
+      userId: row.parent_id,
+      parentId: row.parent_id,
+      familyId: row.family_id,
+      parentRole: row.parent_role,
+      authStatus: 'ready'
+    });
+    await refreshAuthSessionAfterScopeChange();
+  }
+  return row;
 }
 
 export async function joinProductionFamily(familyId: string, inviteCode: string) {
@@ -515,7 +547,18 @@ export async function joinProductionFamily(familyId: string, inviteCode: string)
     invite_code: inviteCode.trim()
   });
   if (error) throw error;
-  return data as { family_id: string; parent_id: string; parent_role: ParentRole } | null;
+  const row = firstRpcRow(data as ProductionFamilyScopeRow | ProductionFamilyScopeRow[] | null);
+  if (row) {
+    setRuntimeInfo({
+      userId: row.parent_id,
+      parentId: row.parent_id,
+      familyId: row.family_id,
+      parentRole: row.parent_role,
+      authStatus: 'ready'
+    });
+    await refreshAuthSessionAfterScopeChange();
+  }
+  return row;
 }
 
 export async function createProductionFamilyInvite(role: ParentRole = 'guardian') {
@@ -524,7 +567,17 @@ export async function createProductionFamilyInvite(role: ParentRole = 'guardian'
     target_role: role
   });
   if (error) throw error;
-  return data as { family_id: string; invite_code: string; join_path: string } | null;
+  return firstRpcRow(data as ProductionInviteRow | ProductionInviteRow[] | null);
+}
+
+export async function getProductionFamilyInvitePreview(familyId: string, inviteCode: string) {
+  if (!supabaseClient) throw new Error('Supabase is not configured.');
+  const { data, error } = await supabaseClient.rpc('get_family_invite_preview', {
+    target_family_id: familyId,
+    invite_code: inviteCode.trim()
+  });
+  if (error) throw error;
+  return firstRpcRow(data as ProductionInvitePreviewRow | ProductionInvitePreviewRow[] | null);
 }
 
 async function resolveProductionAuthScope(client: SupabaseClient): Promise<ProductionAuthScope | null> {
@@ -542,11 +595,7 @@ async function resolveProductionAuthScope(client: SupabaseClient): Promise<Produ
     .maybeSingle();
   if (parentError) throw parentError;
 
-  let familyId = (parentData as { family_id?: string | null } | null)?.family_id ?? null;
-  if (!familyId) {
-    const created = await createProductionFamily(user.user_metadata?.display_name ? `${user.user_metadata.display_name} 的家庭` : 'Dreamers Family');
-    familyId = created?.family_id ?? null;
-  }
+  const familyId = (parentData as { family_id?: string | null } | null)?.family_id ?? null;
   if (!familyId) return { userId: user.id, familyId: null, role: null };
 
   const { data, error } = await client
@@ -672,7 +721,7 @@ export class SupabaseDataRepository implements LocalDataRepository {
         parentId: scope.userId,
         familyId: scope.familyId,
         parentRole: scope.role,
-        authStatus: 'ready'
+        authStatus: scope.familyId ? 'ready' : 'needs_family'
       });
       if (scope.familyId) {
         this.subscribeToSupabaseChanges();
@@ -906,7 +955,7 @@ export class SupabaseDataRepository implements LocalDataRepository {
   listMemoryPacks = this.delegate('listMemoryPacks');
 
   private hydrateFromSupabase() {
-    if (!this.client || !this.hasFamilyScope || this.hydratePromise) return;
+    if (!this.client || !runtimeInfo.familyId || this.hydratePromise) return;
     this.hydratePromise = this.fetchSupabaseState()
       .then((remoteState) => {
         if (!remoteState) return;
@@ -924,7 +973,7 @@ export class SupabaseDataRepository implements LocalDataRepository {
   }
 
   private async fetchSupabaseState(): Promise<LocalDatabaseState | null> {
-    if (!this.client || !this.hasFamilyScope) return null;
+    if (!this.client || !runtimeInfo.familyId) return null;
     const state = this.cache.getState();
     const [
       { data: parent, error: parentError },
@@ -1127,7 +1176,7 @@ export class SupabaseDataRepository implements LocalDataRepository {
   }
 
   private queuePush() {
-    if (!this.client || !this.hasFamilyScope) return;
+    if (!this.client || !runtimeInfo.familyId) return;
     this.pendingPush = true;
     if (this.retryTimer) {
       clearTimeout(this.retryTimer);
@@ -1146,7 +1195,7 @@ export class SupabaseDataRepository implements LocalDataRepository {
   }
 
   private async flushPush() {
-    if (!this.client || !this.hasFamilyScope || !this.pendingPush) return;
+    if (!this.client || !runtimeInfo.familyId || !this.pendingPush) return;
     this.pendingPush = false;
     const state = toSupabaseRepositoryState(this.cache.getState());
     await this.pushRepositorySnapshot(state);
@@ -1351,7 +1400,7 @@ export class SupabaseDataRepository implements LocalDataRepository {
   }
 
   private scheduleRetry() {
-    if (!this.client || !this.hasFamilyScope || this.retryTimer) return;
+    if (!this.client || !runtimeInfo.familyId || this.retryTimer) return;
     this.pendingPush = true;
     const delay = SYNC_RETRY_DELAYS_MS[Math.min(this.retryAttempt, SYNC_RETRY_DELAYS_MS.length - 1)];
     this.retryAttempt += 1;
@@ -1363,7 +1412,7 @@ export class SupabaseDataRepository implements LocalDataRepository {
   }
 
   private subscribeToSupabaseChanges() {
-    if (!this.client || !this.hasFamilyScope || this.realtimeChannel) return;
+    if (!this.client || !runtimeInfo.familyId || this.realtimeChannel) return;
     this.realtimeChannel = this.client
       .channel('little-dreamers-family-repository')
       .on(
