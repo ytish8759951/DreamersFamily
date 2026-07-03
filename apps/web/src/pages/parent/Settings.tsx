@@ -1,9 +1,9 @@
 import { useEffect, useMemo, useState, type ChangeEvent, type FormEvent } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Database, Download, RotateCcw, Settings as SettingsIcon, Upload, UserRound } from 'lucide-react';
+import { Copy, Database, Download, LogOut, RotateCcw, Settings as SettingsIcon, Upload, UserRound } from 'lucide-react';
 import QRCode from 'react-qr-code';
 import { dataMode, dataModeLabel } from '../../lib/dataRepository';
-import { createProductionFamilyInvite } from '../../lib/supabaseData';
+import { createProductionFamilyInvite, leaveProductionFamily } from '../../lib/supabaseData';
 import { settingsRepository } from '../../lib/settingsRepository';
 import type { LocalFamilySettings } from '../../lib/localTypes';
 import { useLocalDataState } from '../../lib/useLocalData';
@@ -21,6 +21,8 @@ export function Settings() {
   const [inviteLink, setInviteLink] = useState('');
   const [inviteCode, setInviteCode] = useState('');
   const usage = useMemo(() => estimateStorageUsage(), [state]);
+  const familyName = settings.family_name || '小小夢想家 Family';
+  const parentRoleLabel = runtimeInfo.parentRole === 'owner' ? 'Owner' : runtimeInfo.parentRole ? 'Parent' : '-';
 
   const update = <K extends keyof SettingsForm>(key: K, value: SettingsForm[K]) => {
     setForm((current) => ({ ...current, [key]: value }));
@@ -100,6 +102,27 @@ export function Settings() {
     }
   };
 
+  const copyInviteLink = async () => {
+    if (!inviteLink) return;
+    try {
+      await navigator.clipboard.writeText(inviteLink);
+      setMessage('邀請連結已複製');
+    } catch {
+      setMessage('無法複製邀請連結，請手動選取連結。');
+    }
+  };
+
+  const leaveFamily = async () => {
+    if (!window.confirm('確定要退出目前家庭嗎？這只會移除你的家長關聯，不會刪除家庭資料。')) return;
+    try {
+      await leaveProductionFamily();
+      setMessage('已退出家庭');
+      navigate('/create-family', { replace: true });
+    } catch (caught) {
+      setMessage(caught instanceof Error ? caught.message : '退出家庭失敗');
+    }
+  };
+
   return (
     <form className="settings-page" onSubmit={save}>
       <header className="settings-hero">
@@ -171,10 +194,20 @@ export function Settings() {
 
       <section className="settings-data-panel">
         <header><div><h2>家庭管理</h2><p>邀請第二位家長加入目前家庭，加入後會共用同一份家庭資料。</p></div><UserRound size={28} /></header>
+        <dl>
+          <div><dt>家庭名稱</dt><dd>{familyName}</dd></div>
+          <div><dt>目前家長角色</dt><dd>{parentRoleLabel}</dd></div>
+        </dl>
         <h3 className="settings-subtitle">邀請家長</h3>
         <div className="settings-data-actions">
           <button type="button" onClick={() => void createInvite()} disabled={dataMode !== 'supabase' || runtimeInfo.parentRole !== 'owner'}>
-            產生邀請碼
+            {inviteCode ? '重新產生邀請碼' : '產生邀請碼'}
+          </button>
+          <button type="button" onClick={() => void copyInviteLink()} disabled={!inviteLink}>
+            <Copy size={18} /> 複製邀請連結
+          </button>
+          <button type="button" className="is-danger" onClick={() => void leaveFamily()} disabled={dataMode !== 'supabase'}>
+            <LogOut size={18} /> 退出家庭
           </button>
         </div>
         {inviteLink ? (

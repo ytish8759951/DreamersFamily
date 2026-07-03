@@ -5,8 +5,10 @@ import {
   joinProductionFamily,
   signInParentWithPassword,
   signOutParent,
-  signUpParentWithPassword
+  signUpParentWithPassword,
+  updateProductionParentProfile
 } from '../../lib/supabaseData';
+import { settingsRepository } from '../../lib/settingsRepository';
 import { useSupabaseRuntimeInfo } from '../../lib/useSupabaseRuntimeInfo';
 
 export function AuthPage() {
@@ -47,11 +49,37 @@ export function AuthPage() {
     try {
       if (mode === 'signin') {
         await signInParentWithPassword(email, password);
-        if (!isJoinIntent) navigate('/', { replace: true });
+        if (isJoinIntent) {
+          await joinProductionFamily(inviteFamilyId, inviteCode);
+          await updateProductionParentProfile(displayName, email);
+          settingsRepository.updateSettings({
+            family_name: inviteFamilyName || '小小夢想家 Family',
+            parent_name: displayName.trim() || email.split('@')[0] || '家長',
+            parent_email: email
+          });
+          setMessage('已登入並加入家庭');
+          navigate('/parent', { replace: true });
+        } else {
+          navigate('/', { replace: true });
+          setMessage('登入成功');
+        }
       } else {
         await signUpParentWithPassword(email, password, displayName);
+        if (isJoinIntent) {
+          await joinProductionFamily(inviteFamilyId, inviteCode);
+          await updateProductionParentProfile(displayName, email);
+          settingsRepository.updateSettings({
+            family_name: inviteFamilyName || '小小夢想家 Family',
+            parent_name: displayName.trim() || email.split('@')[0] || '家長',
+            parent_email: email
+          });
+          setMessage('帳號已建立，已加入家庭');
+          navigate('/parent', { replace: true });
+        } else {
+          setMessage('帳號已建立，請建立家庭。');
+          navigate('/create-family', { replace: true });
+        }
       }
-      setMessage(mode === 'signin' ? '登入成功' : '帳號已建立；首次登入後請建立家庭。');
     } catch (caught) {
       setMessage(caught instanceof Error ? caught.message : '登入失敗');
     }
@@ -61,6 +89,12 @@ export function AuthPage() {
     setMessage('');
     try {
       await joinProductionFamily(inviteFamilyId, inviteCode);
+      await updateProductionParentProfile(displayName, email);
+      settingsRepository.updateSettings({
+        family_name: inviteFamilyName || '小小夢想家 Family',
+        parent_name: displayName.trim() || email.split('@')[0] || '家長',
+        parent_email: email
+      });
       setMessage('已加入家庭');
       navigate('/parent', { replace: true });
     } catch (caught) {
@@ -103,7 +137,7 @@ export function AuthPage() {
         <section className="auth-family-actions">
           <h2>家庭加入</h2>
           {inviteFamilyName ? <p className="auth-invite-preview">你即將加入：<strong>【{inviteFamilyName}】</strong></p> : null}
-          <p>每個測試家庭登入後自行建立家庭。第二位家長只能透過邀請碼加入同一個 familyId。</p>
+          <p>第二位家長掃描 QR Code 或開啟邀請連結後，建立帳號或登入即可自動加入同一個 familyId。</p>
           <label>familyId<input value={inviteFamilyId} onChange={(event) => setInviteFamilyId(event.target.value)} /></label>
           <label>inviteCode<input value={inviteCode} onChange={(event) => setInviteCode(event.target.value)} /></label>
           <button type="button" onClick={() => void joinFamily()} disabled={!runtimeInfo.userId || !inviteFamilyId || !inviteCode}>

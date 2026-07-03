@@ -9,6 +9,7 @@ import {
   MockDatabase
 } from './mockDatabase';
 import type { KeyValueStorage } from './storage';
+import { deleteCookieValue, getCookieValue, getLocalStorage, setCookieValue } from './storage';
 import {
   LocalDataError,
   LocalDataService,
@@ -46,6 +47,7 @@ import type {
 } from './localTypes';
 
 const SUPABASE_CACHE_KEY = 'little-dreamers-family:supabase-cache:v1';
+const SUPABASE_FAMILY_BINDING_KEY = 'little-dreamers-family:supabase-family-binding:v1';
 const SUPABASE_FALLBACK_FAMILY_ID = '00000000-0000-4000-8000-000000000001';
 const SUPABASE_FALLBACK_PARENT_ID = '00000000-0000-4000-8000-000000000002';
 let SUPABASE_FAMILY_ID = SUPABASE_FALLBACK_FAMILY_ID;
@@ -469,6 +471,11 @@ interface ProductionAuthScope {
   role: ParentRole | null;
 }
 
+interface SavedFamilyBinding {
+  userId: UUID;
+  familyId: UUID;
+}
+
 interface ProductionFamilyScopeRow {
   family_id: string;
   parent_id: string;
@@ -498,6 +505,40 @@ async function refreshAuthSessionAfterScopeChange() {
   if (error) console.warn('[supabase-repository] auth session refresh failed after family scope change', error);
 }
 
+function readSavedFamilyBinding(userId: string): SavedFamilyBinding | null {
+  const local = getLocalStorage().getItem(SUPABASE_FAMILY_BINDING_KEY);
+  const raw = local ?? getCookieValue(SUPABASE_FAMILY_BINDING_KEY);
+  if (!raw) return null;
+  try {
+    const parsed = JSON.parse(raw) as Partial<SavedFamilyBinding>;
+    if (parsed.userId === userId && parsed.familyId && UUID_PATTERN.test(parsed.familyId)) {
+      return { userId: parsed.userId, familyId: parsed.familyId };
+    }
+  } catch {
+    // Ignore stale or malformed binding data.
+  }
+  return null;
+}
+
+function saveFamilyBinding(userId: string, familyId: string) {
+  const serialized = JSON.stringify({ userId, familyId });
+  try {
+    getLocalStorage().setItem(SUPABASE_FAMILY_BINDING_KEY, serialized);
+  } catch {
+    // Cookie fallback still preserves the binding for PWA/WebView storage splits.
+  }
+  setCookieValue(SUPABASE_FAMILY_BINDING_KEY, serialized, 60 * 60 * 24 * 365 * 2);
+}
+
+function clearFamilyBinding() {
+  try {
+    getLocalStorage().removeItem(SUPABASE_FAMILY_BINDING_KEY);
+  } catch {
+    // Nothing to clear.
+  }
+  deleteCookieValue(SUPABASE_FAMILY_BINDING_KEY);
+}
+
 export async function signInParentWithPassword(email: string, password: string) {
   if (!supabaseClient) throw new Error('Supabase is not configured.');
   const { error } = await supabaseClient.auth.signInWithPassword({ email, password });
@@ -506,12 +547,16 @@ export async function signInParentWithPassword(email: string, password: string) 
 
 export async function signUpParentWithPassword(email: string, password: string, displayName?: string) {
   if (!supabaseClient) throw new Error('Supabase is not configured.');
-  const { error } = await supabaseClient.auth.signUp({
+  const { data, error } = await supabaseClient.auth.signUp({
     email,
     password,
     options: { data: { display_name: displayName || email.split('@')[0] } }
   });
   if (error) throw error;
+  if (!data.session) {
+    const { error: signInError } = await supabaseClient.auth.signInWithPassword({ email, password });
+    if (signInError) throw signInError;
+  }
 }
 
 export async function signOutParent() {
@@ -528,6 +573,7 @@ export async function createProductionFamily(familyName: string) {
   if (error) throw error;
   const row = firstRpcRow(data as ProductionFamilyScopeRow | ProductionFamilyScopeRow[] | null);
   if (row) {
+    saveFamilyBinding(row.parent_id, row.family_id);
     setRuntimeInfo({
       userId: row.parent_id,
       parentId: row.parent_id,
@@ -549,6 +595,7 @@ export async function joinProductionFamily(familyId: string, inviteCode: string)
   if (error) throw error;
   const row = firstRpcRow(data as ProductionFamilyScopeRow | ProductionFamilyScopeRow[] | null);
   if (row) {
+    saveFamilyBinding(row.parent_id, row.family_id);
     setRuntimeInfo({
       userId: row.parent_id,
       parentId: row.parent_id,
@@ -580,6 +627,38 @@ export async function getProductionFamilyInvitePreview(familyId: string, inviteC
   return firstRpcRow(data as ProductionInvitePreviewRow | ProductionInvitePreviewRow[] | null);
 }
 
+export async function updateProductionParentProfile(parentName: string, parentEmail: string) {
+  if (!supabaseClient) throw new Error('Supabase is not configured.');
+  const { data: sessionData, error: sessionError } = await supabaseClient.auth.getSession();
+  if (sessionError) throw sessionError;
+  const user = sessionData.session?.user;
+  if (!user) throw new Error('Authentication required.');
+  const { error } = await supabaseClient
+    .from('parents')
+    .update({
+      display_name: parentName.trim() || user.email?.split('@')[0] || 'Parent',
+      email: parentEmail.trim() || user.email || null,
+      updated_at: new Date().toISOString()
+    })
+    .eq('id', user.id);
+  if (error) throw error;
+}
+
+export async function leaveProductionFamily() {
+  if (!supabaseClient) throw new Error('Supabase is not configured.');
+  const { data, error } = await supabaseClient.rpc('leave_current_family');
+  if (error) throw error;
+  clearFamilyBinding();
+  setRuntimeInfo({
+    userId: runtimeInfo.userId,
+    parentId: runtimeInfo.parentId,
+    familyId: null,
+    parentRole: null,
+    authStatus: runtimeInfo.userId ? 'needs_family' : 'signed_out'
+  });
+  return firstRpcRow(data as { parent_id: string; family_id: string; parent_role: ParentRole } | { parent_id: string; family_id: string; parent_role: ParentRole }[] | null);
+}
+
 async function resolveProductionAuthScope(client: SupabaseClient): Promise<ProductionAuthScope | null> {
   const { data: sessionData, error: sessionError } = await client.auth.getSession();
   if (sessionError) throw sessionError;
@@ -595,7 +674,8 @@ async function resolveProductionAuthScope(client: SupabaseClient): Promise<Produ
     .maybeSingle();
   if (parentError) throw parentError;
 
-  const familyId = (parentData as { family_id?: string | null } | null)?.family_id ?? null;
+  const savedBinding = readSavedFamilyBinding(user.id);
+  const familyId = (parentData as { family_id?: string | null } | null)?.family_id ?? savedBinding?.familyId ?? null;
   if (!familyId) return { userId: user.id, familyId: null, role: null };
 
   const { data, error } = await client
@@ -609,6 +689,7 @@ async function resolveProductionAuthScope(client: SupabaseClient): Promise<Produ
 
   const membership = data as SupabaseFamilyMemberRow | null;
   if (!membership) return { userId: user.id, familyId: null, role: null };
+  saveFamilyBinding(user.id, membership.family_id);
   await ensureParentForUser(client, user.id, membership.family_id, user.user_metadata?.display_name, user.email);
   return { userId: user.id, familyId: membership.family_id, role: membership.role };
 }

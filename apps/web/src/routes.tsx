@@ -34,6 +34,9 @@ function RootRedirect() {
   const location = useLocation();
   const state = useLocalDataState();
   const runtimeInfo = useSupabaseRuntimeInfo();
+  if (dataMode === 'supabase' && runtimeInfo.authStatus === 'initializing') {
+    return <div className="auth-page">正在載入家庭資料...</div>;
+  }
   if (dataMode === 'supabase' && runtimeInfo.authStatus !== 'ready') {
     return <Navigate to={runtimeInfo.authStatus === 'needs_family' ? '/create-family' : '/login'} replace />;
   }
@@ -46,6 +49,9 @@ function RootRedirect() {
 
 function RequireParentAuth() {
   const runtimeInfo = useSupabaseRuntimeInfo();
+  if (dataMode === 'supabase' && runtimeInfo.authStatus === 'initializing') {
+    return <div className="auth-page">正在載入家庭資料...</div>;
+  }
   if (dataMode === 'supabase' && runtimeInfo.authStatus !== 'ready') {
     return <Navigate to={runtimeInfo.authStatus === 'needs_family' ? '/create-family' : '/login'} replace />;
   }
