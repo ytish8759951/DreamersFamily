@@ -616,7 +616,7 @@ function clearFamilyBinding() {
 export async function signInParentWithPassword(email: string, password: string) {
   if (!supabaseClient) throw new Error('Supabase is not configured.');
   const { error } = await supabaseClient.auth.signInWithPassword({ email, password });
-  if (error) throw new Error(formatSupabaseError('Sign in', error));
+  if (error) throw error;
   return resolveAndPublishProductionAuthScope();
 }
 
@@ -627,10 +627,10 @@ export async function signUpParentWithPassword(email: string, password: string, 
     password,
     options: { data: { display_name: displayName || email.split('@')[0] } }
   });
-  if (error) throw new Error(formatSupabaseError('Sign up', error));
+  if (error) throw error;
   if (!data.session) {
     const { error: signInError } = await supabaseClient.auth.signInWithPassword({ email, password });
-    if (signInError) throw new Error(formatSupabaseError('Automatic sign in after sign up', signInError));
+    if (signInError) throw signInError;
   }
   return resolveAndPublishProductionAuthScope();
 }

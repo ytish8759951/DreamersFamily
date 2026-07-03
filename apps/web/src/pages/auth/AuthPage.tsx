@@ -4,6 +4,43 @@ import { signInParentWithPassword, signOutParent, signUpParentWithPassword } fro
 import { settingsRepository } from '../../lib/settingsRepository';
 import { useSupabaseRuntimeInfo } from '../../lib/useSupabaseRuntimeInfo';
 
+function stringifyUnknown(value: unknown) {
+  if (typeof value === 'string') return value;
+  try {
+    return JSON.stringify(value, null, 2);
+  } catch {
+    return String(value);
+  }
+}
+
+function formatAuthError(error: unknown) {
+  if (!error || typeof error !== 'object') {
+    return stringifyUnknown(error);
+  }
+
+  const source = error as {
+    message?: unknown;
+    code?: unknown;
+    details?: unknown;
+    hint?: unknown;
+    status?: unknown;
+    response?: unknown;
+    networkError?: unknown;
+  };
+
+  const lines = [
+    source.message !== undefined ? `message: ${stringifyUnknown(source.message)}` : null,
+    source.code !== undefined ? `code: ${stringifyUnknown(source.code)}` : null,
+    source.details !== undefined ? `details: ${stringifyUnknown(source.details)}` : null,
+    source.hint !== undefined ? `hint: ${stringifyUnknown(source.hint)}` : null,
+    source.status !== undefined ? `status: ${stringifyUnknown(source.status)}` : null,
+    source.response !== undefined ? `response: ${stringifyUnknown(source.response)}` : null,
+    source.networkError !== undefined ? `networkError: ${stringifyUnknown(source.networkError)}` : null
+  ].filter(Boolean);
+
+  return lines.length ? lines.join('\n') : stringifyUnknown(error);
+}
+
 export function AuthPage() {
   const navigate = useNavigate();
   const runtimeInfo = useSupabaseRuntimeInfo();
@@ -32,7 +69,8 @@ export function AuthPage() {
       });
       navigate(runtime.familyId ? '/parent' : '/create-family', { replace: true });
     } catch (caught) {
-      setMessage(caught instanceof Error ? caught.message : '登入或註冊失敗');
+      console.error(caught);
+      setMessage(formatAuthError(caught));
     }
   };
 
@@ -103,7 +141,7 @@ export function AuthPage() {
           {runtimeInfo.userId ? <button type="button" onClick={() => void logout()}>登出</button> : null}
         </footer>
 
-        {message ? <p className="auth-message">{message}</p> : null}
+        {message ? <pre className="auth-message" style={{ whiteSpace: 'pre-wrap' }}>{message}</pre> : null}
       </section>
     </main>
   );
