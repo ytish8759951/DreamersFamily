@@ -489,9 +489,14 @@ interface SavedFamilyBinding {
 }
 
 interface ProductionFamilyScopeRow {
-  family_id: string;
-  parent_id: string;
-  parent_role: ParentRole;
+  family_id?: string;
+  familyId?: string;
+  parent_id?: string;
+  parentId?: string;
+  parent_role?: ParentRole;
+  parentRole?: ParentRole;
+  family_code?: string;
+  familyCode?: string;
 }
 
 interface ProductionInviteRow {
@@ -519,6 +524,16 @@ export interface ProductionFamilyParent {
 function firstRpcRow<T>(data: T | T[] | null): T | null {
   if (Array.isArray(data)) return data[0] ?? null;
   return data;
+}
+
+function normalizeProductionFamilyScopeRow(row: ProductionFamilyScopeRow | null) {
+  if (!row) return null;
+  return {
+    familyId: row.family_id ?? row.familyId ?? null,
+    parentId: row.parent_id ?? row.parentId ?? null,
+    parentRole: row.parent_role ?? row.parentRole ?? null,
+    familyCode: row.family_code ?? row.familyCode ?? null
+  };
 }
 
 function formatSupabaseError(action: string, error: unknown): string {
@@ -669,15 +684,15 @@ export async function createProductionFamily(familyName: string) {
     family_name: familyName.trim() || '小小夢想家 Family'
   });
   if (error) throw new Error(formatSupabaseError('Create family RPC create_family_for_current_user', error));
-  const row = firstRpcRow(data as ProductionFamilyScopeRow | ProductionFamilyScopeRow[] | null);
-  if (!row) throw new Error('Create family RPC create_family_for_current_user failed: no family scope was returned.');
+  const row = normalizeProductionFamilyScopeRow(firstRpcRow(data as ProductionFamilyScopeRow | ProductionFamilyScopeRow[] | null));
+  if (!row?.familyId || !row.parentId) throw new Error('Create family RPC create_family_for_current_user failed: no family scope was returned.');
   if (row) {
-    saveFamilyBinding(row.parent_id, row.family_id);
+    saveFamilyBinding(row.parentId, row.familyId);
     setRuntimeInfo({
-      userId: row.parent_id,
-      parentId: row.parent_id,
-      familyId: row.family_id,
-      parentRole: row.parent_role,
+      userId: row.parentId,
+      parentId: row.parentId,
+      familyId: row.familyId,
+      parentRole: row.parentRole,
       authStatus: 'ready'
     });
     await refreshAuthSessionAfterScopeChange();
@@ -692,14 +707,15 @@ export async function joinProductionFamily(familyId: string, inviteCode: string)
     invite_code: inviteCode.trim()
   });
   if (error) throw new Error(formatSupabaseError('Bind parent device RPC bind_parent_device_with_invite', error));
-  const row = firstRpcRow(data as ProductionFamilyScopeRow | ProductionFamilyScopeRow[] | null);
+  const row = normalizeProductionFamilyScopeRow(firstRpcRow(data as ProductionFamilyScopeRow | ProductionFamilyScopeRow[] | null));
   if (row) {
-    saveFamilyBinding(row.parent_id, row.family_id);
+    if (!row.parentId || !row.familyId) throw new Error('Join family RPC join_family_with_invite_code failed: no family scope was returned.');
+    saveFamilyBinding(row.parentId, row.familyId);
     setRuntimeInfo({
-      userId: row.parent_id,
-      parentId: row.parent_id,
-      familyId: row.family_id,
-      parentRole: row.parent_role,
+      userId: row.parentId,
+      parentId: row.parentId,
+      familyId: row.familyId,
+      parentRole: row.parentRole,
       authStatus: 'ready'
     });
     await refreshAuthSessionAfterScopeChange();
