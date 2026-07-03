@@ -19,7 +19,15 @@ import type {
   LocalChild,
   LocalDatabaseState,
   LocalDeviceBindingRecord,
+  LocalPiggyBankLog,
+  LocalPiggyIncome,
+  LocalPiggyProduct,
+  LocalPiggyProductDisplaySettings,
+  LocalPiggyPurchase,
+  LocalPiggyShelfOrder,
   LocalRepositoryScope,
+  LocalStarTransaction,
+  LocalTask,
   UUID
 } from './localTypes';
 
@@ -92,6 +100,107 @@ interface SupabaseParentRow {
   } | null;
   created_at?: string;
   updated_at?: string;
+}
+
+interface SupabaseTaskRow {
+  id: UUID;
+  family_id: UUID;
+  child_id: UUID;
+  title: string;
+  description: string | null;
+  category: LocalTask['category'];
+  task_date: string;
+  due_at: string | null;
+  recurrence_rule: string | null;
+  status: LocalTask['status'];
+  reward_stars: number;
+  reward_screen_minutes: number;
+  completion_note: string | null;
+  completed_at: string | null;
+  reviewed_by: UUID | null;
+  reviewed_at: string | null;
+  rejection_reason: string | null;
+  created_by: UUID;
+  created_at: string;
+  updated_at: string;
+  archived_at: string | null;
+}
+
+interface SupabaseTaskRecordRow {
+  id: UUID;
+  family_id: UUID;
+  child_id: UUID;
+  task_id: UUID | null;
+  status: string;
+  note: string | null;
+  payload: { local_task?: LocalTask } | null;
+  created_at: string;
+}
+
+interface SupabaseStarRow {
+  id: UUID;
+  family_id: UUID;
+  child_id: UUID;
+  amount: number;
+  transaction_type: LocalStarTransaction['transaction_type'];
+  reason: string | null;
+  task_id: UUID | null;
+  share_id: UUID | null;
+  dream_id: UUID | null;
+  reversal_of_id: UUID | null;
+  idempotency_key: string | null;
+  created_by: UUID | null;
+  created_at: string;
+}
+
+interface SupabasePiggyBankRow {
+  id?: UUID;
+  family_id: UUID;
+  child_id: UUID;
+  balance: number;
+  currency: string;
+  updated_at: string;
+}
+
+interface SupabasePiggyBankRecordRow {
+  id: UUID;
+  family_id: UUID;
+  child_id: UUID;
+  amount: number;
+  record_type: string;
+  note: string | null;
+  payload: {
+    kind?: 'income' | 'bank_log' | 'shelf_order' | 'display_settings';
+    income?: LocalPiggyIncome;
+    bank_log?: LocalPiggyBankLog;
+    shelf_order?: LocalPiggyShelfOrder;
+    display_settings?: LocalPiggyProductDisplaySettings;
+  } | null;
+  created_at: string;
+}
+
+interface SupabaseStoreItemRow {
+  id: UUID;
+  family_id: UUID;
+  child_id: UUID;
+  name: string;
+  price: number;
+  status: string;
+  payload: { local_product?: LocalPiggyProduct } | null;
+  created_at: string;
+  updated_at: string;
+}
+
+interface SupabasePurchaseRow {
+  id: UUID;
+  family_id: UUID;
+  child_id: UUID;
+  store_item_id: UUID | null;
+  status: LocalPiggyPurchase['status'];
+  amount: number;
+  payload: { local_purchase?: LocalPiggyPurchase } | null;
+  created_at: string;
+  updated_at: string;
 }
 
 export function getSupabaseConfig(): SupabaseConfig | null {
@@ -380,24 +489,65 @@ export class SupabaseDataRepository implements LocalDataRepository {
     const [
       { data: parent, error: parentError },
       { data: children, error: childrenError },
-      { data: bindings, error: bindingsError }
+      { data: bindings, error: bindingsError },
+      taskResult,
+      starResult,
+      piggyRecordResult,
+      storeItemResult,
+      purchaseResult
     ] = await Promise.all([
       this.client.from('parents').select('*').eq('id', SUPABASE_PARENT_ID).maybeSingle(),
       this.client.from('children').select('*').eq('family_id', SUPABASE_FAMILY_ID).order('created_at'),
-      this.client.from('device_bindings').select('*').eq('family_id', SUPABASE_FAMILY_ID).order('updated_at', { ascending: false })
+      this.client.from('device_bindings').select('*').eq('family_id', SUPABASE_FAMILY_ID).order('updated_at', { ascending: false }),
+      Promise.all([
+        this.client.from('tasks').select('*').eq('family_id', SUPABASE_FAMILY_ID).order('updated_at', { ascending: false }),
+        this.client.from('task_records').select('*').eq('family_id', SUPABASE_FAMILY_ID).order('created_at', { ascending: false })
+      ]),
+      this.client.from('stars').select('*').eq('family_id', SUPABASE_FAMILY_ID).order('created_at', { ascending: false }),
+      this.client.from('piggy_bank_records').select('*').eq('family_id', SUPABASE_FAMILY_ID).order('created_at', { ascending: false }),
+      this.client.from('store_items').select('*').eq('family_id', SUPABASE_FAMILY_ID).order('updated_at', { ascending: false }),
+      this.client.from('purchases').select('*').eq('family_id', SUPABASE_FAMILY_ID).order('updated_at', { ascending: false })
     ]);
     if (parentError) throw parentError;
     if (childrenError) throw childrenError;
     if (bindingsError) throw bindingsError;
+    const [{ data: taskRows, error: tasksError }, { data: taskRecordRows, error: taskRecordsError }] = taskResult;
+    if (tasksError) throw tasksError;
+    if (taskRecordsError) throw taskRecordsError;
+    if (starResult.error) throw starResult.error;
+    if (piggyRecordResult.error) throw piggyRecordResult.error;
+    if (storeItemResult.error) throw storeItemResult.error;
+    if (purchaseResult.error) throw purchaseResult.error;
 
     const parentState = readRepositoryState((parent as SupabaseParentRow | null)?.settings ?? null);
     const remoteChildren = ((children ?? []) as SupabaseChildRow[]).map(fromSupabaseChild);
     const baseState = parentState ?? state;
     const mergedChildren = mergeChildren(baseState.children, remoteChildren);
+    const taskRecords = (taskRecordRows ?? []) as SupabaseTaskRecordRow[];
+    const remoteTasks = mergeTasks(
+      baseState.tasks,
+      ((taskRows ?? []) as SupabaseTaskRow[]).map(fromSupabaseTask),
+      taskRecords.map(fromSupabaseTaskRecord).filter((task): task is LocalTask => Boolean(task))
+    );
+    const remoteStars = mergeStars(baseState.stars, ((starResult.data ?? []) as SupabaseStarRow[]).map(fromSupabaseStar));
+    const piggyState = fromSupabasePiggyRows({
+      baseState,
+      records: (piggyRecordResult.data ?? []) as SupabasePiggyBankRecordRow[],
+      products: (storeItemResult.data ?? []) as SupabaseStoreItemRow[],
+      purchases: (purchaseResult.data ?? []) as SupabasePurchaseRow[]
+    });
     const updatedAt = maxIsoDate([
       parentState?.updated_at,
       (parent as SupabaseParentRow | null)?.settings?.repository_updated_at,
       ...mergedChildren.map((child) => child.updated_at),
+      ...remoteTasks.map((task) => task.updated_at),
+      ...remoteStars.map((star) => star.created_at),
+      ...piggyState.piggy_incomes.map((income) => income.created_at),
+      ...piggyState.piggy_bank_logs.map((log) => log.created_at),
+      ...piggyState.piggy_products.map((product) => product.updated_at),
+      ...piggyState.piggy_shelf_orders.map((order) => order.updated_at),
+      ...piggyState.piggyProductDisplaySettings.map((settings) => settings.updated_at),
+      ...piggyState.piggy_purchases.map((purchase) => purchase.purchased_at ?? purchase.cancelled_at ?? purchase.requested_at),
       ...((bindings ?? []) as SupabaseDeviceBindingRow[]).map((binding) => binding.updated_at)
     ]) ?? new Date().toISOString();
     this.lastRemoteUpdatedAt = updatedAt;
@@ -407,6 +557,14 @@ export class SupabaseDataRepository implements LocalDataRepository {
       parent_id: SUPABASE_PARENT_ID,
       current_user_id: SUPABASE_PARENT_ID,
       children: mergedChildren,
+      tasks: remoteTasks,
+      stars: remoteStars,
+      piggy_incomes: piggyState.piggy_incomes,
+      piggy_bank_logs: piggyState.piggy_bank_logs,
+      piggy_products: piggyState.piggy_products,
+      piggy_shelf_orders: piggyState.piggy_shelf_orders,
+      piggyProductDisplaySettings: piggyState.piggyProductDisplaySettings,
+      piggy_purchases: piggyState.piggy_purchases,
       child_onboarding_tokens: mergedChildren
         .filter((child) => child.status === 'active' && !child.child_token_consumed_at)
         .map((child) => ({
@@ -449,6 +607,7 @@ export class SupabaseDataRepository implements LocalDataRepository {
     const state = toSupabaseRepositoryState(this.cache.getState());
     await this.pushRepositorySnapshot(state);
     await this.pushChildrenAndBindings(state);
+    await this.pushTaskStarPiggyTables(state);
     this.lastRemoteUpdatedAt = state.updated_at;
     this.retryAttempt = 0;
   }
@@ -488,6 +647,72 @@ export class SupabaseDataRepository implements LocalDataRepository {
     }
   }
 
+  private async pushTaskStarPiggyTables(state: LocalDatabaseState) {
+    if (!this.client) return;
+
+    const tasks = state.tasks.map(toSupabaseTask);
+    if (tasks.length) {
+      const { error } = await this.client.from('tasks').upsert(tasks, { onConflict: 'id' });
+      if (error) throw error;
+      const taskRecords = state.tasks.map(toSupabaseTaskRecord);
+      const { error: recordsError } = await this.client.from('task_records').upsert(taskRecords, { onConflict: 'id' });
+      if (recordsError) throw recordsError;
+    }
+
+    const taskIds = new Set(state.tasks.map((task) => task.id));
+    const stars = state.stars
+      .filter((star) => (!star.task_id || taskIds.has(star.task_id)) && !star.share_id && !star.dream_id)
+      .map(toSupabaseStar);
+    if (stars.length) {
+      const { error } = await this.client.from('stars').upsert(stars, { onConflict: 'id' });
+      if (error) throw error;
+    }
+
+    await this.pushPiggyTables(state);
+  }
+
+  private async pushPiggyTables(state: LocalDatabaseState) {
+    if (!this.client) return;
+
+    const piggyBanks = state.children.map((child): SupabasePiggyBankRow => ({
+      family_id: SUPABASE_FAMILY_ID,
+      child_id: child.id,
+      balance: getPiggySavingsFromState(state, child.id),
+      currency: 'TWD',
+      updated_at: state.updated_at
+    }));
+    if (piggyBanks.length) {
+      const { error } = await this.client.from('piggy_banks').upsert(piggyBanks, { onConflict: 'family_id,child_id' });
+      if (error) throw error;
+    }
+
+    const piggyRecords = [
+      ...state.piggy_incomes.map(toSupabasePiggyIncomeRecord),
+      ...state.piggy_bank_logs.map(toSupabasePiggyBankLogRecord),
+      ...state.piggy_shelf_orders.map(toSupabasePiggyShelfOrderRecord),
+      ...state.piggyProductDisplaySettings.map(toSupabasePiggyDisplaySettingsRecord)
+    ];
+    if (piggyRecords.length) {
+      const { error } = await this.client.from('piggy_bank_records').upsert(piggyRecords, { onConflict: 'id' });
+      if (error) throw error;
+    }
+
+    const products = state.piggy_products.map(toSupabaseStoreItem);
+    if (products.length) {
+      const { error } = await this.client.from('store_items').upsert(products, { onConflict: 'id' });
+      if (error) throw error;
+    }
+
+    const productIds = new Set(state.piggy_products.map((product) => product.id));
+    const purchases = state.piggy_purchases
+      .filter((purchase) => productIds.has(purchase.product_id))
+      .map(toSupabasePurchase);
+    if (purchases.length) {
+      const { error } = await this.client.from('purchases').upsert(purchases, { onConflict: 'id' });
+      if (error) throw error;
+    }
+  }
+
   private scheduleRetry() {
     if (!this.client || this.retryTimer) return;
     this.pendingPush = true;
@@ -517,6 +742,31 @@ export class SupabaseDataRepository implements LocalDataRepository {
       .on(
         'postgres_changes',
         { event: '*', schema: 'public', table: 'device_bindings', filter: `family_id=eq.${SUPABASE_FAMILY_ID}` },
+        () => this.hydrateFromSupabase()
+      )
+      .on(
+        'postgres_changes',
+        { event: '*', schema: 'public', table: 'tasks', filter: `family_id=eq.${SUPABASE_FAMILY_ID}` },
+        () => this.hydrateFromSupabase()
+      )
+      .on(
+        'postgres_changes',
+        { event: '*', schema: 'public', table: 'stars', filter: `family_id=eq.${SUPABASE_FAMILY_ID}` },
+        () => this.hydrateFromSupabase()
+      )
+      .on(
+        'postgres_changes',
+        { event: '*', schema: 'public', table: 'piggy_bank_records', filter: `family_id=eq.${SUPABASE_FAMILY_ID}` },
+        () => this.hydrateFromSupabase()
+      )
+      .on(
+        'postgres_changes',
+        { event: '*', schema: 'public', table: 'store_items', filter: `family_id=eq.${SUPABASE_FAMILY_ID}` },
+        () => this.hydrateFromSupabase()
+      )
+      .on(
+        'postgres_changes',
+        { event: '*', schema: 'public', table: 'purchases', filter: `family_id=eq.${SUPABASE_FAMILY_ID}` },
         () => this.hydrateFromSupabase()
       )
       .subscribe((status) => {
@@ -640,6 +890,317 @@ function toSupabaseDeviceBinding(binding: LocalDeviceBindingRecord): SupabaseDev
     created_at: binding.created_at,
     updated_at: binding.updated_at
   };
+}
+
+function toSupabaseTask(task: LocalTask): SupabaseTaskRow {
+  return {
+    id: task.id,
+    family_id: SUPABASE_FAMILY_ID,
+    child_id: task.child_id,
+    title: task.title,
+    description: task.description,
+    category: task.category,
+    task_date: task.task_date,
+    due_at: task.due_at,
+    recurrence_rule: task.recurrence_rule,
+    status: task.status,
+    reward_stars: task.reward_stars,
+    reward_screen_minutes: task.reward_screen_minutes,
+    completion_note: task.completion_note,
+    completed_at: task.completed_at,
+    reviewed_by: task.reviewed_by ? SUPABASE_PARENT_ID : null,
+    reviewed_at: task.reviewed_at,
+    rejection_reason: task.rejection_reason,
+    created_by: SUPABASE_PARENT_ID,
+    created_at: task.created_at,
+    updated_at: task.updated_at,
+    archived_at: task.archived_at
+  };
+}
+
+function fromSupabaseTask(row: SupabaseTaskRow): LocalTask {
+  return {
+    id: row.id,
+    family_id: SUPABASE_FAMILY_ID,
+    child_id: row.child_id,
+    title: row.title,
+    description: row.description,
+    task_image_media_id: null,
+    thumbnail_media_id: null,
+    category: row.category,
+    task_date: row.task_date,
+    due_at: row.due_at,
+    recurrence_rule: row.recurrence_rule,
+    status: row.status,
+    reward_stars: row.reward_stars,
+    reward_screen_minutes: row.reward_screen_minutes,
+    completion_note: row.completion_note,
+    completed_at: row.completed_at,
+    reviewed_by: row.reviewed_by,
+    reviewed_at: row.reviewed_at,
+    rejection_reason: row.rejection_reason,
+    created_by: row.created_by,
+    created_at: row.created_at,
+    updated_at: row.updated_at,
+    archived_at: row.archived_at
+  };
+}
+
+function toSupabaseTaskRecord(task: LocalTask): SupabaseTaskRecordRow {
+  return {
+    id: task.id,
+    family_id: SUPABASE_FAMILY_ID,
+    child_id: task.child_id,
+    task_id: task.id,
+    status: task.status,
+    note: task.completion_note,
+    payload: { local_task: task },
+    created_at: task.updated_at
+  };
+}
+
+function fromSupabaseTaskRecord(row: SupabaseTaskRecordRow): LocalTask | null {
+  const task = row.payload?.local_task;
+  if (!task || task.id !== row.task_id) return null;
+  return { ...task, family_id: SUPABASE_FAMILY_ID };
+}
+
+function mergeTasks(localTasks: LocalTask[], tableTasks: LocalTask[], payloadTasks: LocalTask[]) {
+  const byId = new Map<string, LocalTask>();
+  [...localTasks, ...tableTasks, ...payloadTasks].forEach((task) => {
+    const normalized = { ...task, family_id: SUPABASE_FAMILY_ID };
+    const existing = byId.get(task.id);
+    if (!existing || normalized.updated_at >= existing.updated_at) byId.set(task.id, normalized);
+  });
+  return [...byId.values()].sort((first, second) => second.created_at.localeCompare(first.created_at));
+}
+
+function toSupabaseStar(star: LocalStarTransaction): SupabaseStarRow {
+  return {
+    id: star.id,
+    family_id: SUPABASE_FAMILY_ID,
+    child_id: star.child_id,
+    amount: star.amount,
+    transaction_type: star.transaction_type,
+    reason: star.reason,
+    task_id: star.task_id,
+    share_id: null,
+    dream_id: null,
+    reversal_of_id: star.reversal_of_id,
+    idempotency_key: star.idempotency_key,
+    created_by: star.created_by ? SUPABASE_PARENT_ID : null,
+    created_at: star.created_at
+  };
+}
+
+function fromSupabaseStar(row: SupabaseStarRow): LocalStarTransaction {
+  return {
+    id: row.id,
+    family_id: SUPABASE_FAMILY_ID,
+    child_id: row.child_id,
+    type: row.amount >= 0 ? 'earned' : 'spent',
+    amount: row.amount,
+    transaction_type: row.transaction_type,
+    reason: row.reason,
+    sourceType: row.task_id ? 'task' : row.share_id ? 'share' : row.dream_id ? 'dream' : null,
+    sourceId: row.task_id ?? row.share_id ?? row.dream_id,
+    task_id: row.task_id,
+    share_id: row.share_id,
+    dream_id: row.dream_id,
+    reversal_of_id: row.reversal_of_id,
+    idempotency_key: row.idempotency_key,
+    created_by: row.created_by,
+    created_at: row.created_at
+  };
+}
+
+function mergeStars(localStars: LocalStarTransaction[], remoteStars: LocalStarTransaction[]) {
+  const byId = new Map<string, LocalStarTransaction>();
+  [...localStars, ...remoteStars].forEach((star) => {
+    const normalized = { ...star, family_id: SUPABASE_FAMILY_ID };
+    const existing = byId.get(star.id);
+    if (!existing || normalized.created_at >= existing.created_at) byId.set(star.id, normalized);
+  });
+  return [...byId.values()].sort((first, second) => second.created_at.localeCompare(first.created_at));
+}
+
+function toSupabasePiggyIncomeRecord(income: LocalPiggyIncome): SupabasePiggyBankRecordRow {
+  return {
+    id: income.id,
+    family_id: SUPABASE_FAMILY_ID,
+    child_id: income.child_id,
+    amount: income.amount,
+    record_type: 'income',
+    note: income.source,
+    payload: { kind: 'income', income },
+    created_at: income.created_at
+  };
+}
+
+function toSupabasePiggyBankLogRecord(log: LocalPiggyBankLog): SupabasePiggyBankRecordRow {
+  return {
+    id: log.id,
+    family_id: SUPABASE_FAMILY_ID,
+    child_id: log.child_id,
+    amount: log.amount,
+    record_type: log.type,
+    note: log.note,
+    payload: { kind: 'bank_log', bank_log: log },
+    created_at: log.created_at
+  };
+}
+
+function toSupabasePiggyShelfOrderRecord(order: LocalPiggyShelfOrder): SupabasePiggyBankRecordRow {
+  return {
+    id: order.id,
+    family_id: SUPABASE_FAMILY_ID,
+    child_id: order.child_id,
+    amount: 0,
+    record_type: 'shelf_order',
+    note: null,
+    payload: { kind: 'shelf_order', shelf_order: order },
+    created_at: order.updated_at
+  };
+}
+
+function toSupabasePiggyDisplaySettingsRecord(settings: LocalPiggyProductDisplaySettings): SupabasePiggyBankRecordRow {
+  return {
+    id: settings.id,
+    family_id: SUPABASE_FAMILY_ID,
+    child_id: settings.child_id,
+    amount: 0,
+    record_type: 'display_settings',
+    note: null,
+    payload: { kind: 'display_settings', display_settings: settings },
+    created_at: settings.updated_at
+  };
+}
+
+function toSupabaseStoreItem(product: LocalPiggyProduct): SupabaseStoreItemRow {
+  return {
+    id: product.id,
+    family_id: SUPABASE_FAMILY_ID,
+    child_id: product.child_id,
+    name: product.name || '未命名商品',
+    price: product.price,
+    status: product.deleted_at ? 'deleted' : product.shelf_status,
+    payload: { local_product: product },
+    created_at: product.created_at,
+    updated_at: product.updated_at
+  };
+}
+
+function toSupabasePurchase(purchase: LocalPiggyPurchase): SupabasePurchaseRow {
+  return {
+    id: purchase.id,
+    family_id: SUPABASE_FAMILY_ID,
+    child_id: purchase.child_id,
+    store_item_id: purchase.product_id,
+    status: purchase.status,
+    amount: purchase.amount,
+    payload: { local_purchase: purchase },
+    created_at: purchase.requested_at,
+    updated_at: purchase.purchased_at ?? purchase.cancelled_at ?? purchase.requested_at
+  };
+}
+
+function fromSupabasePiggyRows(input: {
+  baseState: LocalDatabaseState;
+  records: SupabasePiggyBankRecordRow[];
+  products: SupabaseStoreItemRow[];
+  purchases: SupabasePurchaseRow[];
+}) {
+  const incomes = input.records
+    .map((row) => row.payload?.income)
+    .filter((item): item is LocalPiggyIncome => Boolean(item))
+    .map((item) => ({ ...item, family_id: SUPABASE_FAMILY_ID }));
+  const bankLogs = input.records
+    .map((row) => row.payload?.bank_log)
+    .filter((item): item is LocalPiggyBankLog => Boolean(item))
+    .map((item) => ({ ...item, family_id: SUPABASE_FAMILY_ID }));
+  const shelfOrders = input.records
+    .map((row) => row.payload?.shelf_order)
+    .filter((item): item is LocalPiggyShelfOrder => Boolean(item))
+    .map((item) => ({ ...item, family_id: SUPABASE_FAMILY_ID }));
+  const displaySettings = input.records
+    .map((row) => row.payload?.display_settings)
+    .filter((item): item is LocalPiggyProductDisplaySettings => Boolean(item))
+    .map((item) => ({ ...item, family_id: SUPABASE_FAMILY_ID }));
+  const products = input.products
+    .map((row) => row.payload?.local_product ?? fromSupabaseStoreItem(row))
+    .map((item) => ({ ...item, family_id: SUPABASE_FAMILY_ID }));
+  const purchases = input.purchases
+    .map((row) => row.payload?.local_purchase ?? fromSupabasePurchase(row))
+    .map((item) => ({ ...item, family_id: SUPABASE_FAMILY_ID }));
+
+  return {
+    piggy_incomes: mergeById(input.baseState.piggy_incomes, incomes, (item) => item.created_at),
+    piggy_bank_logs: mergeById(input.baseState.piggy_bank_logs, bankLogs, (item) => item.created_at),
+    piggy_products: mergeById(input.baseState.piggy_products, products, (item) => item.updated_at),
+    piggy_shelf_orders: mergeById(input.baseState.piggy_shelf_orders, shelfOrders, (item) => item.updated_at),
+    piggyProductDisplaySettings: mergeById(
+      input.baseState.piggyProductDisplaySettings,
+      displaySettings,
+      (item) => item.updated_at
+    ),
+    piggy_purchases: mergeById(
+      input.baseState.piggy_purchases,
+      purchases,
+      (item) => item.purchased_at ?? item.cancelled_at ?? item.requested_at
+    )
+  };
+}
+
+function fromSupabaseStoreItem(row: SupabaseStoreItemRow): LocalPiggyProduct {
+  return {
+    id: row.id,
+    family_id: SUPABASE_FAMILY_ID,
+    child_id: row.child_id,
+    name: row.name,
+    price: Number(row.price),
+    main_media_id: null,
+    gallery_media_ids: [],
+    shelf_status: row.status === 'shelf' ? 'shelf' : 'backlog',
+    shelf_slot: null,
+    created_by: SUPABASE_PARENT_ID,
+    created_at: row.created_at,
+    updated_at: row.updated_at,
+    deleted_at: row.status === 'deleted' ? row.updated_at : null
+  };
+}
+
+function fromSupabasePurchase(row: SupabasePurchaseRow): LocalPiggyPurchase {
+  return {
+    id: row.id,
+    family_id: SUPABASE_FAMILY_ID,
+    child_id: row.child_id,
+    product_id: row.store_item_id ?? '',
+    status: row.status,
+    amount: Number(row.amount),
+    product_snapshot: {
+      name: '',
+      price: Number(row.amount),
+      main_media_id: null
+    },
+    requested_at: row.created_at,
+    purchased_at: row.status === 'arrived' || row.status === 'completed' || row.status === 'purchased' ? row.updated_at : null,
+    cancelled_at: row.status === 'cancelled' ? row.updated_at : null
+  };
+}
+
+function mergeById<T extends { id: string }>(localItems: T[], remoteItems: T[], getTimestamp: (item: T) => string) {
+  const byId = new Map<string, T>();
+  [...localItems, ...remoteItems].forEach((item) => {
+    const existing = byId.get(item.id);
+    if (!existing || getTimestamp(item) >= getTimestamp(existing)) byId.set(item.id, item);
+  });
+  return [...byId.values()];
+}
+
+function getPiggySavingsFromState(state: LocalDatabaseState, childId: UUID) {
+  return state.piggy_bank_logs
+    .filter((log) => log.child_id === childId)
+    .reduce((total, log) => total + (log.type === 'purchase_debit' ? -log.amount : log.amount), 0);
 }
 
 function toSupabaseChild(child: LocalChild): SupabaseChildRow {
