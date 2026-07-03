@@ -544,6 +544,41 @@ async function refreshAuthSessionAfterScopeChange() {
   if (error) console.warn('[supabase-repository] auth session refresh failed after family scope change', error);
 }
 
+async function waitForAuthSession(client: SupabaseClient, timeoutMs = 5000) {
+  const deadline = Date.now() + timeoutMs;
+  while (Date.now() < deadline) {
+    const { data, error } = await client.auth.getSession();
+    if (error) throw error;
+    if (data.session?.user) return data.session;
+    await new Promise((resolve) => setTimeout(resolve, 150));
+  }
+  return null;
+}
+
+async function resolveAndPublishProductionAuthScope() {
+  if (!supabaseClient) throw new Error('Supabase is not configured.');
+  await waitForAuthSession(supabaseClient);
+  const scope = await resolveProductionAuthScope(supabaseClient);
+  if (!scope) {
+    setRuntimeInfo({
+      userId: null,
+      parentId: null,
+      familyId: null,
+      parentRole: null,
+      authStatus: 'signed_out'
+    });
+    return getSupabaseRuntimeInfo();
+  }
+  setRuntimeInfo({
+    userId: scope.userId,
+    parentId: scope.userId,
+    familyId: scope.familyId,
+    parentRole: scope.role,
+    authStatus: scope.familyId ? 'ready' : 'needs_family'
+  });
+  return getSupabaseRuntimeInfo();
+}
+
 function readSavedFamilyBinding(userId: string): SavedFamilyBinding | null {
   const local = getLocalStorage().getItem(SUPABASE_FAMILY_BINDING_KEY);
   const raw = local ?? getCookieValue(SUPABASE_FAMILY_BINDING_KEY);
@@ -582,6 +617,7 @@ export async function signInParentWithPassword(email: string, password: string) 
   if (!supabaseClient) throw new Error('Supabase is not configured.');
   const { error } = await supabaseClient.auth.signInWithPassword({ email, password });
   if (error) throw new Error(formatSupabaseError('Sign in', error));
+  return resolveAndPublishProductionAuthScope();
 }
 
 export async function signUpParentWithPassword(email: string, password: string, displayName?: string) {
@@ -596,6 +632,7 @@ export async function signUpParentWithPassword(email: string, password: string, 
     const { error: signInError } = await supabaseClient.auth.signInWithPassword({ email, password });
     if (signInError) throw new Error(formatSupabaseError('Automatic sign in after sign up', signInError));
   }
+  return resolveAndPublishProductionAuthScope();
 }
 
 export async function signOutParent() {

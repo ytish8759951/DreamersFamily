@@ -16,24 +16,23 @@ export function AuthPage() {
   const submitAuth = async (event: FormEvent) => {
     event.preventDefault();
     setMessage('');
+
     try {
       if (mode === 'signin') {
-        await signInParentWithPassword(email, password);
-        settingsRepository.updateSettings({
-          parent_email: email
-        });
-        navigate('/parent', { replace: true });
+        const runtime = await signInParentWithPassword(email, password);
+        settingsRepository.updateSettings({ parent_email: email });
+        navigate(runtime.familyId ? '/parent' : '/create-family', { replace: true });
         return;
       }
 
-      await signUpParentWithPassword(email, password, displayName);
+      const runtime = await signUpParentWithPassword(email, password, displayName);
       settingsRepository.updateSettings({
         parent_email: email,
         parent_name: displayName.trim() || email.split('@')[0] || '家長'
       });
-      navigate('/create-family', { replace: true });
+      navigate(runtime.familyId ? '/parent' : '/create-family', { replace: true });
     } catch (caught) {
-      setMessage(caught instanceof Error ? caught.message : '登入或建立帳號失敗');
+      setMessage(caught instanceof Error ? caught.message : '登入或註冊失敗');
     }
   };
 
@@ -47,14 +46,18 @@ export function AuthPage() {
       <section className="auth-panel">
         <header>
           <small>Dreamers Family V1.2</small>
-          <h1>家長登入與建立帳號</h1>
-          <p>第一位家長建立帳號後會直接進入建立家庭；第二位家長請使用家長邀請 QR 綁定裝置，不需要建立帳號。</p>
+          <h1>{mode === 'signup' ? '建立帳號' : '登入'}</h1>
+          <p>{mode === 'signup' ? '先建立帳號，再自動進入建立家庭流程。' : '登入後直接進入家庭首頁。'}</p>
         </header>
 
         <form onSubmit={submitAuth}>
           <div className="auth-tabs">
-            <button type="button" className={mode === 'signup' ? 'is-active' : ''} onClick={() => setMode('signup')}>建立帳號</button>
-            <button type="button" className={mode === 'signin' ? 'is-active' : ''} onClick={() => setMode('signin')}>登入</button>
+            <button type="button" className={mode === 'signup' ? 'is-active' : ''} onClick={() => setMode('signup')}>
+              建立帳號
+            </button>
+            <button type="button" className={mode === 'signin' ? 'is-active' : ''} onClick={() => setMode('signin')}>
+              登入
+            </button>
           </div>
 
           {mode === 'signup' ? (
