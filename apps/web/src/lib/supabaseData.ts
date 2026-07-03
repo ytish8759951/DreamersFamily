@@ -581,7 +581,7 @@ function clearFamilyBinding() {
 export async function signInParentWithPassword(email: string, password: string) {
   if (!supabaseClient) throw new Error('Supabase is not configured.');
   const { error } = await supabaseClient.auth.signInWithPassword({ email, password });
-  if (error) throw error;
+  if (error) throw new Error(formatSupabaseError('Sign in', error));
 }
 
 export async function signUpParentWithPassword(email: string, password: string, displayName?: string) {
@@ -591,17 +591,17 @@ export async function signUpParentWithPassword(email: string, password: string, 
     password,
     options: { data: { display_name: displayName || email.split('@')[0] } }
   });
-  if (error) throw error;
+  if (error) throw new Error(formatSupabaseError('Sign up', error));
   if (!data.session) {
     const { error: signInError } = await supabaseClient.auth.signInWithPassword({ email, password });
-    if (signInError) throw signInError;
+    if (signInError) throw new Error(formatSupabaseError('Automatic sign in after sign up', signInError));
   }
 }
 
 export async function signOutParent() {
   if (!supabaseClient) return;
   const { error } = await supabaseClient.auth.signOut();
-  if (error) throw error;
+  if (error) throw new Error(formatSupabaseError('Sign out', error));
 }
 
 export function bindParentDeviceToFamily(binding: ParentDeviceBinding) {
@@ -654,7 +654,7 @@ export async function joinProductionFamily(familyId: string, inviteCode: string)
     target_family_id: familyId,
     invite_code: inviteCode.trim()
   });
-  if (error) throw error;
+  if (error) throw new Error(formatSupabaseError('Bind parent device RPC bind_parent_device_with_invite', error));
   const row = firstRpcRow(data as ProductionFamilyScopeRow | ProductionFamilyScopeRow[] | null);
   if (row) {
     saveFamilyBinding(row.parent_id, row.family_id);
@@ -675,7 +675,7 @@ export async function createProductionFamilyInvite(role: ParentRole = 'guardian'
   const { data, error } = await supabaseClient.rpc('create_family_invite_code', {
     target_role: role
   });
-  if (error) throw error;
+  if (error) throw new Error(formatSupabaseError('Create family invite RPC create_family_invite_code', error));
   return firstRpcRow(data as ProductionInviteRow | ProductionInviteRow[] | null);
 }
 

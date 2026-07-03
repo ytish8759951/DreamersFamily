@@ -4,13 +4,12 @@ import { createProductionFamily, updateProductionParentProfile } from '../../lib
 import { settingsRepository } from '../../lib/settingsRepository';
 
 const DEFAULT_FAMILY_NAME = '小小夢想家 Family';
-const DEFAULT_PARENT_RELATION = '爸爸';
 const PARENT_RELATION_OPTIONS = ['爸爸', '媽媽', '爺爺', '奶奶', '舅舅', '其他'] as const;
 
 export function CreateFamilyPage() {
   const navigate = useNavigate();
   const [familyName, setFamilyName] = useState('');
-  const [parentRelation, setParentRelation] = useState<string>(DEFAULT_PARENT_RELATION);
+  const [parentRelation, setParentRelation] = useState<(typeof PARENT_RELATION_OPTIONS)[number]>('爸爸');
   const [customParentRelation, setCustomParentRelation] = useState('');
   const [message, setMessage] = useState('');
   const [isSubmitting, setIsSubmitting] = useState(false);
@@ -19,20 +18,23 @@ export function CreateFamilyPage() {
     event.preventDefault();
     setMessage('');
     setIsSubmitting(true);
-
     try {
       const nextFamilyName = familyName.trim() || DEFAULT_FAMILY_NAME;
-      const nextParentRelation =
-        parentRelation === '其他'
-          ? customParentRelation.trim() || '其他'
-          : parentRelation;
+      const nextParentRelation = parentRelation === '其他'
+        ? customParentRelation.trim() || '其他'
+        : parentRelation;
+      const currentSettings = settingsRepository.getSettings();
 
       await createProductionFamily(nextFamilyName);
-      await updateProductionParentProfile(nextParentRelation, '', nextParentRelation, 'owner');
+      await updateProductionParentProfile(
+        nextParentRelation,
+        currentSettings.parent_email || '',
+        nextParentRelation,
+        'owner'
+      );
       settingsRepository.updateSettings({
         family_name: nextFamilyName,
-        parent_name: nextParentRelation,
-        parent_email: ''
+        parent_name: nextParentRelation
       });
       navigate('/parent', { replace: true });
     } catch (caught) {
@@ -46,10 +48,11 @@ export function CreateFamilyPage() {
     <main className="auth-page">
       <section className="auth-panel">
         <header>
-          <small>Dreamers Family V1.1</small>
+          <small>Dreamers Family V1.2</small>
           <h1>建立家庭</h1>
-          <p>第一次登入後，請先建立自己的家庭與第一位家長資料。完成後你會成為 Owner。</p>
+          <p>建立後會建立 Owner Parent，並直接進入家長首頁。</p>
         </header>
+
         <form onSubmit={submit}>
           <label>
             家庭名稱（可選填）
@@ -60,14 +63,16 @@ export function CreateFamilyPage() {
               onChange={(event) => setFamilyName(event.target.value)}
             />
           </label>
+
           <label>
             第一位家長稱呼
-            <select value={parentRelation} onChange={(event) => setParentRelation(event.target.value)}>
+            <select value={parentRelation} onChange={(event) => setParentRelation(event.target.value as (typeof PARENT_RELATION_OPTIONS)[number])}>
               {PARENT_RELATION_OPTIONS.map((option) => (
                 <option key={option} value={option}>{option}</option>
               ))}
             </select>
           </label>
+
           {parentRelation === '其他' ? (
             <label>
               其他稱呼
@@ -79,10 +84,12 @@ export function CreateFamilyPage() {
               />
             </label>
           ) : null}
+
           <button className="ds-primary-button" type="submit" disabled={isSubmitting}>
             {isSubmitting ? '建立中...' : '建立家庭'}
           </button>
         </form>
+
         {message ? <p className="auth-message">{message}</p> : null}
       </section>
     </main>
