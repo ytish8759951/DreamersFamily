@@ -683,7 +683,11 @@ export async function createProductionFamily(familyName: string) {
   const { data, error } = await supabaseClient.rpc('create_family_for_current_user', {
     family_name: familyName.trim() || '小小夢想家 Family'
   });
-  if (error) throw new Error(formatSupabaseError('Create family RPC create_family_for_current_user', error));
+  if (error) {
+    console.error('[supabase-repository] create_family_for_current_user failed', error);
+    if (error instanceof Error && error.stack) console.error(error.stack);
+    throw new Error(formatSupabaseError('Create family RPC create_family_for_current_user', error));
+  }
   const row = normalizeProductionFamilyScopeRow(firstRpcRow(data as ProductionFamilyScopeRow | ProductionFamilyScopeRow[] | null));
   if (!row?.familyId || !row.parentId) throw new Error('Create family RPC create_family_for_current_user failed: no family scope was returned.');
   if (row) {
@@ -706,7 +710,11 @@ export async function joinProductionFamily(familyId: string, inviteCode: string)
     target_family_id: familyId,
     invite_code: inviteCode.trim()
   });
-  if (error) throw new Error(formatSupabaseError('Bind parent device RPC bind_parent_device_with_invite', error));
+  if (error) {
+    console.error('[supabase-repository] join_family_with_invite_code failed', error);
+    if (error instanceof Error && error.stack) console.error(error.stack);
+    throw new Error(formatSupabaseError('Join family RPC join_family_with_invite_code', error));
+  }
   const row = normalizeProductionFamilyScopeRow(firstRpcRow(data as ProductionFamilyScopeRow | ProductionFamilyScopeRow[] | null));
   if (row) {
     if (!row.parentId || !row.familyId) throw new Error('Join family RPC join_family_with_invite_code failed: no family scope was returned.');
@@ -845,7 +853,11 @@ export async function updateProductionParentProfile(
     .from('parents')
     .update(updates)
     .eq('id', user.id);
-  if (error) throw new Error(formatSupabaseError('Update parent profile', error));
+  if (error) {
+    console.error('[supabase-repository] update parent profile failed', error);
+    if (error instanceof Error && error.stack) console.error(error.stack);
+    throw new Error(formatSupabaseError('Update parent profile', error));
+  }
 }
 
 export async function leaveProductionFamily() {

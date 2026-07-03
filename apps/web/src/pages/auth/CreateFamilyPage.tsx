@@ -1,6 +1,6 @@
 import { useState, type FormEvent } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { createProductionFamily, updateProductionParentProfile } from '../../lib/supabaseData';
+import { createProductionFamily } from '../../lib/supabaseData';
 import { settingsRepository } from '../../lib/settingsRepository';
 
 const DEFAULT_FAMILY_NAME = '小小夢想家 Family';
@@ -20,24 +20,18 @@ export function CreateFamilyPage() {
     setIsSubmitting(true);
     try {
       const nextFamilyName = familyName.trim() || DEFAULT_FAMILY_NAME;
-      const nextParentRelation = parentRelation === '其他'
-        ? customParentRelation.trim() || '其他'
-        : parentRelation;
-      const currentSettings = settingsRepository.getSettings();
+      const nextParentRelation =
+        parentRelation === '其他' ? customParentRelation.trim() || '其他' : parentRelation;
 
       await createProductionFamily(nextFamilyName);
-      await updateProductionParentProfile(
-        nextParentRelation,
-        currentSettings.parent_email || '',
-        nextParentRelation,
-        'owner'
-      );
+
       settingsRepository.updateSettings({
         family_name: nextFamilyName,
         parent_name: nextParentRelation
       });
       navigate('/parent', { replace: true });
     } catch (caught) {
+      console.error('[CreateFamilyPage] create family failed', caught);
       setMessage(caught instanceof Error ? caught.message : '建立家庭失敗');
     } finally {
       setIsSubmitting(false);
@@ -50,7 +44,7 @@ export function CreateFamilyPage() {
         <header>
           <small>Dreamers Family V1.2</small>
           <h1>建立家庭</h1>
-          <p>建立後會建立 Owner Parent，並直接進入家長首頁。</p>
+          <p>建立第一個家長的家庭與身分。</p>
         </header>
 
         <form onSubmit={submit}>
@@ -68,7 +62,9 @@ export function CreateFamilyPage() {
             第一位家長稱呼
             <select value={parentRelation} onChange={(event) => setParentRelation(event.target.value as (typeof PARENT_RELATION_OPTIONS)[number])}>
               {PARENT_RELATION_OPTIONS.map((option) => (
-                <option key={option} value={option}>{option}</option>
+                <option key={option} value={option}>
+                  {option}
+                </option>
               ))}
             </select>
           </label>
