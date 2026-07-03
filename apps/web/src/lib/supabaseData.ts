@@ -8,6 +8,7 @@ import {
   LOCAL_DEVICE_ID,
   MockDatabase
 } from './mockDatabase';
+import type { KeyValueStorage } from './storage';
 import {
   LocalDataError,
   LocalDataService,
@@ -52,6 +53,22 @@ const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3
 const SYNC_RETRY_DELAYS_MS = [1000, 3000, 8000, 15000, 30000];
 
 type Listener = (state: LocalDatabaseState) => void;
+
+class VolatileSupabaseStorage implements KeyValueStorage {
+  private readonly values = new Map<string, string>();
+
+  getItem(key: string) {
+    return this.values.get(key) ?? null;
+  }
+
+  setItem(key: string, value: string) {
+    this.values.set(key, value);
+  }
+
+  removeItem(key: string) {
+    this.values.delete(key);
+  }
+}
 
 interface SupabaseConfig {
   url: string;
@@ -383,7 +400,11 @@ export function getSupabaseConfig(): SupabaseConfig | null {
 }
 
 export function isSupabaseModeEnabled() {
-  return import.meta.env.VITE_DATA_MODE !== 'local' && Boolean(getSupabaseConfig());
+  return isSupabaseModeRequested() && Boolean(getSupabaseConfig());
+}
+
+export function isSupabaseModeRequested() {
+  return import.meta.env.VITE_DATA_MODE !== 'local';
 }
 
 export function createSupabaseClient(config = getSupabaseConfig()): SupabaseClient | null {
@@ -398,7 +419,7 @@ export function createSupabaseClient(config = getSupabaseConfig()): SupabaseClie
 
 export class SupabaseDataRepository implements LocalDataRepository {
   private readonly client: SupabaseClient | null;
-  private readonly cache = new LocalDataService(new MockDatabase(undefined, SUPABASE_CACHE_KEY));
+  private cache = new LocalDataService(new MockDatabase(undefined, SUPABASE_CACHE_KEY));
   private readonly listeners = new Set<Listener>();
   private hydratePromise: Promise<void> | null = null;
   private realtimeChannel: RealtimeChannel | null = null;
@@ -410,6 +431,12 @@ export class SupabaseDataRepository implements LocalDataRepository {
 
   constructor(client: SupabaseClient | null = createSupabaseClient()) {
     this.client = client;
+    if (!client) this.cache = new LocalDataService(new MockDatabase(new VolatileSupabaseStorage(), SUPABASE_CACHE_KEY));
+    if (!client) {
+      console.error(
+        '[supabase-repository] Supabase mode requested but VITE_SUPABASE_URL or VITE_SUPABASE_ANON_KEY is missing.'
+      );
+    }
     this.hydrateFromSupabase();
     this.subscribeToSupabaseChanges();
     if (typeof window !== 'undefined') {
@@ -638,10 +665,6 @@ export class SupabaseDataRepository implements LocalDataRepository {
       .then((remoteState) => {
         if (!remoteState) return;
         const currentState = this.cache.getState();
-        if (currentState.updated_at > remoteState.updated_at) {
-          this.queuePush();
-          return;
-        }
         this.cache.importData(JSON.stringify(mergeRemoteState(currentState, remoteState)));
         this.emit();
       })
