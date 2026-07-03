@@ -11,6 +11,12 @@ import {
 import type { KeyValueStorage } from './storage';
 import { deleteCookieValue, getCookieValue, getLocalStorage, setCookieValue } from './storage';
 import {
+  clearParentDeviceBinding,
+  readParentDeviceBinding,
+  saveParentDeviceBinding,
+  type ParentDeviceBinding
+} from './parentDeviceBinding';
+import {
   LocalDataError,
   LocalDataService,
   type LocalDataRepository,
@@ -52,7 +58,7 @@ const SUPABASE_FALLBACK_FAMILY_ID = '00000000-0000-4000-8000-000000000001';
 const SUPABASE_FALLBACK_PARENT_ID = '00000000-0000-4000-8000-000000000002';
 let SUPABASE_FAMILY_ID = SUPABASE_FALLBACK_FAMILY_ID;
 let SUPABASE_PARENT_ID = SUPABASE_FALLBACK_PARENT_ID;
-let SUPABASE_PARENT_ROLE: ParentRole | null = null;
+let SUPABASE_PARENT_ROLE: ParentRuntimeRole | null = null;
 let SUPABASE_AUTH_STATUS: SupabaseRuntimeInfo['authStatus'] = 'initializing';
 const SUPABASE_DEVICE_FALLBACK_ID = '00000000-0000-4000-8000-000000000003';
 const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
@@ -60,12 +66,13 @@ const SYNC_RETRY_DELAYS_MS = [1000, 3000, 8000, 15000, 30000];
 
 type Listener = (state: LocalDatabaseState) => void;
 export type ParentRole = 'owner' | 'admin' | 'guardian' | 'viewer';
+export type ParentRuntimeRole = ParentRole | 'parent';
 
 export interface SupabaseRuntimeInfo {
   userId: string | null;
   parentId: string | null;
   familyId: string | null;
-  parentRole: ParentRole | null;
+  parentRole: ParentRuntimeRole | null;
   authStatus: 'initializing' | 'signed_out' | 'needs_family' | 'ready' | 'missing_config';
 }
 
@@ -159,6 +166,11 @@ interface SupabaseParentRow {
   family_id: UUID;
   display_name: string;
   email: string | null;
+  parent_role?: string | null;
+  relation?: string | null;
+  device_label?: string | null;
+  last_seen_at?: string | null;
+  device_bound?: boolean | null;
   settings: {
     repository_state?: LocalDatabaseState;
     repository_updated_at?: string;
@@ -468,7 +480,7 @@ interface SupabaseFamilyMemberRow {
 interface ProductionAuthScope {
   userId: UUID;
   familyId: UUID | null;
-  role: ParentRole | null;
+  role: ParentRuntimeRole | null;
 }
 
 interface SavedFamilyBinding {
@@ -492,6 +504,16 @@ interface ProductionInvitePreviewRow {
   family_id: string;
   family_name: string;
   parent_role: ParentRole;
+}
+
+export interface ProductionFamilyParent {
+  id: string;
+  family_id: string;
+  display_name: string;
+  parent_role: ParentRuntimeRole;
+  relation: string | null;
+  device_label: string | null;
+  last_seen_at: string | null;
 }
 
 function firstRpcRow<T>(data: T | T[] | null): T | null {
@@ -565,6 +587,28 @@ export async function signOutParent() {
   if (error) throw error;
 }
 
+export function bindParentDeviceToFamily(binding: ParentDeviceBinding) {
+  saveParentDeviceBinding(binding);
+  setRuntimeInfo({
+    userId: null,
+    parentId: binding.parentId,
+    familyId: binding.familyId,
+    parentRole: binding.parentRole,
+    authStatus: 'ready'
+  });
+}
+
+export function unbindParentDeviceFromFamily() {
+  clearParentDeviceBinding();
+  setRuntimeInfo({
+    userId: runtimeInfo.userId,
+    parentId: runtimeInfo.userId,
+    familyId: null,
+    parentRole: null,
+    authStatus: runtimeInfo.userId ? 'needs_family' : 'signed_out'
+  });
+}
+
 export async function createProductionFamily(familyName: string) {
   if (!supabaseClient) throw new Error('Supabase is not configured.');
   const { data, error } = await supabaseClient.rpc('create_family_for_current_user', {
@@ -627,6 +671,81 @@ export async function getProductionFamilyInvitePreview(familyId: string, inviteC
   return firstRpcRow(data as ProductionInvitePreviewRow | ProductionInvitePreviewRow[] | null);
 }
 
+export async function listProductionFamilyParents(familyId: string): Promise<ProductionFamilyParent[]> {
+  if (!supabaseClient) throw new Error('Supabase is not configured.');
+  const { data, error } = await supabaseClient
+    .from('parents')
+    .select('id,family_id,display_name,parent_role,relation,device_label,last_seen_at')
+    .eq('family_id', familyId)
+    .order('created_at');
+  if (error) throw error;
+  return ((data ?? []) as Array<Partial<ProductionFamilyParent>>).map((parent) => ({
+    id: String(parent.id),
+    family_id: String(parent.family_id),
+    display_name: String(parent.display_name || '家長'),
+    parent_role: parent.parent_role === 'owner' ? 'owner' : 'parent',
+    relation: parent.relation ?? null,
+    device_label: parent.device_label ?? null,
+    last_seen_at: parent.last_seen_at ?? null
+  }));
+}
+
+export async function createDeviceBoundParent(input: {
+  familyId: string;
+  inviteCode: string;
+  parentName: string;
+  relation: string;
+  deviceLabel: string;
+}) {
+  if (!supabaseClient) throw new Error('Supabase is not configured.');
+  const { data, error } = await supabaseClient.rpc('bind_parent_device_with_invite', {
+    target_family_id: input.familyId,
+    invite_code: input.inviteCode,
+    parent_name: input.parentName.trim() || input.relation || '家長',
+    parent_relation: input.relation,
+    device_label: input.deviceLabel
+  });
+  if (error) throw error;
+  const row = firstRpcRow(data as { family_id: string; parent_id: string; parent_role: 'parent' } | { family_id: string; parent_id: string; parent_role: 'parent' }[] | null);
+  if (!row) throw new Error('加入家庭失敗');
+  const now = new Date().toISOString();
+  const binding: ParentDeviceBinding = {
+    familyId: row.family_id,
+    parentId: row.parent_id,
+    parentName: input.parentName.trim() || input.relation || '家長',
+    parentRole: 'parent',
+    relation: input.relation,
+    deviceLabel: input.deviceLabel,
+    boundAt: now
+  };
+  bindParentDeviceToFamily(binding);
+  return binding;
+}
+
+export async function touchDeviceBoundParent() {
+  if (!supabaseClient) return;
+  const binding = readParentDeviceBinding();
+  if (!binding) return;
+  await supabaseClient
+    .from('parents')
+    .update({
+      last_seen_at: new Date().toISOString(),
+      device_label: binding.deviceLabel,
+      updated_at: new Date().toISOString()
+    })
+    .eq('id', binding.parentId)
+    .eq('family_id', binding.familyId);
+}
+
+export async function revokeDeviceBoundParent(parentId: string, familyId: string) {
+  if (!supabaseClient) throw new Error('Supabase is not configured.');
+  const { error } = await supabaseClient.rpc('revoke_parent_device_binding', {
+    target_parent_id: parentId,
+    target_family_id: familyId
+  });
+  if (error) throw error;
+}
+
 export async function updateProductionParentProfile(parentName: string, parentEmail: string) {
   if (!supabaseClient) throw new Error('Supabase is not configured.');
   const { data: sessionData, error: sessionError } = await supabaseClient.auth.getSession();
@@ -649,6 +768,7 @@ export async function leaveProductionFamily() {
   const { data, error } = await supabaseClient.rpc('leave_current_family');
   if (error) throw error;
   clearFamilyBinding();
+  clearParentDeviceBinding();
   setRuntimeInfo({
     userId: runtimeInfo.userId,
     parentId: runtimeInfo.parentId,
@@ -663,7 +783,12 @@ async function resolveProductionAuthScope(client: SupabaseClient): Promise<Produ
   const { data: sessionData, error: sessionError } = await client.auth.getSession();
   if (sessionError) throw sessionError;
   const user = sessionData.session?.user;
-  if (!user) return null;
+  if (!user) {
+    const deviceBinding = readParentDeviceBinding();
+    if (!deviceBinding) return null;
+    void touchDeviceBoundParent();
+    return { userId: deviceBinding.parentId, familyId: deviceBinding.familyId, role: deviceBinding.parentRole };
+  }
 
   await ensureProfileForUser(client, user.id, user.user_metadata?.display_name, user.email);
 

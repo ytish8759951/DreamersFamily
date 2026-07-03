@@ -3,7 +3,15 @@ import { useNavigate } from 'react-router-dom';
 import { Copy, Database, Download, LogOut, RotateCcw, Settings as SettingsIcon, Upload, UserRound } from 'lucide-react';
 import QRCode from 'react-qr-code';
 import { dataMode, dataModeLabel } from '../../lib/dataRepository';
-import { createProductionFamilyInvite, leaveProductionFamily } from '../../lib/supabaseData';
+import {
+  createProductionFamilyInvite,
+  leaveProductionFamily,
+  listProductionFamilyParents,
+  revokeDeviceBoundParent,
+  unbindParentDeviceFromFamily,
+  type ProductionFamilyParent
+} from '../../lib/supabaseData';
+import { createParentInviteToken, getParentInviteUrl } from '../../lib/parentDeviceBinding';
 import { settingsRepository } from '../../lib/settingsRepository';
 import type { LocalFamilySettings } from '../../lib/localTypes';
 import { useLocalDataState } from '../../lib/useLocalData';
@@ -20,9 +28,28 @@ export function Settings() {
   const [message, setMessage] = useState('');
   const [inviteLink, setInviteLink] = useState('');
   const [inviteCode, setInviteCode] = useState('');
+  const [members, setMembers] = useState<ProductionFamilyParent[]>([]);
   const usage = useMemo(() => estimateStorageUsage(), [state]);
   const familyName = settings.family_name || '小小夢想家 Family';
   const parentRoleLabel = runtimeInfo.parentRole === 'owner' ? 'Owner' : runtimeInfo.parentRole ? 'Parent' : '-';
+
+  useEffect(() => {
+    let cancelled = false;
+    if (dataMode !== 'supabase' || !runtimeInfo.familyId) {
+      setMembers([]);
+      return;
+    }
+    void listProductionFamilyParents(runtimeInfo.familyId)
+      .then((parents) => {
+        if (!cancelled) setMembers(parents);
+      })
+      .catch(() => {
+        if (!cancelled) setMembers([]);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [runtimeInfo.familyId]);
 
   const update = <K extends keyof SettingsForm>(key: K, value: SettingsForm[K]) => {
     setForm((current) => ({ ...current, [key]: value }));
@@ -92,8 +119,16 @@ export function Settings() {
     setMessage('');
     try {
       const invite = await createProductionFamilyInvite('guardian');
-      const origin = typeof window === 'undefined' ? '' : window.location.origin;
-      const link = invite?.join_path ? `${origin}${invite.join_path}` : '';
+      const expiresAt = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString();
+      const token = createParentInviteToken({
+        familyId: invite?.family_id ?? runtimeInfo.familyId ?? '',
+        familyName,
+        ownerName: form.parent_name || 'Owner',
+        inviteCode: invite?.invite_code ?? '',
+        expiresAt,
+        createdAt: new Date().toISOString()
+      });
+      const link = getParentInviteUrl(token);
       setInviteLink(link);
       setInviteCode(invite?.invite_code ?? '');
       setMessage(invite?.invite_code ? `邀請碼已建立：${invite.invite_code}` : '邀請碼已建立');
@@ -115,11 +150,23 @@ export function Settings() {
   const leaveFamily = async () => {
     if (!window.confirm('確定要退出目前家庭嗎？這只會移除你的家長關聯，不會刪除家庭資料。')) return;
     try {
-      await leaveProductionFamily();
+      if (runtimeInfo.userId) await leaveProductionFamily();
+      else unbindParentDeviceFromFamily();
       setMessage('已退出家庭');
-      navigate('/create-family', { replace: true });
+      navigate('/login', { replace: true });
     } catch (caught) {
       setMessage(caught instanceof Error ? caught.message : '退出家庭失敗');
+    }
+  };
+
+  const revokeMember = async (member: ProductionFamilyParent) => {
+    if (!runtimeInfo.familyId || !window.confirm(`確定解除 ${member.display_name} 的家長裝置綁定嗎？`)) return;
+    try {
+      await revokeDeviceBoundParent(member.id, runtimeInfo.familyId);
+      setMembers((current) => current.filter((item) => item.id !== member.id));
+      setMessage('已解除家長裝置綁定');
+    } catch (caught) {
+      setMessage(caught instanceof Error ? caught.message : '解除綁定失敗');
     }
   };
 
@@ -198,10 +245,23 @@ export function Settings() {
           <div><dt>家庭名稱</dt><dd>{familyName}</dd></div>
           <div><dt>目前家長角色</dt><dd>{parentRoleLabel}</dd></div>
         </dl>
+        <h3 className="settings-subtitle">家庭成員</h3>
+        <div className="settings-member-list">
+          {members.length ? members.map((member) => (
+            <article key={member.id}>
+              <strong>{member.display_name}{member.parent_role === 'owner' ? '（Owner）' : ''}</strong>
+              <small>{member.relation || (member.parent_role === 'owner' ? 'Owner' : 'Parent')}</small>
+              <span>{member.device_label || '未知裝置'} · {member.last_seen_at ? formatDate(member.last_seen_at) : '尚無上線紀錄'}</span>
+              {runtimeInfo.parentRole === 'owner' && member.parent_role !== 'owner' ? (
+                <button type="button" className="settings-inline-danger" onClick={() => void revokeMember(member)}>解除綁定</button>
+              ) : null}
+            </article>
+          )) : <p>尚未讀取到家庭成員。</p>}
+        </div>
         <h3 className="settings-subtitle">邀請家長</h3>
         <div className="settings-data-actions">
           <button type="button" onClick={() => void createInvite()} disabled={dataMode !== 'supabase' || runtimeInfo.parentRole !== 'owner'}>
-            {inviteCode ? '重新產生邀請碼' : '產生邀請碼'}
+            {inviteCode ? '重新產生 QR' : '產生家長邀請 QR'}
           </button>
           <button type="button" onClick={() => void copyInviteLink()} disabled={!inviteLink}>
             <Copy size={18} /> 複製邀請連結

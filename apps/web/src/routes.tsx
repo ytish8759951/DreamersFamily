@@ -26,6 +26,7 @@ import { DesignSystemPreview } from './pages/preview/DesignSystemPreview';
 import { AuthPage } from './pages/auth/AuthPage';
 import { JoinFamilyPage } from './pages/auth/JoinFamilyPage';
 import { CreateFamilyPage } from './pages/auth/CreateFamilyPage';
+import { JoinParentDevicePage } from './pages/auth/JoinParentDevicePage';
 import { dataMode } from './lib/dataRepository';
 import { useLocalDataState } from './lib/useLocalData';
 import { useSupabaseRuntimeInfo } from './lib/useSupabaseRuntimeInfo';
@@ -62,6 +63,7 @@ export const router = createBrowserRouter([
   { path: '/', element: <RootRedirect /> },
   { path: '/login', element: <AuthPage /> },
   { path: '/join', element: <JoinFamilyPage /> },
+  { path: '/join-parent/:token', element: <JoinParentDevicePage /> },
   { path: '/create-family', element: <CreateFamilyPage /> },
   { path: '/preview/design-system', element: <DesignSystemPreview /> },
   {

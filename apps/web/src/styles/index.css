@@ -20744,6 +20744,40 @@ body.modal-open {
   font-weight: 800;
 }
 
+.settings-member-list {
+  display: grid;
+  gap: 8px;
+}
+
+.settings-member-list article {
+  display: grid;
+  border-radius: 15px;
+  background: #fbf7ef;
+  padding: 12px;
+  gap: 4px;
+}
+
+.settings-member-list strong {
+  color: #3f352c;
+}
+
+.settings-member-list small,
+.settings-member-list span {
+  color: #776b5f;
+  font-size: 12px;
+  font-weight: 800;
+}
+
+.settings-inline-danger {
+  justify-self: start;
+  border-radius: 999px;
+  background: #ffe8e6;
+  padding: 7px 10px;
+  color: #a65c58;
+  font-size: 12px;
+  font-weight: 900;
+}
+
 .settings-data-panel dl {
   display: grid;
   grid-template-columns: repeat(3, 1fr);
@@ -23808,12 +23842,20 @@ body.modal-open {
   font-weight: 800;
 }
 
-.auth-panel input {
+.auth-panel input,
+.auth-panel select {
   width: 100%;
   border: 1px solid #ddcdbb;
   border-radius: 12px;
   padding: 11px 12px;
   font: inherit;
+}
+
+.auth-member-list {
+  margin: 0;
+  padding-left: 20px;
+  color: #5f544b;
+  font-weight: 800;
 }
 
 .auth-tabs,
