@@ -14,11 +14,11 @@
         const isChild = path.startsWith('/child');
         const appName = isChild ? 'Dreamers Child' : 'Dreamers Family';
         const manifestHref = isChild
-          ? '/manifest-child.webmanifest?v=20260703-supabase-cache-v2'
-          : '/manifest-parent.webmanifest?v=20260703-supabase-cache-v2';
+          ? '/manifest-child.webmanifest?v=20260703-supabase-cache-v3'
+          : '/manifest-parent.webmanifest?v=20260703-supabase-cache-v3';
         const iconHref = isChild
-          ? '/app-icon-child.png?v=20260703-supabase-cache-v2'
-          : '/app-icon-parent.png?v=20260703-supabase-cache-v2';
+          ? '/app-icon-child.png?v=20260703-supabase-cache-v3'
+          : '/app-icon-parent.png?v=20260703-supabase-cache-v3';
         const existing = document.querySelector('link[rel="manifest"]');
         const link = existing || document.createElement('link');
         link.setAttribute('rel', 'manifest');

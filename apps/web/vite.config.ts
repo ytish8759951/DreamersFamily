@@ -10,7 +10,7 @@ export default defineConfig({
       injectRegister: null,
       manifest: false,
       workbox: {
-        cacheId: 'dreamers-family-supabase-cache-v2',
+        cacheId: 'dreamers-family-supabase-cache-v3',
         cleanupOutdatedCaches: true,
         clientsClaim: true,
         skipWaiting: true,
