@@ -46,13 +46,48 @@ import type {
 } from './localTypes';
 
 const SUPABASE_CACHE_KEY = 'little-dreamers-family:supabase-cache:v1';
-const SUPABASE_FAMILY_ID = '00000000-0000-4000-8000-000000000001';
-const SUPABASE_PARENT_ID = '00000000-0000-4000-8000-000000000002';
+const SUPABASE_FALLBACK_FAMILY_ID = '00000000-0000-4000-8000-000000000001';
+const SUPABASE_FALLBACK_PARENT_ID = '00000000-0000-4000-8000-000000000002';
+let SUPABASE_FAMILY_ID = SUPABASE_FALLBACK_FAMILY_ID;
+let SUPABASE_PARENT_ID = SUPABASE_FALLBACK_PARENT_ID;
+let SUPABASE_PARENT_ROLE: ParentRole | null = null;
+let SUPABASE_AUTH_STATUS: SupabaseRuntimeInfo['authStatus'] = 'initializing';
 const SUPABASE_DEVICE_FALLBACK_ID = '00000000-0000-4000-8000-000000000003';
 const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 const SYNC_RETRY_DELAYS_MS = [1000, 3000, 8000, 15000, 30000];
 
 type Listener = (state: LocalDatabaseState) => void;
+export type ParentRole = 'owner' | 'admin' | 'guardian' | 'viewer';
+
+export interface SupabaseRuntimeInfo {
+  userId: string | null;
+  parentId: string | null;
+  familyId: string | null;
+  parentRole: ParentRole | null;
+  authStatus: 'initializing' | 'signed_out' | 'needs_family' | 'ready' | 'missing_config';
+}
+
+let runtimeInfo: SupabaseRuntimeInfo = {
+  userId: null,
+  parentId: null,
+  familyId: null,
+  parentRole: null,
+  authStatus: 'initializing'
+};
+
+const runtimeListeners = new Set<(info: SupabaseRuntimeInfo) => void>();
+
+export function getSupabaseRuntimeInfo(): SupabaseRuntimeInfo {
+  return runtimeInfo;
+}
+
+export function subscribeSupabaseRuntimeInfo(listener: (info: SupabaseRuntimeInfo) => void) {
+  runtimeListeners.add(listener);
+  listener(runtimeInfo);
+  return () => {
+    runtimeListeners.delete(listener);
+  };
+}
 
 class VolatileSupabaseStorage implements KeyValueStorage {
   private readonly values = new Map<string, string>();
@@ -412,9 +447,143 @@ export function createSupabaseClient(config = getSupabaseConfig()): SupabaseClie
   return createClient(config.url, config.anonKey, {
     auth: {
       persistSession: true,
-      autoRefreshToken: true
+      autoRefreshToken: true,
+      detectSessionInUrl: true
     }
   });
+}
+
+export const supabaseClient = createSupabaseClient();
+
+interface SupabaseFamilyMemberRow {
+  family_id: UUID;
+  user_id: UUID;
+  role: ParentRole;
+  status: 'active' | 'invited' | 'removed';
+  created_at: string;
+}
+
+interface ProductionAuthScope {
+  userId: UUID;
+  familyId: UUID | null;
+  role: ParentRole | null;
+}
+
+export async function signInParentWithPassword(email: string, password: string) {
+  if (!supabaseClient) throw new Error('Supabase is not configured.');
+  const { error } = await supabaseClient.auth.signInWithPassword({ email, password });
+  if (error) throw error;
+}
+
+export async function signUpParentWithPassword(email: string, password: string, displayName?: string) {
+  if (!supabaseClient) throw new Error('Supabase is not configured.');
+  const { error } = await supabaseClient.auth.signUp({
+    email,
+    password,
+    options: { data: { display_name: displayName || email.split('@')[0] } }
+  });
+  if (error) throw error;
+}
+
+export async function signOutParent() {
+  if (!supabaseClient) return;
+  const { error } = await supabaseClient.auth.signOut();
+  if (error) throw error;
+}
+
+export async function createProductionFamily(familyName: string) {
+  if (!supabaseClient) throw new Error('Supabase is not configured.');
+  const { data, error } = await supabaseClient.rpc('create_family_for_current_user', {
+    family_name: familyName.trim() || 'Dreamers Family'
+  });
+  if (error) throw error;
+  return data as { family_id: string; parent_id: string; parent_role: ParentRole } | null;
+}
+
+export async function joinProductionFamily(familyId: string, inviteCode: string) {
+  if (!supabaseClient) throw new Error('Supabase is not configured.');
+  const { data, error } = await supabaseClient.rpc('join_family_with_invite_code', {
+    target_family_id: familyId,
+    invite_code: inviteCode.trim()
+  });
+  if (error) throw error;
+  return data as { family_id: string; parent_id: string; parent_role: ParentRole } | null;
+}
+
+export async function createProductionFamilyInvite(role: ParentRole = 'guardian') {
+  if (!supabaseClient) throw new Error('Supabase is not configured.');
+  const { data, error } = await supabaseClient.rpc('create_family_invite_code', {
+    target_role: role
+  });
+  if (error) throw error;
+  return data as { family_id: string; invite_code: string; join_path: string } | null;
+}
+
+async function resolveProductionAuthScope(client: SupabaseClient): Promise<ProductionAuthScope | null> {
+  const { data: sessionData, error: sessionError } = await client.auth.getSession();
+  if (sessionError) throw sessionError;
+  const user = sessionData.session?.user;
+  if (!user) return null;
+
+  await ensureProfileForUser(client, user.id, user.user_metadata?.display_name, user.email);
+
+  const { data, error } = await client
+    .from('family_members')
+    .select('family_id,user_id,role,status,created_at')
+    .eq('user_id', user.id)
+    .eq('status', 'active')
+    .order('created_at', { ascending: true })
+    .limit(1)
+    .maybeSingle();
+  if (error) throw error;
+
+  const membership = data as SupabaseFamilyMemberRow | null;
+  if (!membership) return { userId: user.id, familyId: null, role: null };
+  await ensureParentForUser(client, user.id, membership.family_id, user.user_metadata?.display_name, user.email);
+  return { userId: user.id, familyId: membership.family_id, role: membership.role };
+}
+
+async function ensureProfileForUser(client: SupabaseClient, userId: string, displayName?: unknown, email?: string) {
+  const fallbackName = typeof displayName === 'string' && displayName.trim() ? displayName.trim() : email?.split('@')[0] ?? 'Parent';
+  const { error } = await client.from('profiles').upsert(
+    {
+      id: userId,
+      display_name: fallbackName,
+      timezone: Intl.DateTimeFormat().resolvedOptions().timeZone || 'Asia/Taipei',
+      locale: navigator.language || 'zh-TW'
+    },
+    { onConflict: 'id' }
+  );
+  if (error) throw error;
+}
+
+async function ensureParentForUser(
+  client: SupabaseClient,
+  userId: string,
+  familyId: string,
+  displayName?: unknown,
+  email?: string
+) {
+  const fallbackName = typeof displayName === 'string' && displayName.trim() ? displayName.trim() : email?.split('@')[0] ?? 'Parent';
+  const { error } = await client.from('parents').upsert(
+    {
+      id: userId,
+      family_id: familyId,
+      display_name: fallbackName,
+      email: email ?? null
+    },
+    { onConflict: 'id' }
+  );
+  if (error) throw error;
+}
+
+function setRuntimeInfo(next: SupabaseRuntimeInfo) {
+  runtimeInfo = next;
+  SUPABASE_FAMILY_ID = next.familyId ?? SUPABASE_FALLBACK_FAMILY_ID;
+  SUPABASE_PARENT_ID = next.parentId ?? SUPABASE_FALLBACK_PARENT_ID;
+  SUPABASE_PARENT_ROLE = next.parentRole;
+  SUPABASE_AUTH_STATUS = next.authStatus;
+  runtimeListeners.forEach((listener) => listener(runtimeInfo));
 }
 
 export class SupabaseDataRepository implements LocalDataRepository {
@@ -428,20 +597,76 @@ export class SupabaseDataRepository implements LocalDataRepository {
   private retryTimer: ReturnType<typeof setTimeout> | null = null;
   private retryAttempt = 0;
   private lastRemoteUpdatedAt: string | null = null;
+  private hasFamilyScope = false;
 
-  constructor(client: SupabaseClient | null = createSupabaseClient()) {
+  constructor(client: SupabaseClient | null = supabaseClient) {
     this.client = client;
     if (!client) this.cache = new LocalDataService(new MockDatabase(new VolatileSupabaseStorage(), SUPABASE_CACHE_KEY));
     if (!client) {
       console.error(
         '[supabase-repository] Supabase mode requested but VITE_SUPABASE_URL or VITE_SUPABASE_ANON_KEY is missing.'
       );
+      setRuntimeInfo({
+        userId: null,
+        parentId: null,
+        familyId: null,
+        parentRole: null,
+        authStatus: 'missing_config'
+      });
     }
-    this.hydrateFromSupabase();
-    this.subscribeToSupabaseChanges();
+    void this.initializeAuthScope();
     if (typeof window !== 'undefined') {
       window.addEventListener('online', () => {
         this.hydrateFromSupabase();
+      });
+    }
+  }
+
+  private async initializeAuthScope() {
+    if (!this.client) return;
+    await this.refreshAuthScope();
+    this.client.auth.onAuthStateChange(() => {
+      void this.refreshAuthScope();
+    });
+  }
+
+  private async refreshAuthScope() {
+    if (!this.client) return;
+    try {
+      const scope = await resolveProductionAuthScope(this.client);
+      if (!scope) {
+        this.hasFamilyScope = false;
+        setRuntimeInfo({
+          userId: null,
+          parentId: null,
+          familyId: null,
+          parentRole: null,
+          authStatus: 'signed_out'
+        });
+        return;
+      }
+      this.hasFamilyScope = Boolean(scope.familyId);
+      setRuntimeInfo({
+        userId: scope.userId,
+        parentId: scope.userId,
+        familyId: scope.familyId,
+        parentRole: scope.role,
+        authStatus: scope.familyId ? 'ready' : 'needs_family'
+      });
+      if (scope.familyId) {
+        this.subscribeToSupabaseChanges();
+        this.hydrateFromSupabase();
+      }
+      this.emit();
+    } catch (error) {
+      console.warn('[supabase-repository] auth scope failed', error);
+      this.hasFamilyScope = false;
+      setRuntimeInfo({
+        userId: null,
+        parentId: null,
+        familyId: null,
+        parentRole: null,
+        authStatus: 'signed_out'
       });
     }
   }
@@ -660,7 +885,7 @@ export class SupabaseDataRepository implements LocalDataRepository {
   listMemoryPacks = this.delegate('listMemoryPacks');
 
   private hydrateFromSupabase() {
-    if (!this.client || this.hydratePromise) return;
+    if (!this.client || !this.hasFamilyScope || this.hydratePromise) return;
     this.hydratePromise = this.fetchSupabaseState()
       .then((remoteState) => {
         if (!remoteState) return;
@@ -678,7 +903,7 @@ export class SupabaseDataRepository implements LocalDataRepository {
   }
 
   private async fetchSupabaseState(): Promise<LocalDatabaseState | null> {
-    if (!this.client) return null;
+    if (!this.client || !this.hasFamilyScope) return null;
     const state = this.cache.getState();
     const [
       { data: parent, error: parentError },
@@ -881,7 +1106,7 @@ export class SupabaseDataRepository implements LocalDataRepository {
   }
 
   private queuePush() {
-    if (!this.client) return;
+    if (!this.client || !this.hasFamilyScope) return;
     this.pendingPush = true;
     if (this.retryTimer) {
       clearTimeout(this.retryTimer);
@@ -900,7 +1125,7 @@ export class SupabaseDataRepository implements LocalDataRepository {
   }
 
   private async flushPush() {
-    if (!this.client || !this.pendingPush) return;
+    if (!this.client || !this.hasFamilyScope || !this.pendingPush) return;
     this.pendingPush = false;
     const state = toSupabaseRepositoryState(this.cache.getState());
     await this.pushRepositorySnapshot(state);
@@ -1105,7 +1330,7 @@ export class SupabaseDataRepository implements LocalDataRepository {
   }
 
   private scheduleRetry() {
-    if (!this.client || this.retryTimer) return;
+    if (!this.client || !this.hasFamilyScope || this.retryTimer) return;
     this.pendingPush = true;
     const delay = SYNC_RETRY_DELAYS_MS[Math.min(this.retryAttempt, SYNC_RETRY_DELAYS_MS.length - 1)];
     this.retryAttempt += 1;
@@ -1117,7 +1342,7 @@ export class SupabaseDataRepository implements LocalDataRepository {
   }
 
   private subscribeToSupabaseChanges() {
-    if (!this.client || this.realtimeChannel) return;
+    if (!this.client || !this.hasFamilyScope || this.realtimeChannel) return;
     this.realtimeChannel = this.client
       .channel('little-dreamers-family-repository')
       .on(

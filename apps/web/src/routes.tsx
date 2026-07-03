@@ -23,11 +23,19 @@ import { ChildSpecialDays } from './pages/child/SpecialDays';
 import { ChildScreenTime } from './pages/child/ScreenTime';
 import { ChildTokenEntry } from './pages/child/ChildTokenEntry';
 import { DesignSystemPreview } from './pages/preview/DesignSystemPreview';
+import { AuthPage } from './pages/auth/AuthPage';
+import { JoinFamilyPage } from './pages/auth/JoinFamilyPage';
+import { dataMode } from './lib/dataRepository';
 import { useLocalDataState } from './lib/useLocalData';
+import { useSupabaseRuntimeInfo } from './lib/useSupabaseRuntimeInfo';
 
 function RootRedirect() {
   const location = useLocation();
   const state = useLocalDataState();
+  const runtimeInfo = useSupabaseRuntimeInfo();
+  if (dataMode === 'supabase' && runtimeInfo.authStatus !== 'ready') {
+    return <Navigate to={runtimeInfo.authStatus === 'needs_family' ? '/join' : '/login'} replace />;
+  }
   if (location.pathname === '/' && (state.currentChildIdentity || state.deviceBinding)) {
     return <Navigate to="/child/home" replace />;
   }
@@ -35,12 +43,22 @@ function RootRedirect() {
   return <Navigate to={state.currentChildIdentity?.childId || state.deviceBinding ? '/child/home' : '/parent'} replace />;
 }
 
+function RequireParentAuth() {
+  const runtimeInfo = useSupabaseRuntimeInfo();
+  if (dataMode === 'supabase' && runtimeInfo.authStatus !== 'ready') {
+    return <Navigate to={runtimeInfo.authStatus === 'needs_family' ? '/join' : '/login'} replace />;
+  }
+  return <ParentLayout />;
+}
+
 export const router = createBrowserRouter([
   { path: '/', element: <RootRedirect /> },
+  { path: '/login', element: <AuthPage /> },
+  { path: '/join', element: <JoinFamilyPage /> },
   { path: '/preview/design-system', element: <DesignSystemPreview /> },
   {
     path: '/parent',
-    element: <ParentLayout />,
+    element: <RequireParentAuth />,
     children: [
       { index: true, element: <Dashboard /> },
       { path: 'dashboard', element: <Dashboard /> },

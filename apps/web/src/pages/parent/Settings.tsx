@@ -2,18 +2,22 @@ import { useEffect, useMemo, useState, type ChangeEvent, type FormEvent } from '
 import { useNavigate } from 'react-router-dom';
 import { Database, Download, RotateCcw, Settings as SettingsIcon, Upload, UserRound } from 'lucide-react';
 import { dataMode, dataModeLabel } from '../../lib/dataRepository';
+import { createProductionFamilyInvite } from '../../lib/supabaseData';
 import { settingsRepository } from '../../lib/settingsRepository';
 import type { LocalFamilySettings } from '../../lib/localTypes';
 import { useLocalDataState } from '../../lib/useLocalData';
+import { useSupabaseRuntimeInfo } from '../../lib/useSupabaseRuntimeInfo';
 
 type SettingsForm = Omit<LocalFamilySettings, 'family_created_at' | 'updated_at'>;
 
 export function Settings() {
   const navigate = useNavigate();
   const state = useLocalDataState();
+  const runtimeInfo = useSupabaseRuntimeInfo();
   const settings = state.family_settings;
   const [form, setForm] = useState<SettingsForm>(() => toForm(settings));
   const [message, setMessage] = useState('');
+  const [inviteLink, setInviteLink] = useState('');
   const usage = useMemo(() => estimateStorageUsage(), [state]);
 
   const update = <K extends keyof SettingsForm>(key: K, value: SettingsForm[K]) => {
@@ -77,6 +81,19 @@ export function Settings() {
       navigate('/parent/children', { replace: true });
     } catch (caught) {
       setMessage(caught instanceof Error ? caught.message : '回復初始狀態失敗');
+    }
+  };
+
+  const createInvite = async () => {
+    setMessage('');
+    try {
+      const invite = await createProductionFamilyInvite('guardian');
+      const origin = typeof window === 'undefined' ? '' : window.location.origin;
+      const link = invite?.join_path ? `${origin}${invite.join_path}` : '';
+      setInviteLink(link);
+      setMessage(invite?.invite_code ? `邀請碼已建立：${invite.invite_code}` : '邀請碼已建立');
+    } catch (caught) {
+      setMessage(caught instanceof Error ? caught.message : '建立邀請碼失敗');
     }
   };
 
@@ -146,6 +163,20 @@ export function Settings() {
           <div><dt>dataMode</dt><dd>{dataMode}</dd></div>
           <div><dt>資料筆數</dt><dd>{usage.records}</dd></div>
           <div><dt>最後更新</dt><dd>{formatDate(state.updated_at)}</dd></div>
+        </dl>
+      </section>
+
+      <section className="settings-data-panel">
+        <header><div><h2>家庭邀請</h2><p>Owner 可產生邀請碼或分享連結，另一位家長登入後即可加入同一個 familyId。</p></div><UserRound size={28} /></header>
+        <div className="settings-data-actions">
+          <button type="button" onClick={() => void createInvite()} disabled={dataMode !== 'supabase' || runtimeInfo.parentRole !== 'owner'}>
+            產生邀請碼
+          </button>
+        </div>
+        <dl>
+          <div><dt>familyId</dt><dd>{runtimeInfo.familyId ?? '-'}</dd></div>
+          <div><dt>parentRole</dt><dd>{runtimeInfo.parentRole ?? '-'}</dd></div>
+          <div><dt>邀請連結</dt><dd>{inviteLink || '-'}</dd></div>
         </dl>
       </section>
     </form>
