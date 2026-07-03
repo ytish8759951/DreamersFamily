@@ -383,7 +383,7 @@ export function getSupabaseConfig(): SupabaseConfig | null {
 }
 
 export function isSupabaseModeEnabled() {
-  return import.meta.env.VITE_DATA_MODE === 'supabase' && Boolean(getSupabaseConfig());
+  return import.meta.env.VITE_DATA_MODE !== 'local' && Boolean(getSupabaseConfig());
 }
 
 export function createSupabaseClient(config = getSupabaseConfig()): SupabaseClient | null {

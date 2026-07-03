@@ -232,7 +232,7 @@ export function Dashboard() {
       <section className="ph-welcome">
         <div>
           <h1>家庭總覽<span> Dashboard</span></h1>
-          <p>{state.family_settings.family_name} 的 localStorage 即時資料摘要。</p>
+          <p>{state.family_settings.family_name} 的 Supabase Repository 即時資料摘要。</p>
         </div>
         <button type="button"><Plus size={17} /> 新增家庭資料</button>
       </section>
