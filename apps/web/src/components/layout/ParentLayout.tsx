@@ -14,6 +14,8 @@ import {
 } from 'lucide-react';
 import { useLayoutEffect, useState } from 'react';
 import { NavLink, Outlet, useLocation } from 'react-router-dom';
+import { APP_BUNDLE_VERSION } from '../../lib/appRuntime';
+import { dataModeLabel } from '../../lib/dataRepository';
 import { useLocalDataState } from '../../lib/useLocalData';
 
 const navigation = [
@@ -69,8 +71,8 @@ export function ParentLayout() {
   useLayoutEffect(() => {
     if (typeof document === 'undefined') return;
     const linkId = 'app-manifest-link';
-    const href = '/manifest-parent.webmanifest?v=20260702-parent-pwa-v1';
-    const iconHref = '/app-icon-parent.png?v=20260702-parent-pwa-v1';
+    const href = `/manifest-parent.webmanifest?v=${APP_BUNDLE_VERSION}`;
+    const iconHref = `/app-icon-parent.png?v=${APP_BUNDLE_VERSION}`;
     const existing = document.getElementById(linkId) as HTMLLinkElement | null;
     const link = existing ?? document.createElement('link');
     link.id = linkId;
@@ -102,7 +104,7 @@ export function ParentLayout() {
             </NavLink>
           ))}
         </nav>
-        <div className="ph-user"><span>家</span><strong>家長端</strong><small>Local MVP</small></div>
+        <div className="ph-user"><span>家</span><strong>家長端</strong><small>{dataModeLabel}</small></div>
       </aside>
 
       <div className="ph-content">

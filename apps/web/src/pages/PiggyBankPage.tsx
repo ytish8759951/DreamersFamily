@@ -3,6 +3,7 @@ import { createPortal } from 'react-dom';
 import { ArrowLeft, ArrowRight, Check, Plus, Trash2, Upload } from 'lucide-react';
 import { PiggySceneV2, type PiggySceneV2ShelfSlot } from '../components/piggy/PiggySceneV2';
 import type { PiggyCoinValue } from '../components/piggy/PiggyUiAssets';
+import { dataModeBadgeLabel } from '../lib/dataRepository';
 import { compressImageFile } from '../lib/imageCompression';
 import { piggyRepository } from '../lib/piggyRepository';
 import type { LocalDatabaseState, LocalPiggyBankLog, LocalPiggyProduct, LocalPiggyPurchase } from '../lib/localTypes';
@@ -557,7 +558,7 @@ function PiggyProductForm({ childId, product, onClose }: { childId: string; prod
   return (
     <div className="local-form-backdrop" role="presentation" onMouseDown={onClose}>
       <section className="local-form-dialog piggy-product-dialog" role="dialog" aria-modal="true" onMouseDown={(event) => event.stopPropagation()}>
-        <header><div><small>LOCAL TEST MODE</small><h2>{product ? '修改商品' : '新增商品'}</h2></div><button type="button" onClick={onClose}>×</button></header>
+        <header><div><small>{dataModeBadgeLabel}</small><h2>{product ? '修改商品' : '新增商品'}</h2></div><button type="button" onClick={onClose}>×</button></header>
         <form onSubmit={saveProduct}>
           <label className="is-full">商品名稱<input maxLength={50} value={form.name} onChange={(event) => setForm({ ...form, name: event.target.value })} /></label>
           <label>價格<input required type="number" min="1" step="1" value={form.price} onChange={(event) => setForm({ ...form, price: event.target.value })} /></label>

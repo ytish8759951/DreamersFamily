@@ -7,7 +7,15 @@ export default defineConfig({
     react(),
     VitePWA({
       registerType: 'autoUpdate',
+      injectRegister: null,
       manifest: false,
+      workbox: {
+        cacheId: 'dreamers-family-supabase-cache-v2',
+        cleanupOutdatedCaches: true,
+        clientsClaim: true,
+        skipWaiting: true,
+        navigateFallbackDenylist: [/^\/api\//]
+      },
       includeAssets: [
         'manifest-parent.webmanifest',
         'manifest-child.webmanifest',

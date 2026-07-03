@@ -5267,6 +5267,29 @@ p {
   font-size: 13px;
 }
 
+.ph-runtime-status {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  margin-top: 10px;
+  gap: 8px;
+}
+
+.ph-runtime-status span {
+  border-radius: 999px;
+  background: #e8f4e5;
+  padding: 5px 9px;
+  color: #3f7338;
+  font-size: 11px;
+  font-weight: 800;
+}
+
+.ph-runtime-status small {
+  color: #8a8177;
+  font-size: 11px;
+  font-weight: 700;
+}
+
 .ph-welcome button {
   z-index: 1;
   display: inline-flex;

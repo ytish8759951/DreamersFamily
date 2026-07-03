@@ -18,7 +18,8 @@ import {
   Target,
   Video
 } from 'lucide-react';
-import { dataRepository } from '../../lib/dataRepository';
+import { dataMode, dataModeBadgeLabel, dataRepository } from '../../lib/dataRepository';
+import { APP_BUNDLE_VERSION } from '../../lib/appRuntime';
 import type { LocalDatabaseState, LocalTask, ShareWithMedia } from '../../lib/localTypes';
 import { useLocalDataState } from '../../lib/useLocalData';
 
@@ -232,7 +233,11 @@ export function Dashboard() {
       <section className="ph-welcome">
         <div>
           <h1>家庭總覽<span> Dashboard</span></h1>
-          <p>{state.family_settings.family_name} 的 Supabase Repository 即時資料摘要。</p>
+          <p>{state.family_settings.family_name} 的 {dataMode === 'supabase' ? 'Supabase Repository' : 'localStorage Repository'} 即時資料摘要。</p>
+          <div className="ph-runtime-status" aria-label="目前資料模式">
+            <span>{dataModeBadgeLabel}</span>
+            <small>dataMode={dataMode} · bundle={APP_BUNDLE_VERSION}</small>
+          </div>
         </div>
         <button type="button"><Plus size={17} /> 新增家庭資料</button>
       </section>

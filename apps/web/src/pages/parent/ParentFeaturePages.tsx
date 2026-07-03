@@ -3,7 +3,7 @@ import { Check, Clock3, Plus } from 'lucide-react';
 import { LocalDreamCover } from '../../components/LocalDreamCover';
 import { LocalTaskMedia } from '../../components/LocalTaskMedia';
 import { LocalShareMedia as LocalShareMediaView } from '../../components/LocalShareMedia';
-import { dataRepository } from '../../lib/dataRepository';
+import { dataMode, dataModeBadgeLabel, dataModeLabel, dataRepository } from '../../lib/dataRepository';
 import { useDreamCoverMigration } from '../../lib/dreamCoverMigration';
 import { compressImageFile } from '../../lib/imageCompression';
 import { mailboxRepository, type MailboxRecordingDraft } from '../../lib/mailboxRepository';
@@ -391,7 +391,7 @@ export function ParentTasksPage() {
         <div className="local-form-backdrop" role="presentation" onMouseDown={() => setShowForm(false)}>
           <section className="local-form-dialog task-form-dialog" role="dialog" aria-modal="true" onMouseDown={(event) => event.stopPropagation()}>
             <header>
-              <div><small>LOCAL TEST MODE</small><h2>新增任務</h2></div>
+              <div><small>{dataModeBadgeLabel}</small><h2>新增任務</h2></div>
               <button type="button" aria-label="關閉" onClick={() => setShowForm(false)}>×</button>
             </header>
             <form onSubmit={createTask}>
@@ -920,7 +920,7 @@ export function ParentDreamsPage() {
       <section className="pf-panel dream-empty-state">
         <span>🌈</span>
         <h2>還沒有夢想基金</h2>
-        <p>先新增孩子，再建立第一個夢想。資料會存在 localStorage。</p>
+        <p>先新增孩子，再建立第一個夢想。資料會同步到 {dataModeLabel}。</p>
         <button className="ds-primary-button" onClick={openDreamForm}>＋ 新增夢想</button>
       </section>
     )}
@@ -952,7 +952,7 @@ export function ParentDreamsPage() {
     {showDreamForm ? (
       <div className="local-form-backdrop" role="presentation" onMouseDown={() => setShowDreamForm(false)}>
         <section className="local-form-dialog" role="dialog" aria-modal="true" onMouseDown={(event) => event.stopPropagation()}>
-          <header><div><small>LOCAL TEST MODE</small><h2>新增夢想</h2></div><button type="button" aria-label="關閉" onClick={() => setShowDreamForm(false)}>×</button></header>
+          <header><div><small>{dataModeBadgeLabel}</small><h2>新增夢想</h2></div><button type="button" aria-label="關閉" onClick={() => setShowDreamForm(false)}>×</button></header>
           <form onSubmit={createDream}>
             <label>孩子<select required value={dreamForm.child_id} onChange={(event) => setDreamForm({ ...dreamForm, child_id: event.target.value })}><option value="">請選擇孩子</option>{activeChildren.map((child) => <option value={child.id} key={child.id}>{child.display_name}</option>)}</select></label>
             <label>目標金額<input type="number" min="0" step="1" required value={dreamForm.target_amount} onChange={(event) => setDreamForm({ ...dreamForm, target_amount: event.target.value })} /></label>
@@ -979,7 +979,7 @@ export function ParentDreamsPage() {
     {showDepositForm ? (
       <div className="local-form-backdrop" role="presentation" onMouseDown={() => setShowDepositForm(false)}>
         <section className="local-form-dialog" role="dialog" aria-modal="true" onMouseDown={(event) => event.stopPropagation()}>
-          <header><div><small>LOCAL TEST MODE</small><h2>新增存款</h2></div><button type="button" aria-label="關閉" onClick={() => setShowDepositForm(false)}>×</button></header>
+          <header><div><small>{dataModeBadgeLabel}</small><h2>新增存款</h2></div><button type="button" aria-label="關閉" onClick={() => setShowDepositForm(false)}>×</button></header>
           <form onSubmit={addDeposit}>
             <label className="is-full">選擇夢想<select required value={depositForm.dream_id} onChange={(event) => setDepositForm({ ...depositForm, dream_id: event.target.value })}><option value="">請選擇夢想</option>{activeDreams.map((dream) => <option value={dream.id} key={dream.id}>{childName(dream.child_id)} · {dream.title} · {dream.progress_percent}%</option>)}</select></label>
             <label>存款金額<input autoFocus type="number" min="1" step="1" required value={depositForm.amount} onChange={(event) => setDepositForm({ ...depositForm, amount: event.target.value })} /></label>
@@ -1318,12 +1318,12 @@ export function ParentMailboxPage() {
         const readCount = childMessages.filter((message) => message.status === 'opened').length;
         return <article key={child.id}><span>👦</span><p><strong>{child.display_name}</strong><small>{readCount}/{childMessages.length} 則已讀</small></p><b>{childMessages.length - readCount} 未讀</b></article>;
       })}</Panel>
-      <Panel title="寄件摘要" action="localStorage" className="pf-replies">{messages.slice(0, 4).map((message, i) => <article key={message.id}><span className={`pf-avatar is-${kids[i % kids.length].tone}`}>{mailboxTypeIcon(message.card_type)}</span><p><strong>{childName(message.child_id)}</strong><small>{message.status === 'opened' ? '孩子已讀' : '等待孩子查看'}</small></p></article>)}</Panel>
+      <Panel title="寄件摘要" action={dataModeLabel} className="pf-replies">{messages.slice(0, 4).map((message, i) => <article key={message.id}><span className={`pf-avatar is-${kids[i % kids.length].tone}`}>{mailboxTypeIcon(message.card_type)}</span><p><strong>{childName(message.child_id)}</strong><small>{message.status === 'opened' ? '孩子已讀' : '等待孩子查看'}</small></p></article>)}</Panel>
     </section>
     {showForm ? (
       <div className="local-form-backdrop" role="presentation" onMouseDown={closeMailboxForm}>
         <section className="local-form-dialog mailbox-form-dialog" role="dialog" aria-modal="true" onMouseDown={(event) => event.stopPropagation()}>
-          <header><div><small>LOCAL TEST MODE</small><h2>發送{mailboxTypeLabel(form.type)}</h2></div><button type="button" aria-label="關閉" onClick={closeMailboxForm}>×</button></header>
+          <header><div><small>{dataModeBadgeLabel}</small><h2>發送{mailboxTypeLabel(form.type)}</h2></div><button type="button" aria-label="關閉" onClick={closeMailboxForm}>×</button></header>
           <form onSubmit={sendMessage}>
             <label>
               收件孩子

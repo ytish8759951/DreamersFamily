@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState, type FormEvent, type ReactNode } from 'react';
 import { CalendarHeart, Clock3, Gift, Plus, PartyPopper } from 'lucide-react';
 import { resolveCurrentChildId } from '../../lib/childSession';
+import { dataModeBadgeLabel } from '../../lib/dataRepository';
 import { specialDayRepository } from '../../lib/specialDayRepository';
 import type { LocalSpecialDay, SpecialDayType } from '../../lib/localTypes';
 import { getBirthdaySpecialDays } from '../../lib/specialDays';
@@ -167,7 +168,7 @@ export function ChildSpecialDays() {
           <section className="local-form-dialog" role="dialog" aria-modal="true" onMouseDown={(event) => event.stopPropagation()}>
             <header>
               <div>
-                <small>LOCAL TEST MODE</small>
+                <small>{dataModeBadgeLabel}</small>
                 <h2>新增我的日子</h2>
               </div>
               <button type="button" aria-label="關閉" onClick={() => setShowForm(false)}>×</button>

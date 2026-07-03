@@ -27,7 +27,7 @@ import { LocalDreamCover, useLocalDreamCoverUrl } from '../../components/LocalDr
 import { LocalShareMedia as LocalShareMediaView } from '../../components/LocalShareMedia';
 import { LocalTaskMedia } from '../../components/LocalTaskMedia';
 import { resolveCurrentChildId } from '../../lib/childSession';
-import { dataRepository } from '../../lib/dataRepository';
+import { dataModeBadgeLabel, dataRepository } from '../../lib/dataRepository';
 import { useDreamCoverMigration } from '../../lib/dreamCoverMigration';
 import { compressImageFile } from '../../lib/imageCompression';
 import { logVideoStorageDiagnostics } from '../../lib/localVideoStore';
@@ -955,7 +955,7 @@ function SharePage() {
       {formMode ? (
         <div className="local-form-backdrop" role="presentation" onMouseDown={closeShareForm}>
           <section className="local-form-dialog child-share-dialog" role="dialog" aria-modal="true" onMouseDown={(event) => event.stopPropagation()}>
-            <header><div><small>LOCAL TEST MODE</small><h2>新增{childMediaTypeLabel(formMode)}分享</h2></div><button type="button" aria-label="關閉" onClick={closeShareForm}>×</button></header>
+            <header><div><small>{dataModeBadgeLabel}</small><h2>新增{childMediaTypeLabel(formMode)}分享</h2></div><button type="button" aria-label="關閉" onClick={closeShareForm}>×</button></header>
             <form onSubmit={createShare}>
               {formMode === 'audio' ? (
                 <ShareAudioRecorder

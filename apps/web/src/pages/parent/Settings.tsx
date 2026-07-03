@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState, type ChangeEvent, type FormEvent } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { Database, Download, RotateCcw, Settings as SettingsIcon, Upload, UserRound } from 'lucide-react';
+import { dataMode, dataModeLabel } from '../../lib/dataRepository';
 import { settingsRepository } from '../../lib/settingsRepository';
 import type { LocalFamilySettings } from '../../lib/localTypes';
 import { useLocalDataState } from '../../lib/useLocalData';
@@ -85,7 +86,7 @@ export function Settings() {
         <div>
           <span><SettingsIcon size={30} /></span>
           <h1>設定</h1>
-          <p>管理家庭資料、分享權限與本機資料匯入匯出。</p>
+          <p>管理家庭資料、分享權限與資料匯入匯出。</p>
         </div>
         <button type="submit">儲存設定</button>
       </header>
@@ -114,7 +115,7 @@ export function Settings() {
         </article>
 
         <article className="settings-panel">
-          <header><h2>孩子預設值</h2><small>Local MVP</small></header>
+          <header><h2>孩子預設值</h2><small>{dataModeLabel}</small></header>
           <label>每日螢幕時間<input type="number" min="0" value={form.default_daily_screen_minutes} onChange={(event) => update('default_daily_screen_minutes', Number(event.target.value))} /></label>
           <label>每日星星上限<input type="number" min="0" value={form.default_daily_star_limit} onChange={(event) => update('default_daily_star_limit', Number(event.target.value))} /></label>
           <label>每顆星兌換分鐘<input type="number" min="1" value={form.screen_time_star_minutes_per_star} onChange={(event) => update('screen_time_star_minutes_per_star', Number(event.target.value))} /></label>
@@ -134,14 +135,15 @@ export function Settings() {
       </section>
 
       <section className="settings-data-panel">
-        <header><div><h2>測試資料管理</h2><p>localStorage 只保存文字、設定與 mediaId metadata。</p></div><Database size={28} /></header>
+        <header><div><h2>測試資料管理</h2><p>{dataMode === 'supabase' ? '目前使用 Supabase 同步資料；匯入匯出只處理 repository JSON。' : 'localStorage 只保存文字、設定與 mediaId metadata。'}</p></div><Database size={28} /></header>
         <div className="settings-data-actions">
           <button type="button" onClick={exportData}><Download size={18} /> 匯出 JSON</button>
           <label><Upload size={18} /> 匯入 JSON<input type="file" accept="application/json,.json" onChange={importData} /></label>
           <button type="button" className="is-danger" onClick={() => void resetDemoData()}><RotateCcw size={18} /> 回復初始狀態</button>
         </div>
         <dl>
-          <div><dt>localStorage 用量</dt><dd>{usage.kb} KB</dd></div>
+          <div><dt>{dataMode === 'supabase' ? 'Repository JSON 大小' : 'localStorage 用量'}</dt><dd>{usage.kb} KB</dd></div>
+          <div><dt>dataMode</dt><dd>{dataMode}</dd></div>
           <div><dt>資料筆數</dt><dd>{usage.records}</dd></div>
           <div><dt>最後更新</dt><dd>{formatDate(state.updated_at)}</dd></div>
         </dl>

@@ -1,6 +1,7 @@
 import { Camera, Home, ListChecks, Mail, PiggyBank } from 'lucide-react';
 import { useLayoutEffect } from 'react';
 import { NavLink, Outlet, useLocation } from 'react-router-dom';
+import { APP_BUNDLE_VERSION } from '../../lib/appRuntime';
 
 const navItems = [
   { label: '我的家', href: '/child/home', icon: Home },
@@ -24,8 +25,8 @@ export function ChildLayout() {
   useLayoutEffect(() => {
     if (typeof document === 'undefined') return;
     const linkId = 'app-manifest-link';
-    const href = '/manifest-child.webmanifest?v=20260702-child-pwa-v1';
-    const iconHref = '/app-icon-child.png?v=20260702-child-pwa-v1';
+    const href = `/manifest-child.webmanifest?v=${APP_BUNDLE_VERSION}`;
+    const iconHref = `/app-icon-child.png?v=${APP_BUNDLE_VERSION}`;
     const existing = document.getElementById(linkId) as HTMLLinkElement | null;
     const link = existing ?? document.createElement('link');
     link.id = linkId;

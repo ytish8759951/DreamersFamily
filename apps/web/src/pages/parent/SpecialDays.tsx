@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState, type ChangeEvent, type Dispatch, type FormEvent, type SetStateAction } from 'react';
 import { CalendarDays, CalendarHeart, Edit3, Plus, Trash2 } from 'lucide-react';
+import { dataModeBadgeLabel } from '../../lib/dataRepository';
 import { specialDayRepository } from '../../lib/specialDayRepository';
 import type { LocalSpecialDay, SpecialDayType } from '../../lib/localTypes';
 import { getBirthdaySpecialDays } from '../../lib/specialDays';
@@ -210,7 +211,7 @@ export function SpecialDays() {
       {showForm ? (
         <div className="local-form-backdrop" role="presentation" onMouseDown={() => setShowForm(false)}>
           <section className="local-form-dialog" role="dialog" aria-modal="true" onMouseDown={(event) => event.stopPropagation()}>
-            <header><div><small>LOCAL TEST MODE</small><h2>{editingId ? '編輯特殊日' : '新增特殊日'}</h2></div><button type="button" aria-label="關閉" onClick={() => setShowForm(false)}>×</button></header>
+            <header><div><small>{dataModeBadgeLabel}</small><h2>{editingId ? '編輯特殊日' : '新增特殊日'}</h2></div><button type="button" aria-label="關閉" onClick={() => setShowForm(false)}>×</button></header>
             <form onSubmit={saveDay}>
               <label>孩子<select value={form.child_id} onChange={(event) => setForm({ ...form, child_id: event.target.value })}><option value="family">全家</option>{activeChildren.map((child) => <option value={child.id} key={child.id}>{child.display_name}</option>)}</select></label>
               <label>類型<select value={form.type} onChange={(event) => setForm({ ...form, type: event.target.value as SpecialDayType })}>{manualTypeOptions.map((type) => <option value={type.value} key={type.value}>{type.icon} {type.label}</option>)}</select></label>

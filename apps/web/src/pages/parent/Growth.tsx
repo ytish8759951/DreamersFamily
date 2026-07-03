@@ -1,5 +1,6 @@
 import { useMemo, useState, type FormEvent } from 'react';
 import { Activity, Check, Edit3, Plus, Trash2 } from 'lucide-react';
+import { dataModeBadgeLabel } from '../../lib/dataRepository';
 import { growthRepository } from '../../lib/growthRepository';
 import type { LocalGrowthRecord } from '../../lib/localTypes';
 import { useLocalDataState } from '../../lib/useLocalData';
@@ -174,7 +175,7 @@ export function Growth() {
         <div className="local-form-backdrop" role="presentation" onMouseDown={closeForm}>
           <section className="local-form-dialog" role="dialog" aria-modal="true" onMouseDown={(event) => event.stopPropagation()}>
             <header>
-              <div><small>LOCAL TEST MODE</small><h2>{editingId ? '編輯成長紀錄' : '新增成長紀錄'}</h2></div>
+              <div><small>{dataModeBadgeLabel}</small><h2>{editingId ? '編輯成長紀錄' : '新增成長紀錄'}</h2></div>
               <button type="button" aria-label="關閉" onClick={closeForm}>×</button>
             </header>
             <form onSubmit={submit}>

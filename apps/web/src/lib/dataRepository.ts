@@ -4,5 +4,7 @@ import { isSupabaseModeRequested, SupabaseDataRepository } from './supabaseData'
 export type DataMode = 'local' | 'supabase';
 
 export const dataMode: DataMode = isSupabaseModeRequested() ? 'supabase' : 'local';
+export const dataModeLabel = dataMode === 'supabase' ? 'Supabase' : 'localStorage';
+export const dataModeBadgeLabel = dataMode === 'supabase' ? 'SUPABASE MODE' : 'LOCAL MODE';
 export const dataRepository: LocalDataRepository =
   dataMode === 'supabase' ? new SupabaseDataRepository() : localData;

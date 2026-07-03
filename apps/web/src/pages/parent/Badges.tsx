@@ -1,6 +1,6 @@
 import { useMemo, useState, type FormEvent, type ReactNode } from 'react';
 import { Award, Medal, Plus, Trash2, Trophy } from 'lucide-react';
-import { dataRepository } from '../../lib/dataRepository';
+import { dataModeBadgeLabel, dataRepository } from '../../lib/dataRepository';
 import type { LocalBadge, LocalChildBadge } from '../../lib/localTypes';
 import { useLocalDataState } from '../../lib/useLocalData';
 
@@ -173,7 +173,7 @@ export function Badges() {
       {showBadgeForm ? (
         <div className="local-form-backdrop" role="presentation" onMouseDown={() => setShowBadgeForm(false)}>
           <section className="local-form-dialog" role="dialog" aria-modal="true" onMouseDown={(event) => event.stopPropagation()}>
-            <header><div><small>LOCAL TEST MODE</small><h2>新增徽章</h2></div><button type="button" aria-label="關閉" onClick={() => setShowBadgeForm(false)}>×</button></header>
+            <header><div><small>{dataModeBadgeLabel}</small><h2>新增徽章</h2></div><button type="button" aria-label="關閉" onClick={() => setShowBadgeForm(false)}>×</button></header>
             <form onSubmit={createBadge}>
               <div className="badge-icon-field">
                 <span>選擇徽章圖示</span>
@@ -206,7 +206,7 @@ export function Badges() {
       {showAwardForm ? (
         <div className="local-form-backdrop" role="presentation" onMouseDown={() => setShowAwardForm(false)}>
           <section className="local-form-dialog" role="dialog" aria-modal="true" onMouseDown={(event) => event.stopPropagation()}>
-            <header><div><small>LOCAL TEST MODE</small><h2>頒發徽章</h2></div><button type="button" aria-label="關閉" onClick={() => setShowAwardForm(false)}>×</button></header>
+            <header><div><small>{dataModeBadgeLabel}</small><h2>頒發徽章</h2></div><button type="button" aria-label="關閉" onClick={() => setShowAwardForm(false)}>×</button></header>
             <form onSubmit={awardBadge}>
               <label>孩子<select required value={awardForm.child_id} onChange={(event) => setAwardForm({ ...awardForm, child_id: event.target.value })}><option value="">請選擇孩子</option>{activeChildren.map((child) => <option value={child.id} key={child.id}>{child.display_name}</option>)}</select></label>
               <label>徽章<select required value={awardForm.badge_id} onChange={(event) => setAwardForm({ ...awardForm, badge_id: event.target.value })}><option value="">請選擇徽章</option>{badges.map((badge) => <option value={badge.id} key={badge.id}>{badge.icon} {badge.name}</option>)}</select></label>
