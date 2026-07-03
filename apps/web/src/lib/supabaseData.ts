@@ -521,6 +521,23 @@ function firstRpcRow<T>(data: T | T[] | null): T | null {
   return data;
 }
 
+function formatSupabaseError(action: string, error: unknown): string {
+  if (!error || typeof error !== 'object') return `${action} failed.`;
+  const source = error as {
+    message?: unknown;
+    details?: unknown;
+    hint?: unknown;
+    code?: unknown;
+  };
+  const parts = [
+    typeof source.message === 'string' ? source.message : null,
+    typeof source.details === 'string' ? source.details : null,
+    typeof source.hint === 'string' ? `Hint: ${source.hint}` : null,
+    typeof source.code === 'string' ? `Code: ${source.code}` : null
+  ].filter(Boolean);
+  return parts.length ? `${action} failed: ${parts.join(' ')}` : `${action} failed.`;
+}
+
 async function refreshAuthSessionAfterScopeChange() {
   if (!supabaseClient) return;
   const { error } = await supabaseClient.auth.refreshSession();
@@ -614,8 +631,9 @@ export async function createProductionFamily(familyName: string) {
   const { data, error } = await supabaseClient.rpc('create_family_for_current_user', {
     family_name: familyName.trim() || '小小夢想家 Family'
   });
-  if (error) throw error;
+  if (error) throw new Error(formatSupabaseError('Create family RPC create_family_for_current_user', error));
   const row = firstRpcRow(data as ProductionFamilyScopeRow | ProductionFamilyScopeRow[] | null);
+  if (!row) throw new Error('Create family RPC create_family_for_current_user failed: no family scope was returned.');
   if (row) {
     saveFamilyBinding(row.parent_id, row.family_id);
     setRuntimeInfo({
@@ -746,21 +764,35 @@ export async function revokeDeviceBoundParent(parentId: string, familyId: string
   if (error) throw error;
 }
 
-export async function updateProductionParentProfile(parentName: string, parentEmail: string) {
+export async function updateProductionParentProfile(
+  parentName: string,
+  parentEmail: string,
+  relation?: string,
+  parentRole?: 'owner' | 'parent'
+) {
   if (!supabaseClient) throw new Error('Supabase is not configured.');
   const { data: sessionData, error: sessionError } = await supabaseClient.auth.getSession();
   if (sessionError) throw sessionError;
   const user = sessionData.session?.user;
   if (!user) throw new Error('Authentication required.');
+  const updates: {
+    display_name: string;
+    email: string | null;
+    relation: string | null;
+    updated_at: string;
+    parent_role?: 'owner' | 'parent';
+  } = {
+    display_name: parentName.trim() || user.email?.split('@')[0] || 'Parent',
+    email: parentEmail.trim() || user.email || null,
+    relation: relation?.trim() || parentName.trim() || null,
+    updated_at: new Date().toISOString()
+  };
+  if (parentRole) updates.parent_role = parentRole;
   const { error } = await supabaseClient
     .from('parents')
-    .update({
-      display_name: parentName.trim() || user.email?.split('@')[0] || 'Parent',
-      email: parentEmail.trim() || user.email || null,
-      updated_at: new Date().toISOString()
-    })
+    .update(updates)
     .eq('id', user.id);
-  if (error) throw error;
+  if (error) throw new Error(formatSupabaseError('Update parent profile', error));
 }
 
 export async function leaveProductionFamily() {
