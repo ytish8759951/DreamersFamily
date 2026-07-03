@@ -64,7 +64,7 @@ export interface SupabaseRuntimeInfo {
   parentId: string | null;
   familyId: string | null;
   parentRole: ParentRole | null;
-  authStatus: 'initializing' | 'signed_out' | 'needs_family' | 'ready' | 'missing_config';
+  authStatus: 'initializing' | 'signed_out' | 'ready' | 'missing_config';
 }
 
 let runtimeInfo: SupabaseRuntimeInfo = {
@@ -477,12 +477,13 @@ export async function signInParentWithPassword(email: string, password: string) 
 
 export async function signUpParentWithPassword(email: string, password: string, displayName?: string) {
   if (!supabaseClient) throw new Error('Supabase is not configured.');
-  const { error } = await supabaseClient.auth.signUp({
+  const { data, error } = await supabaseClient.auth.signUp({
     email,
     password,
     options: { data: { display_name: displayName || email.split('@')[0] } }
   });
   if (error) throw error;
+  if (data.session) await createProductionFamily(displayName ? `${displayName} 的家庭` : 'Dreamers Family');
 }
 
 export async function signOutParent() {
@@ -498,6 +499,13 @@ export async function createProductionFamily(familyName: string) {
   });
   if (error) throw error;
   return data as { family_id: string; parent_id: string; parent_role: ParentRole } | null;
+}
+
+export async function ensureProductionFamily(familyName = 'Dreamers Family') {
+  if (!supabaseClient) throw new Error('Supabase is not configured.');
+  const scope = await resolveProductionAuthScope(supabaseClient);
+  if (scope?.familyId) return { family_id: scope.familyId, parent_id: scope.userId, parent_role: scope.role };
+  return createProductionFamily(familyName);
 }
 
 export async function joinProductionFamily(familyId: string, inviteCode: string) {
@@ -527,13 +535,26 @@ async function resolveProductionAuthScope(client: SupabaseClient): Promise<Produ
 
   await ensureProfileForUser(client, user.id, user.user_metadata?.display_name, user.email);
 
+  const { data: parentData, error: parentError } = await client
+    .from('parents')
+    .select('family_id')
+    .eq('id', user.id)
+    .maybeSingle();
+  if (parentError) throw parentError;
+
+  let familyId = (parentData as { family_id?: string | null } | null)?.family_id ?? null;
+  if (!familyId) {
+    const created = await createProductionFamily(user.user_metadata?.display_name ? `${user.user_metadata.display_name} 的家庭` : 'Dreamers Family');
+    familyId = created?.family_id ?? null;
+  }
+  if (!familyId) return { userId: user.id, familyId: null, role: null };
+
   const { data, error } = await client
     .from('family_members')
     .select('family_id,user_id,role,status,created_at')
     .eq('user_id', user.id)
+    .eq('family_id', familyId)
     .eq('status', 'active')
-    .order('created_at', { ascending: true })
-    .limit(1)
     .maybeSingle();
   if (error) throw error;
 
@@ -651,7 +672,7 @@ export class SupabaseDataRepository implements LocalDataRepository {
         parentId: scope.userId,
         familyId: scope.familyId,
         parentRole: scope.role,
-        authStatus: scope.familyId ? 'ready' : 'needs_family'
+        authStatus: 'ready'
       });
       if (scope.familyId) {
         this.subscribeToSupabaseChanges();

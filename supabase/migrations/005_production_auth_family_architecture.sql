@@ -51,9 +51,26 @@ as $$
 declare
   current_user_id uuid;
   created_family_id uuid;
+  existing_family_id uuid;
+  existing_role text;
   safe_name text := coalesce(nullif(trim(family_name), ''), 'Dreamers Family');
 begin
   current_user_id := public.ensure_profile_for_current_user();
+
+  select p.family_id, fm.role
+    into existing_family_id, existing_role
+  from public.parents p
+  join public.family_members fm
+    on fm.family_id = p.family_id
+   and fm.user_id = current_user_id
+   and fm.status = 'active'
+  where p.id = current_user_id
+  limit 1;
+
+  if existing_family_id is not null then
+    return query select existing_family_id, current_user_id, existing_role;
+    return;
+  end if;
 
   insert into public.families (name, owner_id)
   values (safe_name, current_user_id)
@@ -153,9 +170,19 @@ as $$
 declare
   current_user_id uuid;
   invitation record;
+  existing_family_id uuid;
   safe_code text := upper(trim(invite_code));
 begin
   current_user_id := public.ensure_profile_for_current_user();
+
+  select p.family_id into existing_family_id
+  from public.parents p
+  where p.id = current_user_id
+  limit 1;
+
+  if existing_family_id is not null and existing_family_id <> target_family_id then
+    raise exception 'This parent account already belongs to a family';
+  end if;
 
   select * into invitation
   from public.family_invitations fi

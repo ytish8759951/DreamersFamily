@@ -1,7 +1,7 @@
 import { useMemo, useState, type FormEvent } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 import {
-  createProductionFamily,
+  ensureProductionFamily,
   joinProductionFamily,
   signInParentWithPassword,
   signOutParent,
@@ -17,7 +17,6 @@ export function AuthPage() {
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [displayName, setDisplayName] = useState('');
-  const [familyName, setFamilyName] = useState('Dreamers Family');
   const [inviteFamilyId, setInviteFamilyId] = useState(searchParams.get('familyId') ?? '');
   const [inviteCode, setInviteCode] = useState(searchParams.get('inviteCode') ?? '');
   const [message, setMessage] = useState('');
@@ -27,22 +26,16 @@ export function AuthPage() {
     event.preventDefault();
     setMessage('');
     try {
-      if (mode === 'signin') await signInParentWithPassword(email, password);
-      else await signUpParentWithPassword(email, password, displayName);
-      setMessage(mode === 'signin' ? '登入成功' : '帳號已建立，請依 Supabase email 設定完成驗證後登入。');
+      if (mode === 'signin') {
+        await signInParentWithPassword(email, password);
+        await ensureProductionFamily(displayName ? `${displayName} 的家庭` : 'Dreamers Family');
+        navigate('/parent', { replace: true });
+      } else {
+        await signUpParentWithPassword(email, password, displayName);
+      }
+      setMessage(mode === 'signin' ? '登入成功' : '帳號已建立；首次登入會自動建立自己的 familyId。');
     } catch (caught) {
       setMessage(caught instanceof Error ? caught.message : '登入失敗');
-    }
-  };
-
-  const createFamily = async () => {
-    setMessage('');
-    try {
-      await createProductionFamily(familyName);
-      setMessage('家庭已建立');
-      navigate('/parent', { replace: true });
-    } catch (caught) {
-      setMessage(caught instanceof Error ? caught.message : '建立家庭失敗');
     }
   };
 
@@ -90,10 +83,8 @@ export function AuthPage() {
         </div>
 
         <section className="auth-family-actions">
-          <h2>家庭設定</h2>
-          <p>登入後若尚未加入家庭，請建立新家庭或使用邀請碼加入既有家庭。</p>
-          <label>新家庭名稱<input value={familyName} onChange={(event) => setFamilyName(event.target.value)} /></label>
-          <button type="button" onClick={() => void createFamily()} disabled={!runtimeInfo.userId}>建立新家庭</button>
+          <h2>家庭加入</h2>
+          <p>每個測試家庭註冊後會自動建立自己的 familyId。第二位家長只能透過邀請碼加入同一個 familyId。</p>
           <label>familyId<input value={inviteFamilyId} onChange={(event) => setInviteFamilyId(event.target.value)} /></label>
           <label>inviteCode<input value={inviteCode} onChange={(event) => setInviteCode(event.target.value)} /></label>
           <button type="button" onClick={() => void joinFamily()} disabled={!runtimeInfo.userId || !inviteFamilyId || !inviteCode}>

@@ -34,7 +34,7 @@ function RootRedirect() {
   const state = useLocalDataState();
   const runtimeInfo = useSupabaseRuntimeInfo();
   if (dataMode === 'supabase' && runtimeInfo.authStatus !== 'ready') {
-    return <Navigate to={runtimeInfo.authStatus === 'needs_family' ? '/join' : '/login'} replace />;
+    return <Navigate to="/login" replace />;
   }
   if (location.pathname === '/' && (state.currentChildIdentity || state.deviceBinding)) {
     return <Navigate to="/child/home" replace />;
@@ -46,7 +46,7 @@ function RootRedirect() {
 function RequireParentAuth() {
   const runtimeInfo = useSupabaseRuntimeInfo();
   if (dataMode === 'supabase' && runtimeInfo.authStatus !== 'ready') {
-    return <Navigate to={runtimeInfo.authStatus === 'needs_family' ? '/join' : '/login'} replace />;
+    return <Navigate to="/login" replace />;
   }
   return <ParentLayout />;
 }
