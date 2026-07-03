@@ -1,10 +1,11 @@
+import { dataRepository } from './dataRepository';
+
 const DB_NAME = 'little-dreamers-family-media';
 const DB_VERSION = 4;
 const MEDIA_STORE_NAME = 'media';
 const LEGACY_SHARE_STORE_NAME = 'share-media';
 const LEGACY_DREAM_STORE_NAME = 'dream-media';
 const LEGACY_VIDEO_STORE_NAME = 'share-videos';
-const LOCAL_DATABASE_KEY = 'little-dreamers-family:mvp-db:v1';
 
 const PHOTO_MAX_BYTES = 10 * 1024 * 1024;
 const VIDEO_MAX_BYTES = 300 * 1024 * 1024;
@@ -385,28 +386,15 @@ async function normalizeSaveInput(input: SaveMediaInput): Promise<UnifiedMediaRe
 }
 
 function findShareOwnerId(mediaId: string) {
-  const state = readLocalDatabaseState();
-  const media = state?.share_media?.find((item: { id?: string }) => item.id === mediaId);
+  const state = dataRepository.getState();
+  const media = state.share_media.find((item) => item.id === mediaId);
   return media?.share_id ?? mediaId;
 }
 
 function findDreamOwnerId(mediaId: string) {
-  const state = readLocalDatabaseState();
-  const dream = state?.dreams?.find(
-    (item: { id?: string; cover_media_id?: string; coverMediaId?: string }) =>
-      item.cover_media_id === mediaId || item.coverMediaId === mediaId
-  );
+  const state = dataRepository.getState();
+  const dream = state.dreams.find((item) => item.cover_media_id === mediaId || item.coverMediaId === mediaId);
   return dream?.id ?? mediaId;
-}
-
-function readLocalDatabaseState() {
-  if (typeof localStorage === 'undefined') return null;
-  try {
-    const raw = localStorage.getItem(LOCAL_DATABASE_KEY);
-    return raw ? JSON.parse(raw) : null;
-  } catch {
-    return null;
-  }
 }
 
 function normalizeCreatedAt(value?: string | number) {
