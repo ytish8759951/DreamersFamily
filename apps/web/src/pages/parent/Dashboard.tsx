@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState, type ReactNode } from 'react';
+import { useMemo, type ReactNode } from 'react';
 import {
   Award,
   Baby,
@@ -20,6 +20,7 @@ import {
 } from 'lucide-react';
 import { dataRepository } from '../../lib/dataRepository';
 import type { LocalDatabaseState, LocalTask, ShareWithMedia } from '../../lib/localTypes';
+import { useLocalDataState } from '../../lib/useLocalData';
 
 type Tone = 'blue' | 'green' | 'pink' | 'yellow';
 
@@ -148,9 +149,7 @@ function buildLatestActivity(state: LocalDatabaseState): DashboardActivity[] {
 }
 
 export function Dashboard() {
-  const [state, setState] = useState<LocalDatabaseState>(() => dataRepository.getState());
-
-  useEffect(() => dataRepository.subscribe(setState), []);
+  const state = useLocalDataState();
 
   const dashboard = useMemo(() => {
     const date = todayKey();

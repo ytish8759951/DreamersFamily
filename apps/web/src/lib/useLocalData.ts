@@ -1,12 +1,27 @@
-import { useEffect, useState } from 'react';
+import { useSyncExternalStore } from 'react';
 import { dataRepository } from './dataRepository';
 import type { LocalDatabaseState } from './localTypes';
 
-export function useLocalDataState(): LocalDatabaseState {
-  const [state, setState] = useState<LocalDatabaseState>(() => dataRepository.getState());
+let repositorySnapshot = dataRepository.getState();
 
-  useEffect(() => dataRepository.subscribe(setState), []);
-
-  return state;
+function getRepositorySnapshot() {
+  return repositorySnapshot;
 }
 
+function subscribeToRepository(listener: () => void) {
+  repositorySnapshot = dataRepository.getState();
+  const unsubscribe = dataRepository.subscribe((state) => {
+    repositorySnapshot = state;
+    listener();
+  });
+  listener();
+  return unsubscribe;
+}
+
+export function useLocalDataState(): LocalDatabaseState {
+  return useSyncExternalStore(
+    subscribeToRepository,
+    getRepositorySnapshot,
+    getRepositorySnapshot
+  );
+}

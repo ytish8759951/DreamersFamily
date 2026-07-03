@@ -1243,9 +1243,11 @@ function mergeRemoteState(current: LocalDatabaseState, remote: LocalDatabaseStat
     current.currentChildIdentity?.childId ??
     current.deviceBinding ??
     current.device_child_id ??
-    (current.active_child_id && remote.children.some((child) => child.id === current.active_child_id)
-      ? current.active_child_id
-      : remote.active_child_id);
+    (remote.active_child_id && remote.children.some((child) => child.id === remote.active_child_id)
+      ? remote.active_child_id
+      : current.active_child_id && remote.children.some((child) => child.id === current.active_child_id)
+        ? current.active_child_id
+        : remote.children.find((child) => child.status === 'active')?.id ?? null);
 
   return {
     ...remote,

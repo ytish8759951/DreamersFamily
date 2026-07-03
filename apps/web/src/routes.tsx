@@ -11,6 +11,7 @@ import { Settings } from './pages/parent/Settings';
 import { Growth } from './pages/parent/Growth';
 import { MemoryBook } from './pages/parent/MemoryBook';
 import { ParentScreenTime } from './pages/parent/ScreenTime';
+import { Dashboard } from './pages/parent/Dashboard';
 import { ChildHome } from './pages/child/Home';
 import { TodayTasks } from './pages/child/TodayTasks';
 import { ShareGrowth } from './pages/child/ShareGrowth';
@@ -31,7 +32,7 @@ function RootRedirect() {
     return <Navigate to="/child/home" replace />;
   }
 
-  return <Navigate to={state.currentChildIdentity?.childId || state.deviceBinding ? '/child/home' : '/parent/children'} replace />;
+  return <Navigate to={state.currentChildIdentity?.childId || state.deviceBinding ? '/child/home' : '/parent'} replace />;
 }
 
 export const router = createBrowserRouter([
@@ -41,8 +42,8 @@ export const router = createBrowserRouter([
     path: '/parent',
     element: <ParentLayout />,
     children: [
-      { index: true, element: <Navigate to="/parent/children" replace /> },
-      { path: 'dashboard', element: <Navigate to="/parent/children" replace /> },
+      { index: true, element: <Dashboard /> },
+      { path: 'dashboard', element: <Dashboard /> },
       { path: 'children', element: <Children /> },
       { path: 'tasks', element: <Tasks /> },
       { path: 'dreams', element: <Wishes /> },
