@@ -16,11 +16,14 @@ import {
   type UpdateChildInput
 } from './localData';
 import type {
+  AnnualParentNote,
   LocalChild,
   LocalDatabaseState,
   LocalDeviceBindingRecord,
   LocalDream,
   LocalDreamFund,
+  LocalFamilySettings,
+  LocalGrowthRecord,
   LocalMailboxMessage,
   LocalPiggyBankLog,
   LocalPiggyIncome,
@@ -29,10 +32,14 @@ import type {
   LocalPiggyPurchase,
   LocalPiggyShelfOrder,
   LocalRepositoryScope,
+  LocalScreenTimeLog,
+  LocalScreenTimeRequest,
+  LocalScreenTimeSchedule,
   LocalShare,
   LocalShareMedia,
   LocalSpecialDay,
   LocalStarTransaction,
+  MemoryPack,
   LocalTask,
   UUID
 } from './localTypes';
@@ -102,6 +109,11 @@ interface SupabaseParentRow {
     repository_state?: LocalDatabaseState;
     repository_updated_at?: string;
     repository_schema_version?: 1;
+    family_settings?: LocalFamilySettings;
+    settings_updated_at?: string;
+    memory_packs?: MemoryPack[];
+    annual_parent_notes?: AnnualParentNote[];
+    memory_updated_at?: string | null;
     sync_error?: string | null;
   } | null;
   created_at?: string;
@@ -324,6 +336,42 @@ interface SupabaseSpecialDayRow {
   created_at: string;
   updated_at: string;
   archived_at: string | null;
+}
+
+interface SupabaseGrowthRecordRow {
+  id: UUID;
+  family_id: UUID;
+  child_id: UUID;
+  category_id: UUID | null;
+  title: string;
+  content: string | null;
+  record_type: 'growth' | 'album' | 'special_event' | 'first_time' | 'memory';
+  recorded_on: string;
+  mood: string | null;
+  visibility: 'family' | 'guardians_only';
+  source_type: 'parent' | 'child_device' | 'system';
+  created_by: UUID | null;
+  source_child_device_id: UUID | null;
+  created_at: string;
+  updated_at: string;
+}
+
+interface SupabaseTabletTimeRow {
+  id: UUID;
+  family_id: UUID;
+  child_id: UUID;
+  entry_type: string;
+  minutes: number;
+  status: string | null;
+  note: string | null;
+  payload: {
+    kind?: 'screen_time_log' | 'screen_time_request' | 'screen_time_schedule';
+    screen_time_log?: LocalScreenTimeLog;
+    screen_time_request?: LocalScreenTimeRequest;
+    screen_time_schedule?: LocalScreenTimeSchedule;
+  } | null;
+  created_at: string;
+  updated_at: string;
 }
 
 export function getSupabaseConfig(): SupabaseConfig | null {
@@ -623,7 +671,9 @@ export class SupabaseDataRepository implements LocalDataRepository {
       shareResult,
       shareMediaResult,
       mailboxResult,
-      specialDayResult
+      specialDayResult,
+      growthResult,
+      tabletTimeResult
     ] = await Promise.all([
       this.client.from('parents').select('*').eq('id', SUPABASE_PARENT_ID).maybeSingle(),
       this.client.from('children').select('*').eq('family_id', SUPABASE_FAMILY_ID).order('created_at'),
@@ -641,7 +691,9 @@ export class SupabaseDataRepository implements LocalDataRepository {
       this.client.from('shares').select('*').eq('family_id', SUPABASE_FAMILY_ID).order('updated_at', { ascending: false }),
       this.client.from('share_media').select('*').eq('family_id', SUPABASE_FAMILY_ID).order('created_at', { ascending: false }),
       this.client.from('encouragement_cards').select('*').eq('family_id', SUPABASE_FAMILY_ID).order('updated_at', { ascending: false }),
-      this.client.from('special_days').select('*').eq('family_id', SUPABASE_FAMILY_ID).order('updated_at', { ascending: false })
+      this.client.from('special_days').select('*').eq('family_id', SUPABASE_FAMILY_ID).order('updated_at', { ascending: false }),
+      this.client.from('growth_records').select('*').eq('family_id', SUPABASE_FAMILY_ID).order('updated_at', { ascending: false }),
+      this.client.from('tablet_time').select('*').eq('family_id', SUPABASE_FAMILY_ID).order('updated_at', { ascending: false })
     ]);
     if (parentError) throw parentError;
     if (childrenError) throw childrenError;
@@ -659,8 +711,11 @@ export class SupabaseDataRepository implements LocalDataRepository {
     if (shareMediaResult.error) throw shareMediaResult.error;
     if (mailboxResult.error) throw mailboxResult.error;
     if (specialDayResult.error) throw specialDayResult.error;
+    if (growthResult.error) throw growthResult.error;
+    if (tabletTimeResult.error) throw tabletTimeResult.error;
 
-    const parentState = readRepositoryState((parent as SupabaseParentRow | null)?.settings ?? null);
+    const parentSettings = (parent as SupabaseParentRow | null)?.settings ?? null;
+    const parentState = readRepositoryState(parentSettings);
     const remoteChildren = ((children ?? []) as SupabaseChildRow[]).map(fromSupabaseChild);
     const baseState = parentState ?? state;
     const mergedChildren = mergeChildren(baseState.children, remoteChildren);
@@ -707,9 +762,32 @@ export class SupabaseDataRepository implements LocalDataRepository {
       ((specialDayResult.data ?? []) as SupabaseSpecialDayRow[]).map(fromSupabaseSpecialDay),
       (day) => day.updated_at
     ).sort((first, second) => first.date.localeCompare(second.date));
+    const remoteGrowthRecords = mergeById(
+      baseState.growth_records,
+      ((growthResult.data ?? []) as SupabaseGrowthRecordRow[]).map((row) =>
+        fromSupabaseGrowthRecord(row, baseState.growth_records.find((record) => record.id === row.id))
+      ),
+      (record) => record.updated_at
+    ).sort((first, second) => second.date.localeCompare(first.date));
+    const tabletTimeState = fromSupabaseTabletTimeRows({
+      baseState,
+      records: (tabletTimeResult.data ?? []) as SupabaseTabletTimeRow[]
+    });
+    const remoteFamilySettings = mergeFamilySettings(baseState.family_settings, parentSettings?.family_settings);
+    const remoteMemoryPacks = mergeById(
+      baseState.memory_packs,
+      parentSettings?.memory_packs ?? [],
+      (pack) => pack.updatedAt
+    ).sort((first, second) => second.updatedAt.localeCompare(first.updatedAt));
+    const remoteAnnualParentNotes = mergeAnnualParentNotes(
+      baseState.annual_parent_notes,
+      parentSettings?.annual_parent_notes ?? []
+    );
     const updatedAt = maxIsoDate([
       parentState?.updated_at,
       (parent as SupabaseParentRow | null)?.settings?.repository_updated_at,
+      parentSettings?.settings_updated_at,
+      parentSettings?.memory_updated_at,
       ...mergedChildren.map((child) => child.updated_at),
       ...remoteTasks.map((task) => task.updated_at),
       ...remoteStars.map((star) => star.created_at),
@@ -719,6 +797,13 @@ export class SupabaseDataRepository implements LocalDataRepository {
       ...remoteShareMedia.map((media) => media.created_at),
       ...remoteMailbox.map((message) => message.updated_at),
       ...remoteSpecialDays.map((day) => day.updated_at),
+      ...remoteGrowthRecords.map((record) => record.updated_at),
+      ...tabletTimeState.screen_time_logs.map((log) => log.created_at),
+      ...tabletTimeState.screen_time_requests.map((request) => request.updated_at),
+      ...tabletTimeState.screen_time_schedules.map((schedule) => schedule.updatedAt),
+      remoteFamilySettings.updated_at,
+      ...remoteMemoryPacks.map((pack) => pack.updatedAt),
+      ...remoteAnnualParentNotes.map((note) => note.updatedAt),
       ...piggyState.piggy_incomes.map((income) => income.created_at),
       ...piggyState.piggy_bank_logs.map((log) => log.created_at),
       ...piggyState.piggy_products.map((product) => product.updated_at),
@@ -742,12 +827,19 @@ export class SupabaseDataRepository implements LocalDataRepository {
       share_media: remoteShareMedia,
       encouragement_cards: remoteMailbox,
       special_days: remoteSpecialDays,
+      family_settings: remoteFamilySettings,
+      screen_time_schedules: tabletTimeState.screen_time_schedules,
+      screen_time_requests: tabletTimeState.screen_time_requests,
+      screen_time_logs: tabletTimeState.screen_time_logs,
+      growth_records: remoteGrowthRecords,
       piggy_incomes: piggyState.piggy_incomes,
       piggy_bank_logs: piggyState.piggy_bank_logs,
       piggy_products: piggyState.piggy_products,
       piggy_shelf_orders: piggyState.piggy_shelf_orders,
       piggyProductDisplaySettings: piggyState.piggyProductDisplaySettings,
       piggy_purchases: piggyState.piggy_purchases,
+      annual_parent_notes: remoteAnnualParentNotes,
+      memory_packs: remoteMemoryPacks,
       child_onboarding_tokens: mergedChildren
         .filter((child) => child.status === 'active' && !child.child_token_consumed_at)
         .map((child) => ({
@@ -793,6 +885,7 @@ export class SupabaseDataRepository implements LocalDataRepository {
     await this.pushDreamShareMailboxSpecialTables(state);
     await this.pushTaskStarPiggyTables(state);
     await this.pushDreamFunds(state);
+    await this.pushGrowthTabletTables(state);
     this.lastRemoteUpdatedAt = state.updated_at;
     this.retryAttempt = 0;
   }
@@ -808,6 +901,14 @@ export class SupabaseDataRepository implements LocalDataRepository {
         repository_schema_version: 1,
         repository_updated_at: state.updated_at,
         repository_state: state,
+        family_settings: state.family_settings,
+        settings_updated_at: state.family_settings.updated_at,
+        memory_packs: state.memory_packs,
+        annual_parent_notes: state.annual_parent_notes,
+        memory_updated_at: maxIsoDate([
+          ...state.memory_packs.map((pack) => pack.updatedAt),
+          ...state.annual_parent_notes.map((note) => note.updatedAt)
+        ]),
         sync_error: null
       }
     };
@@ -912,6 +1013,28 @@ export class SupabaseDataRepository implements LocalDataRepository {
       .map(toSupabaseDreamFund);
     if (dreamFunds.length) {
       const { error } = await this.client.from('dream_funds').upsert(dreamFunds, { onConflict: 'id' });
+      if (error) throw error;
+    }
+  }
+
+  private async pushGrowthTabletTables(state: LocalDatabaseState) {
+    if (!this.client) return;
+
+    await deleteMissingRows(this.client, 'growth_records', state.growth_records.map((record) => record.id));
+    const growthRecords = state.growth_records.map(toSupabaseGrowthRecord);
+    if (growthRecords.length) {
+      const { error } = await this.client.from('growth_records').upsert(growthRecords, { onConflict: 'id' });
+      if (error) throw error;
+    }
+
+    const tabletRows = [
+      ...state.screen_time_logs.map(toSupabaseTabletTimeLog),
+      ...state.screen_time_requests.map(toSupabaseTabletTimeRequest),
+      ...state.screen_time_schedules.map(toSupabaseTabletTimeSchedule)
+    ];
+    await deleteMissingRows(this.client, 'tablet_time', tabletRows.map((row) => row.id));
+    if (tabletRows.length) {
+      const { error } = await this.client.from('tablet_time').upsert(tabletRows, { onConflict: 'id' });
       if (error) throw error;
     }
   }
@@ -1042,6 +1165,16 @@ export class SupabaseDataRepository implements LocalDataRepository {
       .on(
         'postgres_changes',
         { event: '*', schema: 'public', table: 'special_days', filter: `family_id=eq.${SUPABASE_FAMILY_ID}` },
+        () => this.hydrateFromSupabase()
+      )
+      .on(
+        'postgres_changes',
+        { event: '*', schema: 'public', table: 'growth_records', filter: `family_id=eq.${SUPABASE_FAMILY_ID}` },
+        () => this.hydrateFromSupabase()
+      )
+      .on(
+        'postgres_changes',
+        { event: '*', schema: 'public', table: 'tablet_time', filter: `family_id=eq.${SUPABASE_FAMILY_ID}` },
         () => this.hydrateFromSupabase()
       )
       .subscribe((status) => {
@@ -1563,6 +1696,152 @@ function fromSupabaseSpecialDayType(type: string): LocalSpecialDay['type'] {
   if (type === 'birthday') return 'birthday';
   if (type === 'holiday') return 'holiday';
   return 'other';
+}
+
+function toSupabaseGrowthRecord(record: LocalGrowthRecord): SupabaseGrowthRecordRow {
+  return {
+    id: record.id,
+    family_id: SUPABASE_FAMILY_ID,
+    child_id: record.child_id,
+    category_id: null,
+    title: `Growth record ${record.date}`,
+    content: JSON.stringify({
+      note: record.note,
+      height_cm: record.height_cm,
+      weight_kg: record.weight_kg,
+      growth_photo_media_ids: record.growth_photo_media_ids,
+      reading_count: record.reading_count
+    }),
+    record_type: 'growth',
+    recorded_on: record.date,
+    mood: null,
+    visibility: 'family',
+    source_type: 'parent',
+    created_by: SUPABASE_PARENT_ID,
+    source_child_device_id: null,
+    created_at: record.created_at,
+    updated_at: record.updated_at
+  };
+}
+
+function fromSupabaseGrowthRecord(row: SupabaseGrowthRecordRow, fallback?: LocalGrowthRecord): LocalGrowthRecord {
+  const content = parseGrowthContent(row.content);
+  return {
+    id: row.id,
+    family_id: SUPABASE_FAMILY_ID,
+    child_id: row.child_id,
+    date: row.recorded_on,
+    height_cm: content.height_cm ?? fallback?.height_cm ?? 0,
+    weight_kg: content.weight_kg ?? fallback?.weight_kg ?? 0,
+    growth_photo_media_ids: content.growth_photo_media_ids ?? fallback?.growth_photo_media_ids ?? [],
+    reading_count: content.reading_count ?? fallback?.reading_count ?? 0,
+    note: content.note ?? fallback?.note ?? null,
+    created_at: row.created_at,
+    updated_at: row.updated_at
+  };
+}
+
+function parseGrowthContent(content: string | null): Partial<LocalGrowthRecord> {
+  if (!content) return {};
+  try {
+    const parsed = JSON.parse(content) as Partial<LocalGrowthRecord>;
+    return parsed && typeof parsed === 'object' ? parsed : { note: content };
+  } catch {
+    return { note: content };
+  }
+}
+
+function toSupabaseTabletTimeLog(log: LocalScreenTimeLog): SupabaseTabletTimeRow {
+  return {
+    id: log.id,
+    family_id: SUPABASE_FAMILY_ID,
+    child_id: log.child_id,
+    entry_type: log.entry_type,
+    minutes: log.minutes_delta,
+    status: log.type ?? log.entry_type,
+    note: log.reason ?? log.note ?? null,
+    payload: { kind: 'screen_time_log', screen_time_log: log },
+    created_at: log.created_at,
+    updated_at: log.created_at
+  };
+}
+
+function toSupabaseTabletTimeRequest(request: LocalScreenTimeRequest): SupabaseTabletTimeRow {
+  return {
+    id: request.id,
+    family_id: SUPABASE_FAMILY_ID,
+    child_id: request.child_id,
+    entry_type: 'request',
+    minutes: request.requested_minutes,
+    status: request.status,
+    note: request.note,
+    payload: { kind: 'screen_time_request', screen_time_request: request },
+    created_at: request.created_at,
+    updated_at: request.updated_at
+  };
+}
+
+function toSupabaseTabletTimeSchedule(schedule: LocalScreenTimeSchedule): SupabaseTabletTimeRow {
+  return {
+    id: schedule.id,
+    family_id: SUPABASE_FAMILY_ID,
+    child_id: schedule.child_id,
+    entry_type: 'schedule',
+    minutes: schedule.plannedMinutes,
+    status: schedule.source ?? 'manual',
+    note: schedule.date,
+    payload: { kind: 'screen_time_schedule', screen_time_schedule: schedule },
+    created_at: schedule.createdAt,
+    updated_at: schedule.updatedAt
+  };
+}
+
+function fromSupabaseTabletTimeRows(input: {
+  baseState: LocalDatabaseState;
+  records: SupabaseTabletTimeRow[];
+}) {
+  const logs = input.records
+    .map((row) => row.payload?.screen_time_log)
+    .filter((item): item is LocalScreenTimeLog => Boolean(item))
+    .map((item) => ({ ...item, family_id: SUPABASE_FAMILY_ID }));
+  const requests = input.records
+    .map((row) => row.payload?.screen_time_request)
+    .filter((item): item is LocalScreenTimeRequest => Boolean(item))
+    .map((item) => ({ ...item, family_id: SUPABASE_FAMILY_ID }));
+  const schedules = input.records
+    .map((row) => row.payload?.screen_time_schedule)
+    .filter((item): item is LocalScreenTimeSchedule => Boolean(item))
+    .map((item) => ({ ...item, family_id: SUPABASE_FAMILY_ID }));
+
+  return {
+    screen_time_logs: mergeById(input.baseState.screen_time_logs, logs, (item) => item.created_at).sort((first, second) =>
+      second.created_at.localeCompare(first.created_at)
+    ),
+    screen_time_requests: mergeById(input.baseState.screen_time_requests, requests, (item) => item.updated_at).sort(
+      (first, second) => second.created_at.localeCompare(first.created_at)
+    ),
+    screen_time_schedules: mergeById(input.baseState.screen_time_schedules, schedules, (item) => item.updatedAt).sort(
+      (first, second) => first.date.localeCompare(second.date)
+    )
+  };
+}
+
+function mergeFamilySettings(
+  localSettings: LocalFamilySettings,
+  remoteSettings: LocalFamilySettings | null | undefined
+): LocalFamilySettings {
+  if (!remoteSettings) return localSettings;
+  return remoteSettings.updated_at > localSettings.updated_at ? remoteSettings : localSettings;
+}
+
+function mergeAnnualParentNotes(localNotes: AnnualParentNote[], remoteNotes: AnnualParentNote[]) {
+  const byScope = new Map<string, AnnualParentNote>();
+  [...localNotes, ...remoteNotes].forEach((note) => {
+    const key = `${note.childId}:${note.year}`;
+    const existing = byScope.get(key);
+    if (!existing || note.updatedAt > existing.updatedAt) byScope.set(key, note);
+  });
+  return [...byScope.values()].sort((first, second) => first.year - second.year || first.childId.localeCompare(second.childId));
 }
 
 function fromSupabaseStar(row: SupabaseStarRow): LocalStarTransaction {
