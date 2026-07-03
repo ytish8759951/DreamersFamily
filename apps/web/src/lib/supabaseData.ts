@@ -1,4 +1,4 @@
-import { createClient, type SupabaseClient } from '@supabase/supabase-js';
+import { createClient, type RealtimeChannel, type SupabaseClient } from '@supabase/supabase-js';
 import {
   createChildDeviceToken,
   createChildDeviceTokenForChild,
@@ -28,6 +28,7 @@ const SUPABASE_FAMILY_ID = '00000000-0000-4000-8000-000000000001';
 const SUPABASE_PARENT_ID = '00000000-0000-4000-8000-000000000002';
 const SUPABASE_DEVICE_FALLBACK_ID = '00000000-0000-4000-8000-000000000003';
 const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+const SYNC_RETRY_DELAYS_MS = [1000, 3000, 8000, 15000, 30000];
 
 type Listener = (state: LocalDatabaseState) => void;
 
@@ -66,7 +67,7 @@ interface SupabaseChildRow {
 }
 
 interface SupabaseDeviceBindingRow {
-  id: UUID;
+  id: string;
   family_id: UUID;
   child_id: UUID;
   device_id: UUID;
@@ -76,6 +77,21 @@ interface SupabaseDeviceBindingRow {
   qr_token_status: LocalDeviceBindingRecord['qr_token_status'];
   created_at: string;
   updated_at: string;
+}
+
+interface SupabaseParentRow {
+  id: UUID;
+  family_id: UUID;
+  display_name: string;
+  email: string | null;
+  settings: {
+    repository_state?: LocalDatabaseState;
+    repository_updated_at?: string;
+    repository_schema_version?: 1;
+    sync_error?: string | null;
+  } | null;
+  created_at?: string;
+  updated_at?: string;
 }
 
 export function getSupabaseConfig(): SupabaseConfig | null {
@@ -105,10 +121,22 @@ export class SupabaseDataRepository implements LocalDataRepository {
   private readonly cache = new LocalDataService(new MockDatabase(undefined, SUPABASE_CACHE_KEY));
   private readonly listeners = new Set<Listener>();
   private hydratePromise: Promise<void> | null = null;
+  private realtimeChannel: RealtimeChannel | null = null;
+  private pendingPush = false;
+  private pushPromise: Promise<void> | null = null;
+  private retryTimer: ReturnType<typeof setTimeout> | null = null;
+  private retryAttempt = 0;
+  private lastRemoteUpdatedAt: string | null = null;
 
   constructor(client: SupabaseClient | null = createSupabaseClient()) {
     this.client = client;
     this.hydrateFromSupabase();
+    this.subscribeToSupabaseChanges();
+    if (typeof window !== 'undefined') {
+      window.addEventListener('online', () => {
+        this.hydrateFromSupabase();
+      });
+    }
   }
 
   private delegate<K extends keyof LocalDataRepository>(method: K): LocalDataRepository[K] {
@@ -116,6 +144,15 @@ export class SupabaseDataRepository implements LocalDataRepository {
     if (typeof target !== 'function') return target;
     return ((...args: unknown[]) => {
       return (target as (...values: unknown[]) => unknown).apply(this.cache, args);
+    }) as LocalDataRepository[K];
+  }
+
+  private delegateWrite<K extends keyof LocalDataRepository>(method: K): LocalDataRepository[K] {
+    const target = this.cache[method];
+    return ((...args: unknown[]) => {
+      const result = (target as (...values: unknown[]) => unknown).apply(this.cache, args);
+      this.queuePush();
+      return result;
     }) as LocalDataRepository[K];
   }
 
@@ -146,23 +183,28 @@ export class SupabaseDataRepository implements LocalDataRepository {
     const child = this.cache.createChild(input);
     this.upsertChildToSupabase(child);
     this.upsertDeviceBindingRecordToSupabase(child.id, 'unbound', 'active');
+    this.queuePush();
     return child;
   }
 
   updateChild(childId: UUID, input: UpdateChildInput): LocalChild {
     const child = this.cache.updateChild(childId, input);
     this.upsertChildToSupabase(child);
+    this.queuePush();
     return child;
   }
 
   deleteChild(childId: UUID): LocalChild {
     const child = this.cache.deleteChild(childId);
     this.upsertChildToSupabase(child);
+    this.queuePush();
     return child;
   }
 
   switchChild(childId: UUID): LocalChild {
-    return this.cache.switchChild(childId);
+    const child = this.cache.switchChild(childId);
+    this.queuePush();
+    return child;
   }
 
   listChildren(includeArchived = false): LocalChild[] {
@@ -186,6 +228,7 @@ export class SupabaseDataRepository implements LocalDataRepository {
         lastLoginAt: child.last_login_at,
         lastLoginDevice: child.last_login_device
       });
+      this.queuePush();
       return child;
     }
 
@@ -196,6 +239,7 @@ export class SupabaseDataRepository implements LocalDataRepository {
       lastLoginAt: child.last_login_at,
       lastLoginDevice: child.last_login_device
     });
+    this.queuePush();
     return child;
   }
 
@@ -203,6 +247,7 @@ export class SupabaseDataRepository implements LocalDataRepository {
     const child = this.cache.regenerateChildToken(childId);
     this.upsertChildToSupabase(child);
     this.upsertDeviceBindingRecordToSupabase(child.id, 'unbound', 'active');
+    this.queuePush();
     return child;
   }
 
@@ -213,6 +258,7 @@ export class SupabaseDataRepository implements LocalDataRepository {
       lastLoginAt: child.last_login_at,
       lastLoginDevice: child.last_login_device
     });
+    this.queuePush();
     return child;
   }
 
@@ -221,89 +267,89 @@ export class SupabaseDataRepository implements LocalDataRepository {
     return this.cache.listDeviceBindingRecords(childId);
   }
 
-  createTask = this.delegate('createTask');
-  completeTask = this.delegate('completeTask');
-  approveTask = this.delegate('approveTask');
+  createTask = this.delegateWrite('createTask');
+  completeTask = this.delegateWrite('completeTask');
+  approveTask = this.delegateWrite('approveTask');
   listTasks = this.delegate('listTasks');
   getStarBalance = this.delegate('getStarBalance');
   listStarTransactions = this.delegate('listStarTransactions');
-  createDream = this.delegate('createDream');
-  migrateDreamCoverToMedia = this.delegate('migrateDreamCoverToMedia');
-  deleteDream = this.delegate('deleteDream');
-  addDreamDeposit = this.delegate('addDreamDeposit');
-  completeDream = this.delegate('completeDream');
+  createDream = this.delegateWrite('createDream');
+  migrateDreamCoverToMedia = this.delegateWrite('migrateDreamCoverToMedia');
+  deleteDream = this.delegateWrite('deleteDream');
+  addDreamDeposit = this.delegateWrite('addDreamDeposit');
+  completeDream = this.delegateWrite('completeDream');
   listDreams = this.delegate('listDreams');
-  createShare = this.delegate('createShare');
+  createShare = this.delegateWrite('createShare');
   listShares = this.delegate('listShares');
-  deleteShare = this.delegate('deleteShare');
-  approveShare = this.delegate('approveShare');
-  createMailboxMessage = this.delegate('createMailboxMessage');
-  markMessageRead = this.delegate('markMessageRead');
+  deleteShare = this.delegateWrite('deleteShare');
+  approveShare = this.delegateWrite('approveShare');
+  createMailboxMessage = this.delegateWrite('createMailboxMessage');
+  markMessageRead = this.delegateWrite('markMessageRead');
   listMailboxMessages = this.delegate('listMailboxMessages');
-  createBadge = this.delegate('createBadge');
-  deleteBadge = this.delegate('deleteBadge');
-  awardBadge = this.delegate('awardBadge');
+  createBadge = this.delegateWrite('createBadge');
+  deleteBadge = this.delegateWrite('deleteBadge');
+  awardBadge = this.delegateWrite('awardBadge');
   getBadges = this.delegate('getBadges');
   getChildBadges = this.delegate('getChildBadges');
-  createSpecialDay = this.delegate('createSpecialDay');
-  updateSpecialDay = this.delegate('updateSpecialDay');
-  deleteSpecialDay = this.delegate('deleteSpecialDay');
+  createSpecialDay = this.delegateWrite('createSpecialDay');
+  updateSpecialDay = this.delegateWrite('updateSpecialDay');
+  deleteSpecialDay = this.delegateWrite('deleteSpecialDay');
   getSpecialDays = this.delegate('getSpecialDays');
   getUpcomingSpecialDays = this.delegate('getUpcomingSpecialDays');
   getSettings = this.delegate('getSettings');
-  updateSettings = this.delegate('updateSettings');
+  updateSettings = this.delegateWrite('updateSettings');
   exportData = this.delegate('exportData');
-  importData = this.delegate('importData');
-  resetAllData = this.delegate('resetAllData');
-  resetDemoData = this.delegate('resetDemoData');
-  updateScreenTime = this.delegate('updateScreenTime');
-  createScreenTimeRequest = this.delegate('createScreenTimeRequest');
-  reviewScreenTimeRequest = this.delegate('reviewScreenTimeRequest');
+  importData = this.delegateWrite('importData');
+  resetAllData = this.delegateWrite('resetAllData');
+  resetDemoData = this.delegateWrite('resetDemoData');
+  updateScreenTime = this.delegateWrite('updateScreenTime');
+  createScreenTimeRequest = this.delegateWrite('createScreenTimeRequest');
+  reviewScreenTimeRequest = this.delegateWrite('reviewScreenTimeRequest');
   listScreenTimeRequests = this.delegate('listScreenTimeRequests');
   getScreenTimeBalance = this.delegate('getScreenTimeBalance');
   listScreenTimeLogs = this.delegate('listScreenTimeLogs');
   getWeeklyScreenTime = this.delegate('getWeeklyScreenTime');
-  updatePlannedScreenTime = this.delegate('updatePlannedScreenTime');
-  redeemStarsForScreenTime = this.delegate('redeemStarsForScreenTime');
-  addScreenTime = this.delegate('addScreenTime');
-  deductScreenTimePenalty = this.delegate('deductScreenTimePenalty');
-  recordScreenTimeUsed = this.delegate('recordScreenTimeUsed');
+  updatePlannedScreenTime = this.delegateWrite('updatePlannedScreenTime');
+  redeemStarsForScreenTime = this.delegateWrite('redeemStarsForScreenTime');
+  addScreenTime = this.delegateWrite('addScreenTime');
+  deductScreenTimePenalty = this.delegateWrite('deductScreenTimePenalty');
+  recordScreenTimeUsed = this.delegateWrite('recordScreenTimeUsed');
   getScreenTimeLogsByChild = this.delegate('getScreenTimeLogsByChild');
   getTodayScreenTimeByChild = this.delegate('getTodayScreenTimeByChild');
-  createGrowthRecord = this.delegate('createGrowthRecord');
-  updateGrowthRecord = this.delegate('updateGrowthRecord');
-  deleteGrowthRecord = this.delegate('deleteGrowthRecord');
+  createGrowthRecord = this.delegateWrite('createGrowthRecord');
+  updateGrowthRecord = this.delegateWrite('updateGrowthRecord');
+  deleteGrowthRecord = this.delegateWrite('deleteGrowthRecord');
   getGrowthRecords = this.delegate('getGrowthRecords');
   getLatestGrowthRecordByChild = this.delegate('getLatestGrowthRecordByChild');
   getGrowthRecordsByChild = this.delegate('getGrowthRecordsByChild');
   listNotifications = this.delegate('listNotifications');
-  markNotificationRead = this.delegate('markNotificationRead');
-  addPiggyIncome = this.delegate('addPiggyIncome');
-  depositPiggyCoin = this.delegate('depositPiggyCoin');
+  markNotificationRead = this.delegateWrite('markNotificationRead');
+  addPiggyIncome = this.delegateWrite('addPiggyIncome');
+  depositPiggyCoin = this.delegateWrite('depositPiggyCoin');
   getPiggyBankSummary = this.delegate('getPiggyBankSummary');
   getPiggyIncomeRecords = this.delegate('getPiggyIncomeRecords');
   getPiggyBankLogs = this.delegate('getPiggyBankLogs');
-  createPiggyProduct = this.delegate('createPiggyProduct');
-  updatePiggyProduct = this.delegate('updatePiggyProduct');
-  deletePiggyProduct = this.delegate('deletePiggyProduct');
+  createPiggyProduct = this.delegateWrite('createPiggyProduct');
+  updatePiggyProduct = this.delegateWrite('updatePiggyProduct');
+  deletePiggyProduct = this.delegateWrite('deletePiggyProduct');
   listPiggyProducts = this.delegate('listPiggyProducts');
-  setPiggyProductShelfStatus = this.delegate('setPiggyProductShelfStatus');
-  savePiggyShelfOrder = this.delegate('savePiggyShelfOrder');
+  setPiggyProductShelfStatus = this.delegateWrite('setPiggyProductShelfStatus');
+  savePiggyShelfOrder = this.delegateWrite('savePiggyShelfOrder');
   getPiggyShelfProducts = this.delegate('getPiggyShelfProducts');
   getPiggyProductDisplaySettings = this.delegate('getPiggyProductDisplaySettings');
-  savePiggyProductDisplaySettings = this.delegate('savePiggyProductDisplaySettings');
-  requestPiggyPurchase = this.delegate('requestPiggyPurchase');
-  cancelPiggyPurchase = this.delegate('cancelPiggyPurchase');
-  completePiggyPurchase = this.delegate('completePiggyPurchase');
-  confirmPiggyPurchaseArrived = this.delegate('confirmPiggyPurchaseArrived');
+  savePiggyProductDisplaySettings = this.delegateWrite('savePiggyProductDisplaySettings');
+  requestPiggyPurchase = this.delegateWrite('requestPiggyPurchase');
+  cancelPiggyPurchase = this.delegateWrite('cancelPiggyPurchase');
+  completePiggyPurchase = this.delegateWrite('completePiggyPurchase');
+  confirmPiggyPurchaseArrived = this.delegateWrite('confirmPiggyPurchaseArrived');
   listPiggyPurchases = this.delegate('listPiggyPurchases');
   getAnnualParentNote = this.delegate('getAnnualParentNote');
-  saveAnnualParentNote = this.delegate('saveAnnualParentNote');
+  saveAnnualParentNote = this.delegateWrite('saveAnnualParentNote');
   listAnnualParentNotes = this.delegate('listAnnualParentNotes');
-  saveMemoryPack = this.delegate('saveMemoryPack');
+  saveMemoryPack = this.delegateWrite('saveMemoryPack');
   getMemoryPack = this.delegate('getMemoryPack');
   exportMemoryPack = this.delegate('exportMemoryPack');
-  deleteMemoryPack = this.delegate('deleteMemoryPack');
+  deleteMemoryPack = this.delegateWrite('deleteMemoryPack');
   listMemoryPacks = this.delegate('listMemoryPacks');
 
   private hydrateFromSupabase() {
@@ -311,11 +357,17 @@ export class SupabaseDataRepository implements LocalDataRepository {
     this.hydratePromise = this.fetchSupabaseState()
       .then((remoteState) => {
         if (!remoteState) return;
-        this.cache.importData(JSON.stringify(remoteState));
+        const currentState = this.cache.getState();
+        if (currentState.updated_at > remoteState.updated_at) {
+          this.queuePush();
+          return;
+        }
+        this.cache.importData(JSON.stringify(mergeRemoteState(currentState, remoteState)));
         this.emit();
       })
       .catch((error) => {
         console.warn('[supabase-repository] hydrate failed', error);
+        this.scheduleRetry();
       })
       .finally(() => {
         this.hydratePromise = null;
@@ -325,17 +377,35 @@ export class SupabaseDataRepository implements LocalDataRepository {
   private async fetchSupabaseState(): Promise<LocalDatabaseState | null> {
     if (!this.client) return null;
     const state = this.cache.getState();
-    const [{ data: children, error: childrenError }, { data: bindings, error: bindingsError }] = await Promise.all([
+    const [
+      { data: parent, error: parentError },
+      { data: children, error: childrenError },
+      { data: bindings, error: bindingsError }
+    ] = await Promise.all([
+      this.client.from('parents').select('*').eq('id', SUPABASE_PARENT_ID).maybeSingle(),
       this.client.from('children').select('*').eq('family_id', SUPABASE_FAMILY_ID).order('created_at'),
       this.client.from('device_bindings').select('*').eq('family_id', SUPABASE_FAMILY_ID).order('updated_at', { ascending: false })
     ]);
+    if (parentError) throw parentError;
     if (childrenError) throw childrenError;
     if (bindingsError) throw bindingsError;
 
+    const parentState = readRepositoryState((parent as SupabaseParentRow | null)?.settings ?? null);
     const remoteChildren = ((children ?? []) as SupabaseChildRow[]).map(fromSupabaseChild);
-    const mergedChildren = mergeChildren(state.children, remoteChildren);
+    const baseState = parentState ?? state;
+    const mergedChildren = mergeChildren(baseState.children, remoteChildren);
+    const updatedAt = maxIsoDate([
+      parentState?.updated_at,
+      (parent as SupabaseParentRow | null)?.settings?.repository_updated_at,
+      ...mergedChildren.map((child) => child.updated_at),
+      ...((bindings ?? []) as SupabaseDeviceBindingRow[]).map((binding) => binding.updated_at)
+    ]) ?? new Date().toISOString();
+    this.lastRemoteUpdatedAt = updatedAt;
     return {
-      ...state,
+      ...baseState,
+      family_id: SUPABASE_FAMILY_ID,
+      parent_id: SUPABASE_PARENT_ID,
+      current_user_id: SUPABASE_PARENT_ID,
       children: mergedChildren,
       child_onboarding_tokens: mergedChildren
         .filter((child) => child.status === 'active' && !child.child_token_consumed_at)
@@ -346,12 +416,114 @@ export class SupabaseDataRepository implements LocalDataRepository {
           createdAt: child.child_token_updated_at
         })),
       device_binding_records: mergeDeviceBindings(
-        state.device_binding_records,
+        baseState.device_binding_records,
         ((bindings ?? []) as SupabaseDeviceBindingRow[]).map(fromSupabaseDeviceBinding)
       ),
-      active_child_id: state.active_child_id ?? mergedChildren.find((child) => child.status === 'active')?.id ?? null,
-      updated_at: new Date().toISOString()
+      active_child_id: baseState.active_child_id ?? mergedChildren.find((child) => child.status === 'active')?.id ?? null,
+      updated_at: updatedAt
     };
+  }
+
+  private queuePush() {
+    if (!this.client) return;
+    this.pendingPush = true;
+    if (this.retryTimer) {
+      clearTimeout(this.retryTimer);
+      this.retryTimer = null;
+    }
+    if (this.pushPromise) return;
+    this.pushPromise = this.flushPush()
+      .catch((error) => {
+        console.warn('[supabase-repository] sync failed', error);
+        this.scheduleRetry();
+      })
+      .finally(() => {
+        this.pushPromise = null;
+        if (this.pendingPush && !this.retryTimer) this.queuePush();
+      });
+  }
+
+  private async flushPush() {
+    if (!this.client || !this.pendingPush) return;
+    this.pendingPush = false;
+    const state = toSupabaseRepositoryState(this.cache.getState());
+    await this.pushRepositorySnapshot(state);
+    await this.pushChildrenAndBindings(state);
+    this.lastRemoteUpdatedAt = state.updated_at;
+    this.retryAttempt = 0;
+  }
+
+  private async pushRepositorySnapshot(state: LocalDatabaseState) {
+    if (!this.client) return;
+    const parentRow: Partial<SupabaseParentRow> = {
+      id: SUPABASE_PARENT_ID,
+      family_id: SUPABASE_FAMILY_ID,
+      display_name: state.family_settings.parent_name || 'Parent',
+      email: state.family_settings.parent_email,
+      settings: {
+        repository_schema_version: 1,
+        repository_updated_at: state.updated_at,
+        repository_state: state,
+        sync_error: null
+      }
+    };
+    const { error } = await this.client.from('parents').upsert(parentRow, { onConflict: 'id' });
+    if (error) throw error;
+  }
+
+  private async pushChildrenAndBindings(state: LocalDatabaseState) {
+    if (!this.client) return;
+    const children = state.children.map(toSupabaseChild);
+    if (children.length) {
+      const { error } = await this.client.from('children').upsert(children, { onConflict: 'id' });
+      if (error) throw error;
+    }
+
+    const bindings = state.device_binding_records
+      .filter((binding) => state.children.some((child) => child.id === binding.child_id))
+      .map((binding) => toSupabaseDeviceBinding(binding));
+    if (bindings.length) {
+      const { error } = await this.client.from('device_bindings').upsert(bindings, { onConflict: 'child_id,device_id' });
+      if (error) throw error;
+    }
+  }
+
+  private scheduleRetry() {
+    if (!this.client || this.retryTimer) return;
+    this.pendingPush = true;
+    const delay = SYNC_RETRY_DELAYS_MS[Math.min(this.retryAttempt, SYNC_RETRY_DELAYS_MS.length - 1)];
+    this.retryAttempt += 1;
+    this.retryTimer = setTimeout(() => {
+      this.retryTimer = null;
+      this.hydrateFromSupabase();
+      this.queuePush();
+    }, delay);
+  }
+
+  private subscribeToSupabaseChanges() {
+    if (!this.client || this.realtimeChannel) return;
+    this.realtimeChannel = this.client
+      .channel('little-dreamers-family-repository')
+      .on(
+        'postgres_changes',
+        { event: '*', schema: 'public', table: 'parents', filter: `id=eq.${SUPABASE_PARENT_ID}` },
+        () => this.hydrateFromSupabase()
+      )
+      .on(
+        'postgres_changes',
+        { event: '*', schema: 'public', table: 'children', filter: `family_id=eq.${SUPABASE_FAMILY_ID}` },
+        () => this.hydrateFromSupabase()
+      )
+      .on(
+        'postgres_changes',
+        { event: '*', schema: 'public', table: 'device_bindings', filter: `family_id=eq.${SUPABASE_FAMILY_ID}` },
+        () => this.hydrateFromSupabase()
+      )
+      .subscribe((status) => {
+        if (status === 'SUBSCRIBED') {
+          this.hydrateFromSupabase();
+        }
+      });
   }
 
   private upsertChildToSupabase(child: LocalChild) {
@@ -400,6 +572,74 @@ export class SupabaseDataRepository implements LocalDataRepository {
     const state = this.cache.getState();
     this.listeners.forEach((listener) => listener(state));
   }
+}
+
+function readRepositoryState(settings: SupabaseParentRow['settings']): LocalDatabaseState | null {
+  const state = settings?.repository_state;
+  if (!state || state.schema_version !== 1 || !Array.isArray(state.children)) return null;
+  return state;
+}
+
+function mergeRemoteState(current: LocalDatabaseState, remote: LocalDatabaseState): LocalDatabaseState {
+  const activeChildId =
+    current.currentChildIdentity?.childId ??
+    current.deviceBinding ??
+    current.device_child_id ??
+    (current.active_child_id && remote.children.some((child) => child.id === current.active_child_id)
+      ? current.active_child_id
+      : remote.active_child_id);
+
+  return {
+    ...remote,
+    device_id: current.device_id,
+    deviceBinding: current.deviceBinding,
+    device_child_id: current.device_child_id,
+    currentChildIdentity: current.currentChildIdentity,
+    active_child_id: activeChildId
+  };
+}
+
+function toSupabaseRepositoryState(state: LocalDatabaseState): LocalDatabaseState {
+  const next = JSON.parse(JSON.stringify(state)) as LocalDatabaseState;
+  const timestamp = new Date().toISOString();
+  next.family_id = SUPABASE_FAMILY_ID;
+  next.parent_id = SUPABASE_PARENT_ID;
+  next.current_user_id = SUPABASE_PARENT_ID;
+  next.deviceBinding = null;
+  next.device_child_id = null;
+  next.currentChildIdentity = null;
+  next.updated_at = maxIsoDate([state.updated_at, timestamp]) ?? timestamp;
+  rewriteFamilyIds(next);
+  return next;
+}
+
+function rewriteFamilyIds(value: unknown) {
+  if (!value || typeof value !== 'object') return;
+  if (Array.isArray(value)) {
+    value.forEach(rewriteFamilyIds);
+    return;
+  }
+  const record = value as Record<string, unknown>;
+  if ('family_id' in record) record.family_id = SUPABASE_FAMILY_ID;
+  if (record.created_by === 'local-parent') record.created_by = SUPABASE_PARENT_ID;
+  if (record.sender_user_id === 'local-parent') record.sender_user_id = SUPABASE_PARENT_ID;
+  Object.values(record).forEach(rewriteFamilyIds);
+}
+
+function toSupabaseDeviceBinding(binding: LocalDeviceBindingRecord): SupabaseDeviceBindingRow {
+  const deviceId = toSupabaseUuid(binding.device_id, SUPABASE_DEVICE_FALLBACK_ID);
+  return {
+    id: `${binding.child_id}:${deviceId}`,
+    family_id: SUPABASE_FAMILY_ID,
+    child_id: binding.child_id,
+    device_id: deviceId,
+    last_login_at: binding.last_login_at,
+    last_login_device: binding.last_login_device,
+    binding_status: binding.binding_status,
+    qr_token_status: binding.qr_token_status,
+    created_at: binding.created_at,
+    updated_at: binding.updated_at
+  };
 }
 
 function toSupabaseChild(child: LocalChild): SupabaseChildRow {
@@ -508,4 +748,9 @@ function mergeDeviceBindings(
 
 function toSupabaseUuid(value: string | null | undefined, fallback: string) {
   return value && UUID_PATTERN.test(value) ? value : fallback;
+}
+
+function maxIsoDate(values: Array<string | null | undefined>) {
+  const sorted = values.filter((value): value is string => Boolean(value)).sort();
+  return sorted.length ? sorted[sorted.length - 1] : null;
 }
