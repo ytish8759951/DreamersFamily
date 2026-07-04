@@ -12,7 +12,7 @@ import {
   Users,
   X
 } from 'lucide-react';
-import { useLayoutEffect, useState } from 'react';
+import { useEffect, useLayoutEffect, useState } from 'react';
 import { NavLink, Outlet, useLocation } from 'react-router-dom';
 import { APP_BUNDLE_VERSION } from '../../lib/appRuntime';
 import { dataModeLabel } from '../../lib/dataRepository';
@@ -167,8 +167,104 @@ export function ParentLayout() {
           </NavLink>
         ))}
       </nav>
+      <MobileTapDiagnostics isMobileMenuOpen={isMobileMenuOpen} />
     </div>
   );
+}
+
+type TapInfo = {
+  tagName: string;
+  className: string;
+  id: string;
+  zIndex: string;
+  pointerEvents: string;
+  position: string;
+  width: number;
+  height: number;
+};
+
+const BLOCKING_CLASS_PATTERN = /(overlay|backdrop|loading|drawer|modal|mask|auth-page)/i;
+
+function MobileTapDiagnostics({ isMobileMenuOpen }: { isMobileMenuOpen: boolean }) {
+  const [tapInfo, setTapInfo] = useState<TapInfo | null>(null);
+
+  useEffect(() => {
+    if (typeof document === 'undefined') return;
+
+    const inspectPoint = (clientX: number, clientY: number, source: string) => {
+      const element = document.elementFromPoint(clientX, clientY) as HTMLElement | null;
+      if (!element) return;
+
+      const styles = window.getComputedStyle(element);
+      const rect = element.getBoundingClientRect();
+      const info: TapInfo = {
+        tagName: element.tagName.toLowerCase(),
+        className: typeof element.className === 'string' ? element.className : '',
+        id: element.id || '',
+        zIndex: styles.zIndex,
+        pointerEvents: styles.pointerEvents,
+        position: styles.position,
+        width: Math.round(rect.width),
+        height: Math.round(rect.height)
+      };
+
+      setTapInfo(info);
+      console.log('[tap-inspector]', { source, x: clientX, y: clientY, ...info, element });
+
+      if (!isMobileMenuOpen && isBlockingElement(element, info)) {
+        element.style.pointerEvents = 'none';
+        if (element.classList.contains('ph-mobile-overlay') || element.classList.contains('ph-mobile-drawer')) {
+          element.style.display = 'none';
+          element.setAttribute('hidden', '');
+        }
+        console.warn('[tap-inspector] disabled blocking element', info, element);
+      }
+    };
+
+    const onTouchStart = (event: TouchEvent) => {
+      const touch = event.touches[0] ?? event.changedTouches[0];
+      if (!touch) return;
+      inspectPoint(touch.clientX, touch.clientY, 'touchstart');
+    };
+
+    const onClick = (event: MouseEvent) => {
+      inspectPoint(event.clientX, event.clientY, 'click');
+    };
+
+    const inspectCenter = () => {
+      inspectPoint(window.innerWidth / 2, window.innerHeight / 2, 'initial-center');
+    };
+
+    window.setTimeout(inspectCenter, 250);
+    document.addEventListener('touchstart', onTouchStart, { capture: true, passive: true });
+    document.addEventListener('click', onClick, { capture: true });
+    return () => {
+      document.removeEventListener('touchstart', onTouchStart, { capture: true });
+      document.removeEventListener('click', onClick, { capture: true });
+    };
+  }, [isMobileMenuOpen]);
+
+  if (!tapInfo) return null;
+
+  return (
+    <aside className="ph-tap-inspector" aria-live="polite">
+      <strong>tap inspector</strong>
+      <span>tag: {tapInfo.tagName}</span>
+      <span>class: {tapInfo.className || '-'}</span>
+      <span>id: {tapInfo.id || '-'}</span>
+      <span>z: {tapInfo.zIndex}</span>
+      <span>pointer: {tapInfo.pointerEvents}</span>
+      <span>pos: {tapInfo.position}</span>
+      <span>size: {tapInfo.width}x{tapInfo.height}</span>
+    </aside>
+  );
+}
+
+function isBlockingElement(element: HTMLElement, info: TapInfo) {
+  const label = `${info.className} ${info.id} ${info.tagName}`;
+  const coversViewport = info.width >= window.innerWidth * 0.8 && info.height >= window.innerHeight * 0.5;
+  const fixedLayer = info.position === 'fixed' || info.position === 'sticky';
+  return BLOCKING_CLASS_PATTERN.test(label) && (fixedLayer || coversViewport);
 }
 
 function Brand({ familyName }: { familyName: string }) {
