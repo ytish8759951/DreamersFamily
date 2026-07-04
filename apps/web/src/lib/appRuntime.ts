@@ -1,7 +1,7 @@
 import { registerSW } from 'virtual:pwa-register';
 import { dataMode } from './dataRepository';
 
-export const APP_BUNDLE_VERSION = '20260704-tap-diagnostics-v1';
+export const APP_BUNDLE_VERSION = '20260704-sw-redirect-cache-v2';
 export const APP_CACHE_MARKER_KEY = 'little-dreamers-family:bundle-version';
 export const APP_CACHE_CLEAR_MARKER_KEY = 'little-dreamers-family:last-cache-clear';
 
