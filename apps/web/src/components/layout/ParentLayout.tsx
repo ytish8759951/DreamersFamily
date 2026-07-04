@@ -128,12 +128,14 @@ export function ParentLayout() {
 
       <button
         type="button"
-        className={`ph-mobile-overlay${isMobileMenuOpen ? ' is-open' : ''}`}
+        className={`ph-mobile-overlay${isMobileMenuOpen ? ' is-open' : ' is-closed'}`}
+        hidden={!isMobileMenuOpen}
         aria-label="關閉選單"
         onClick={() => setIsMobileMenuOpen(false)}
       />
       <aside
-        className={`ph-mobile-drawer${isMobileMenuOpen ? ' is-open' : ''}`}
+        className={`ph-mobile-drawer${isMobileMenuOpen ? ' is-open' : ' is-closed'}`}
+        hidden={!isMobileMenuOpen}
         aria-hidden={!isMobileMenuOpen}
         aria-label="家長端選單"
       >
