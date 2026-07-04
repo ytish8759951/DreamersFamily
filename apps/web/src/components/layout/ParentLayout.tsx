@@ -1,11 +1,17 @@
+import { useLayoutEffect } from 'react';
 import { NavLink } from 'react-router-dom';
 import { Dashboard } from '../../pages/parent/Dashboard';
+import { syncAppShellMetadata } from '../../lib/appRuntime';
 import { useLocalDataState } from '../../lib/useLocalData';
 
 export function ParentLayout() {
   const state = useLocalDataState();
-  const familyName = state.family_settings.family_name || '小小夢想家 Family';
+  const familyName = state.family_settings.family_name || '撠?憭Ｘ摰?Family';
   const activeChildren = state.children.filter((child) => child.status === 'active');
+
+  useLayoutEffect(() => {
+    syncAppShellMetadata('/parent');
+  }, []);
 
   return (
     <main style={pageStyle}>
@@ -46,7 +52,6 @@ export function ParentLayout() {
         <NavLink to="/parent/mailbox">Mail</NavLink>
         <NavLink to="/parent/settings">Settings</NavLink>
       </nav>
-
     </main>
   );
 }

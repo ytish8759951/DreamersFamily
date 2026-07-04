@@ -1,7 +1,7 @@
 import { Camera, Home, ListChecks, Mail, PiggyBank } from 'lucide-react';
 import { useLayoutEffect } from 'react';
 import { NavLink, Outlet, useLocation } from 'react-router-dom';
-import { APP_BUNDLE_VERSION } from '../../lib/appRuntime';
+import { syncAppShellMetadata } from '../../lib/appRuntime';
 
 const navItems = [
   { label: '我的家', href: '/child/home', icon: Home },
@@ -23,27 +23,8 @@ export function ChildLayout() {
   const isScreenTimePage = location.pathname === '/child/screen-time';
 
   useLayoutEffect(() => {
-    if (typeof document === 'undefined') return;
-    const linkId = 'app-manifest-link';
-    const href = `/manifest-child.webmanifest?v=${APP_BUNDLE_VERSION}`;
-    const iconHref = `/app-icon-child.png?v=${APP_BUNDLE_VERSION}`;
-    const existing = document.getElementById(linkId) as HTMLLinkElement | null;
-    const link = existing ?? document.createElement('link');
-    link.id = linkId;
-    link.rel = 'manifest';
-    link.href = href;
-    if (!existing) document.head.appendChild(link);
-    let iconLink = document.querySelector('link[rel="apple-touch-icon"]') as HTMLLinkElement | null;
-    if (!iconLink) {
-      iconLink = document.createElement('link');
-      iconLink.rel = 'apple-touch-icon';
-      document.head.appendChild(iconLink);
-    }
-    iconLink.href = iconHref;
-    const title = document.querySelector('meta[name="apple-mobile-web-app-title"]');
-    if (title) title.setAttribute('content', 'Dreamers Child');
-    document.title = 'Dreamers Child';
-  }, []);
+    syncAppShellMetadata(location.pathname);
+  }, [location.pathname]);
 
   return (
     <div className={`ds-shell ds-child-shell${isHomePage ? ' ds-home-shell' : ''}${isTaskPage ? ' ds-task-shell' : ''}${isSharePage ? ' ds-share-shell' : ''}${isDreamPage ? ' ds-dream-shell' : ''}${isMailboxPage ? ' ds-mailbox-shell' : ''}${isHonorPage ? ' ds-honor-shell' : ''}${isSpecialDaysPage ? ' ds-special-days-shell' : ''}${isScreenTimePage ? ' ds-screen-time-shell' : ''}`}>

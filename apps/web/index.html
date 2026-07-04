@@ -8,34 +8,6 @@
     <meta name="apple-mobile-web-app-capable" content="yes" />
     <meta name="apple-mobile-web-app-status-bar-style" content="default" />
     <meta name="apple-mobile-web-app-title" content="Dreamers Family" />
-    <script>
-      (function () {
-        const path = window.location.pathname || '/';
-        const isChild = path.startsWith('/child');
-        const appName = isChild ? 'Dreamers Child' : 'Dreamers Family';
-        const manifestHref = isChild
-          ? '/manifest-child.webmanifest?v=20260704-disable-pwa-v1'
-          : '/manifest-parent.webmanifest?v=20260704-disable-pwa-v1';
-        const iconHref = isChild
-          ? '/app-icon-child.png?v=20260704-disable-pwa-v1'
-          : '/app-icon-parent.png?v=20260704-disable-pwa-v1';
-        const existing = document.querySelector('link[rel="manifest"]');
-        const link = existing || document.createElement('link');
-        link.setAttribute('rel', 'manifest');
-        link.setAttribute('href', manifestHref);
-        if (!existing) document.head.appendChild(link);
-        let iconLink = document.querySelector('link[rel="apple-touch-icon"]');
-        if (!iconLink) {
-          iconLink = document.createElement('link');
-          iconLink.setAttribute('rel', 'apple-touch-icon');
-          document.head.appendChild(iconLink);
-        }
-        iconLink.setAttribute('href', iconHref);
-        const title = document.querySelector('meta[name="apple-mobile-web-app-title"]');
-        if (title) title.setAttribute('content', appName);
-        document.title = appName;
-      })();
-    </script>
     <title>Dreamers Family</title>
   </head>
   <body>

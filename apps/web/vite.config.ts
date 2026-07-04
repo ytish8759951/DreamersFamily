@@ -1,4 +1,4 @@
-import { defineConfig } from 'vite';
+import { defineConfig, type Plugin } from 'vite';
 import react from '@vitejs/plugin-react';
 import { execSync } from 'node:child_process';
 
@@ -10,11 +10,35 @@ function getBuildCommit() {
   );
 }
 
+function buildMetaPlugin(buildId: string): Plugin {
+  return {
+    name: 'build-meta-json',
+    generateBundle() {
+      this.emitFile({
+        type: 'asset',
+        fileName: 'build-meta.json',
+        source: `${JSON.stringify(
+          {
+            buildId,
+            commit: buildId,
+            generatedAt: new Date().toISOString()
+          },
+          null,
+          2
+        )}\n`
+      });
+    }
+  };
+}
+
+const buildCommit = getBuildCommit();
+
 export default defineConfig({
   define: {
-    __BUILD_COMMIT__: JSON.stringify(getBuildCommit())
+    __BUILD_COMMIT__: JSON.stringify(buildCommit)
   },
   plugins: [
-    react()
+    react(),
+    buildMetaPlugin(buildCommit)
   ]
 });

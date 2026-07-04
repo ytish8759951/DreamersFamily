@@ -20,7 +20,12 @@ window.onunhandledrejection = (event) => {
   console.error('PROMISE ERROR', event.reason);
 };
 
-void prepareAppRuntime().finally(() => migrateLocalStorageMediaToRepository()).finally(() => {
+void (async () => {
+  const shouldContinue = await prepareAppRuntime();
+  if (!shouldContinue) return;
+
+  await migrateLocalStorageMediaToRepository();
+
   ReactDOM.createRoot(document.getElementById('root')!).render(
     <React.StrictMode>
       <div>Build: {__BUILD_COMMIT__.slice(0, 8)}</div>
@@ -29,4 +34,4 @@ void prepareAppRuntime().finally(() => migrateLocalStorageMediaToRepository()).f
   );
   markReactMounted();
   console.log('React Root Mounted');
-});
+})();
