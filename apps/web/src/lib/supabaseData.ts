@@ -1228,7 +1228,7 @@ export class SupabaseDataRepository implements LocalDataRepository {
 
   getState(): LocalDatabaseState {
     this.hydrateFromSupabase();
-    return this.cache.getState();
+    return scopeStateToCurrentFamily(this.cache.getState());
   }
 
   getRepositoryScope(): LocalRepositoryScope {
@@ -1241,7 +1241,8 @@ export class SupabaseDataRepository implements LocalDataRepository {
 
   subscribe(listener: Listener): () => void {
     this.listeners.add(listener);
-    const unsubscribeCache = this.cache.subscribe(listener);
+    const scopedListener: Listener = (state) => listener(scopeStateToCurrentFamily(state));
+    const unsubscribeCache = this.cache.subscribe(scopedListener);
     this.hydrateFromSupabase();
     return () => {
       this.listeners.delete(listener);
@@ -1279,7 +1280,9 @@ export class SupabaseDataRepository implements LocalDataRepository {
 
   listChildren(includeArchived = false): LocalChild[] {
     this.hydrateFromSupabase();
-    return this.cache.listChildren(includeArchived);
+    return this.cache
+      .listChildren(includeArchived)
+      .filter((child) => child.family_id === SUPABASE_FAMILY_ID);
   }
 
   getChildByToken(token: string): LocalChild | null {
@@ -1427,7 +1430,7 @@ export class SupabaseDataRepository implements LocalDataRepository {
     this.hydratePromise = this.fetchSupabaseState()
       .then((remoteState) => {
         if (!remoteState) return;
-        const currentState = this.cache.getState();
+        const currentState = scopeStateToCurrentFamily(this.cache.getState());
         this.cache.importData(JSON.stringify(mergeRemoteState(currentState, remoteState)));
         this.emit();
       })
@@ -1442,7 +1445,7 @@ export class SupabaseDataRepository implements LocalDataRepository {
 
   private async fetchSupabaseState(): Promise<LocalDatabaseState | null> {
     if (!this.client || !runtimeInfo.familyId) return null;
-    const state = this.cache.getState();
+    const state = scopeStateToCurrentFamily(this.cache.getState());
     const [
       { data: parent, error: parentError },
       { data: children, error: childrenError },
@@ -1503,8 +1506,10 @@ export class SupabaseDataRepository implements LocalDataRepository {
     const parentSettings = (parent as SupabaseParentRow | null)?.settings ?? null;
     const parentState = readRepositoryState(parentSettings);
     const remoteChildren = ((children ?? []) as SupabaseChildRow[]).map(fromSupabaseChild);
-    const baseState = parentState ?? state;
-    const mergedChildren = mergeChildren(baseState.children, remoteChildren);
+    const baseState = scopeStateToCurrentFamily(parentState ?? state);
+    const mergedChildren = mergeChildren(baseState.children, remoteChildren).filter(
+      (child) => child.family_id === SUPABASE_FAMILY_ID
+    );
     const taskRecords = (taskRecordRows ?? []) as SupabaseTaskRecordRow[];
     const remoteTasks = mergeTasks(
       baseState.tasks,
@@ -1599,7 +1604,7 @@ export class SupabaseDataRepository implements LocalDataRepository {
       ...((bindings ?? []) as SupabaseDeviceBindingRow[]).map((binding) => binding.updated_at)
     ]) ?? new Date().toISOString();
     this.lastRemoteUpdatedAt = updatedAt;
-    return {
+    return scopeStateToCurrentFamily({
       ...baseState,
       family_id: SUPABASE_FAMILY_ID,
       parent_id: SUPABASE_PARENT_ID,
@@ -1640,7 +1645,7 @@ export class SupabaseDataRepository implements LocalDataRepository {
       ),
       active_child_id: baseState.active_child_id ?? mergedChildren.find((child) => child.status === 'active')?.id ?? null,
       updated_at: updatedAt
-    };
+    });
   }
 
   private queuePush() {
@@ -1665,7 +1670,7 @@ export class SupabaseDataRepository implements LocalDataRepository {
   private async flushPush() {
     if (!this.client || !runtimeInfo.familyId || !this.pendingPush) return;
     this.pendingPush = false;
-    const state = toSupabaseRepositoryState(this.cache.getState());
+    const state = toSupabaseRepositoryState(scopeStateToCurrentFamily(this.cache.getState()));
     await this.pushRepositorySnapshot(state);
     await this.pushChildrenAndBindings(state);
     await this.pushDreamShareMailboxSpecialTables(state);
@@ -2013,7 +2018,7 @@ export class SupabaseDataRepository implements LocalDataRepository {
   }
 
   private emit() {
-    const state = this.cache.getState();
+    const state = scopeStateToCurrentFamily(this.cache.getState());
     this.listeners.forEach((listener) => listener(state));
   }
 }
@@ -2024,19 +2029,77 @@ function readRepositoryState(settings: SupabaseParentRow['settings']): LocalData
   return state;
 }
 
+function scopeStateToCurrentFamily(state: LocalDatabaseState): LocalDatabaseState {
+  if (!runtimeInfo.familyId) return state;
+
+  const children = state.children.filter((child) => child.family_id === SUPABASE_FAMILY_ID);
+  const childIds = new Set(children.map((child) => child.id));
+  const keepFamily = <T extends { family_id: UUID }>(items: T[]) =>
+    items.filter((item) => item.family_id === SUPABASE_FAMILY_ID);
+  const keepFamilyChild = <T extends { family_id: UUID; child_id: UUID }>(items: T[]) =>
+    items.filter((item) => item.family_id === SUPABASE_FAMILY_ID && childIds.has(item.child_id));
+  const keepFamilyOptionalChild = <T extends { family_id: UUID; child_id: UUID | null }>(items: T[]) =>
+    items.filter((item) => item.family_id === SUPABASE_FAMILY_ID && (!item.child_id || childIds.has(item.child_id)));
+  const keepChildId = <T extends { childId: UUID }>(items: T[]) => items.filter((item) => childIds.has(item.childId));
+  const activeChildId =
+    state.active_child_id && childIds.has(state.active_child_id)
+      ? state.active_child_id
+      : children.find((child) => child.status === 'active')?.id ?? null;
+
+  return {
+    ...state,
+    family_id: SUPABASE_FAMILY_ID,
+    parent_id: SUPABASE_PARENT_ID,
+    current_user_id: SUPABASE_PARENT_ID,
+    active_child_id: activeChildId,
+    deviceBinding: state.deviceBinding && childIds.has(state.deviceBinding) ? state.deviceBinding : null,
+    device_child_id: state.device_child_id && childIds.has(state.device_child_id) ? state.device_child_id : null,
+    currentChildIdentity:
+      state.currentChildIdentity && childIds.has(state.currentChildIdentity.childId) ? state.currentChildIdentity : null,
+    parent_bootstrap_summary: state.parent_bootstrap_summary?.filter((summary) => childIds.has(summary.child_id)),
+    children,
+    child_onboarding_tokens: state.child_onboarding_tokens?.filter((token) => childIds.has(token.childId)),
+    tasks: keepFamilyChild(state.tasks),
+    stars: keepFamilyChild(state.stars),
+    dreams: keepFamilyChild(state.dreams),
+    dream_funds: keepFamilyChild(state.dream_funds),
+    shares: keepFamilyChild(state.shares),
+    share_media: keepFamilyChild(state.share_media),
+    encouragement_cards: keepFamilyChild(state.encouragement_cards),
+    badges: keepFamily(state.badges),
+    child_badges: keepFamilyChild(state.child_badges),
+    special_days: keepFamilyOptionalChild(state.special_days),
+    screen_time_schedules: keepFamilyChild(state.screen_time_schedules),
+    screen_time_requests: keepFamilyChild(state.screen_time_requests),
+    screen_time_logs: keepFamilyChild(state.screen_time_logs),
+    growth_records: keepFamilyChild(state.growth_records),
+    notifications: keepFamilyChild(state.notifications),
+    device_binding_records: keepFamilyChild(state.device_binding_records),
+    piggy_incomes: keepFamilyChild(state.piggy_incomes),
+    piggy_bank_logs: keepFamilyChild(state.piggy_bank_logs),
+    piggy_products: keepFamilyChild(state.piggy_products),
+    piggy_shelf_orders: keepFamilyChild(state.piggy_shelf_orders),
+    piggyProductDisplaySettings: keepFamilyChild(state.piggyProductDisplaySettings),
+    piggy_purchases: keepFamilyChild(state.piggy_purchases),
+    annual_parent_notes: keepChildId(state.annual_parent_notes),
+    memory_packs: keepChildId(state.memory_packs)
+  };
+}
+
 function mergeRemoteState(current: LocalDatabaseState, remote: LocalDatabaseState): LocalDatabaseState {
+  const scopedRemote = scopeStateToCurrentFamily(remote);
   const activeChildId =
     current.currentChildIdentity?.childId ??
     current.deviceBinding ??
     current.device_child_id ??
-    (remote.active_child_id && remote.children.some((child) => child.id === remote.active_child_id)
-      ? remote.active_child_id
-      : current.active_child_id && remote.children.some((child) => child.id === current.active_child_id)
+    (scopedRemote.active_child_id && scopedRemote.children.some((child) => child.id === scopedRemote.active_child_id)
+      ? scopedRemote.active_child_id
+      : current.active_child_id && scopedRemote.children.some((child) => child.id === current.active_child_id)
         ? current.active_child_id
-        : remote.children.find((child) => child.status === 'active')?.id ?? null);
+        : scopedRemote.children.find((child) => child.status === 'active')?.id ?? null);
 
   return {
-    ...remote,
+    ...scopedRemote,
     device_id: current.device_id,
     deviceBinding: current.deviceBinding,
     device_child_id: current.device_child_id,
