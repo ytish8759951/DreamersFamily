@@ -1,4 +1,4 @@
-import { useState, type FormEvent } from 'react';
+import { useEffect, useState, type FormEvent } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { signInParentWithPassword, signOutParent, signUpParentWithPassword } from '../../lib/supabaseData';
 import { settingsRepository } from '../../lib/settingsRepository';
@@ -50,6 +50,12 @@ export function AuthPage() {
   const [displayName, setDisplayName] = useState('');
   const [message, setMessage] = useState('');
 
+  useEffect(() => {
+    if (runtimeInfo.familyId || runtimeInfo.parentId) {
+      navigate('/parent', { replace: true });
+    }
+  }, [navigate, runtimeInfo.familyId, runtimeInfo.parentId]);
+
   const submitAuth = async (event: FormEvent) => {
     event.preventDefault();
     setMessage('');
@@ -58,7 +64,7 @@ export function AuthPage() {
       if (mode === 'signin') {
         const runtime = await signInParentWithPassword(email, password);
         settingsRepository.updateSettings({ parent_email: email });
-        navigate(runtime.familyId ? '/parent' : '/create-family', { replace: true });
+        navigate(runtime.familyId || runtime.parentId ? '/parent' : '/create-family', { replace: true });
         return;
       }
 
@@ -67,7 +73,7 @@ export function AuthPage() {
         parent_email: email,
         parent_name: displayName.trim() || email.split('@')[0] || '家長'
       });
-      navigate(runtime.familyId ? '/parent' : '/create-family', { replace: true });
+      navigate(runtime.familyId || runtime.parentId ? '/parent' : '/create-family', { replace: true });
     } catch (caught) {
       console.error(caught);
       setMessage(formatAuthError(caught));

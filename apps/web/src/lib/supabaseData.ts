@@ -479,7 +479,19 @@ interface SupabaseFamilyMemberRow {
 
 interface ProductionAuthScope {
   userId: UUID;
+  parentId: UUID | null;
   familyId: UUID | null;
+  role: ParentRuntimeRole | null;
+}
+
+export interface CurrentParentProfile {
+  parentId: UUID;
+  familyId: UUID | null;
+  role: ParentRuntimeRole | null;
+}
+
+export interface CurrentFamilyScope {
+  familyId: UUID;
   role: ParentRuntimeRole | null;
 }
 
@@ -586,10 +598,10 @@ async function resolveAndPublishProductionAuthScope() {
   }
   setRuntimeInfo({
     userId: scope.userId,
-    parentId: scope.userId,
+    parentId: scope.parentId,
     familyId: scope.familyId,
     parentRole: scope.role,
-    authStatus: scope.familyId ? 'ready' : 'needs_family'
+    authStatus: scope.familyId || scope.parentId ? 'ready' : 'needs_family'
   });
   return getSupabaseRuntimeInfo();
 }
@@ -654,6 +666,63 @@ export async function signOutParent() {
   if (!supabaseClient) return;
   const { error } = await supabaseClient.auth.signOut();
   if (error) throw new Error(formatSupabaseError('Sign out', error));
+}
+
+export async function getCurrentParentProfile(client: SupabaseClient | null = supabaseClient): Promise<CurrentParentProfile | null> {
+  if (!client) throw new Error('Supabase is not configured.');
+  const { data: sessionData, error: sessionError } = await client.auth.getSession();
+  if (sessionError) throw sessionError;
+  const user = sessionData.session?.user;
+  if (!user) return null;
+
+  const { data, error } = await client
+    .from('parents')
+    .select('id,family_id,parent_role')
+    .eq('id', user.id)
+    .maybeSingle();
+  if (error) throw error;
+
+  const parent = data as { id?: string | null; family_id?: string | null; parent_role?: ParentRuntimeRole | null } | null;
+  if (!parent?.id) return null;
+  return {
+    parentId: parent.id,
+    familyId: parent.family_id ?? null,
+    role: parent.parent_role ?? null
+  };
+}
+
+export async function getCurrentFamily(
+  client: SupabaseClient | null = supabaseClient,
+  preferredFamilyId?: string | null
+): Promise<CurrentFamilyScope | null> {
+  if (!client) throw new Error('Supabase is not configured.');
+  const { data: sessionData, error: sessionError } = await client.auth.getSession();
+  if (sessionError) throw sessionError;
+  const user = sessionData.session?.user;
+  if (!user) return null;
+
+  const queryMembership = async (familyId?: string | null) => {
+    let query = client
+      .from('family_members')
+      .select('family_id,user_id,role,status,created_at')
+      .eq('user_id', user.id)
+      .eq('status', 'active')
+      .order('created_at', { ascending: true })
+      .limit(1);
+
+    if (familyId) query = query.eq('family_id', familyId);
+
+    const { data, error } = await query.maybeSingle();
+    if (error) throw error;
+    return data as SupabaseFamilyMemberRow | null;
+  };
+
+  const membership = (await queryMembership(preferredFamilyId)) ?? (preferredFamilyId ? await queryMembership() : null);
+  if (!membership) return null;
+  return {
+    familyId: membership.family_id,
+    role: membership.role
+  };
 }
 
 export function bindParentDeviceToFamily(binding: ParentDeviceBinding) {
@@ -884,36 +953,43 @@ async function resolveProductionAuthScope(client: SupabaseClient): Promise<Produ
     const deviceBinding = readParentDeviceBinding();
     if (!deviceBinding) return null;
     void touchDeviceBoundParent();
-    return { userId: deviceBinding.parentId, familyId: deviceBinding.familyId, role: deviceBinding.parentRole };
+    return {
+      userId: deviceBinding.parentId,
+      parentId: deviceBinding.parentId,
+      familyId: deviceBinding.familyId,
+      role: deviceBinding.parentRole
+    };
   }
 
   await ensureProfileForUser(client, user.id, user.user_metadata?.display_name, user.email);
 
-  const { data: parentData, error: parentError } = await client
-    .from('parents')
-    .select('family_id')
-    .eq('id', user.id)
-    .maybeSingle();
-  if (parentError) throw parentError;
-
+  const parentProfile = await getCurrentParentProfile(client);
   const savedBinding = readSavedFamilyBinding(user.id);
-  const familyId = (parentData as { family_id?: string | null } | null)?.family_id ?? savedBinding?.familyId ?? null;
-  if (!familyId) return { userId: user.id, familyId: null, role: null };
+  const preferredFamilyId = parentProfile?.familyId ?? savedBinding?.familyId ?? null;
+  const familyScope = await getCurrentFamily(client, preferredFamilyId);
 
-  const { data, error } = await client
-    .from('family_members')
-    .select('family_id,user_id,role,status,created_at')
-    .eq('user_id', user.id)
-    .eq('family_id', familyId)
-    .eq('status', 'active')
-    .maybeSingle();
-  if (error) throw error;
+  if (familyScope?.familyId) {
+    saveFamilyBinding(user.id, familyScope.familyId);
+    await ensureParentForUser(client, user.id, familyScope.familyId, user.user_metadata?.display_name, user.email);
+    return {
+      userId: user.id,
+      parentId: parentProfile?.parentId ?? user.id,
+      familyId: familyScope.familyId,
+      role: familyScope.role ?? parentProfile?.role ?? null
+    };
+  }
 
-  const membership = data as SupabaseFamilyMemberRow | null;
-  if (!membership) return { userId: user.id, familyId: null, role: null };
-  saveFamilyBinding(user.id, membership.family_id);
-  await ensureParentForUser(client, user.id, membership.family_id, user.user_metadata?.display_name, user.email);
-  return { userId: user.id, familyId: membership.family_id, role: membership.role };
+  if (parentProfile) {
+    if (parentProfile.familyId) saveFamilyBinding(user.id, parentProfile.familyId);
+    return {
+      userId: user.id,
+      parentId: parentProfile.parentId,
+      familyId: parentProfile.familyId,
+      role: parentProfile.role
+    };
+  }
+
+  return { userId: user.id, parentId: null, familyId: null, role: null };
 }
 
 async function ensureProfileForUser(client: SupabaseClient, userId: string, displayName?: unknown, email?: string) {
@@ -1021,10 +1097,10 @@ export class SupabaseDataRepository implements LocalDataRepository {
       this.hasFamilyScope = Boolean(scope.familyId);
       setRuntimeInfo({
         userId: scope.userId,
-        parentId: scope.userId,
+        parentId: scope.parentId,
         familyId: scope.familyId,
         parentRole: scope.role,
-        authStatus: scope.familyId ? 'ready' : 'needs_family'
+        authStatus: scope.familyId || scope.parentId ? 'ready' : 'needs_family'
       });
       if (scope.familyId) {
         this.subscribeToSupabaseChanges();

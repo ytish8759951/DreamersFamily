@@ -31,12 +31,19 @@ import { dataMode } from './lib/dataRepository';
 import { useLocalDataState } from './lib/useLocalData';
 import { useSupabaseRuntimeInfo } from './lib/useSupabaseRuntimeInfo';
 
+function hasParentAccess(runtimeInfo: ReturnType<typeof useSupabaseRuntimeInfo>) {
+  return Boolean(runtimeInfo.familyId || runtimeInfo.parentId);
+}
+
 function RootRedirect() {
   const location = useLocation();
   const state = useLocalDataState();
   const runtimeInfo = useSupabaseRuntimeInfo();
   if (dataMode === 'supabase' && runtimeInfo.authStatus === 'initializing') {
     return <div className="auth-page">正在載入家庭資料...</div>;
+  }
+  if (dataMode === 'supabase' && hasParentAccess(runtimeInfo)) {
+    return <Navigate to="/parent" replace />;
   }
   if (dataMode === 'supabase' && runtimeInfo.authStatus !== 'ready') {
     return <Navigate to={runtimeInfo.authStatus === 'needs_family' ? '/create-family' : '/login'} replace />;
@@ -53,10 +60,24 @@ function RequireParentAuth() {
   if (dataMode === 'supabase' && runtimeInfo.authStatus === 'initializing') {
     return <div className="auth-page">正在載入家庭資料...</div>;
   }
-  if (dataMode === 'supabase' && runtimeInfo.authStatus !== 'ready') {
+  if (dataMode === 'supabase' && runtimeInfo.authStatus !== 'ready' && !hasParentAccess(runtimeInfo)) {
     return <Navigate to={runtimeInfo.authStatus === 'needs_family' ? '/create-family' : '/login'} replace />;
   }
   return <ParentLayout />;
+}
+
+function RequireCreateFamilyAccess() {
+  const runtimeInfo = useSupabaseRuntimeInfo();
+  if (dataMode === 'supabase' && runtimeInfo.authStatus === 'initializing') {
+    return <div className="auth-page">正在載入家庭資料...</div>;
+  }
+  if (dataMode === 'supabase' && hasParentAccess(runtimeInfo)) {
+    return <Navigate to="/parent" replace />;
+  }
+  if (dataMode === 'supabase' && runtimeInfo.authStatus === 'signed_out') {
+    return <Navigate to="/login" replace />;
+  }
+  return <CreateFamilyPage />;
 }
 
 export const router = createBrowserRouter([
@@ -64,7 +85,7 @@ export const router = createBrowserRouter([
   { path: '/login', element: <AuthPage /> },
   { path: '/join', element: <JoinFamilyPage /> },
   { path: '/join-parent/:token', element: <JoinParentDevicePage /> },
-  { path: '/create-family', element: <CreateFamilyPage /> },
+  { path: '/create-family', element: <RequireCreateFamilyAccess /> },
   { path: '/preview/design-system', element: <DesignSystemPreview /> },
   {
     path: '/parent',
