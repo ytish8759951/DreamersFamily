@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState, type FormEvent } from 'react';
 import { Navigate, useLocation, useNavigate } from 'react-router-dom';
+import { getLoggedInFamilyLandingPath } from '../../lib/familyLanding';
 import {
   createDeviceBoundParent,
   getProductionFamilyInvitePreview,
@@ -12,12 +13,14 @@ import {
   readParentDeviceBinding
 } from '../../lib/parentDeviceBinding';
 import { settingsRepository } from '../../lib/settingsRepository';
+import { useLocalDataState } from '../../lib/useLocalData';
 
 const RELATIONS = ['爸爸', '媽媽', '爺爺', '奶奶', '舅舅', '其他'] as const;
 
 export function JoinParentDevicePage() {
   const location = useLocation();
   const navigate = useNavigate();
+  const state = useLocalDataState();
   const token = decodeURIComponent(location.pathname.replace('/join-parent/', ''));
   const invite = useMemo(() => parseParentInviteToken(token), [token]);
   const existingBinding = readParentDeviceBinding();
@@ -72,7 +75,7 @@ export function JoinParentDevicePage() {
         family_name: invite.familyName,
         parent_name: binding.parentName
       });
-      navigate('/parent', { replace: true });
+      navigate(getLoggedInFamilyLandingPath(state), { replace: true });
     } catch (caught) {
       setMessage(caught instanceof Error ? caught.message : '加入家庭失敗');
     }
@@ -87,7 +90,7 @@ export function JoinParentDevicePage() {
             <h1>此裝置已加入 {invite?.familyName}</h1>
             <p>Safari、PWA 與加入主畫面都會直接進入自己的家庭首頁。</p>
           </header>
-          <button className="ds-primary-button" type="button" onClick={() => navigate('/parent', { replace: true })}>
+          <button className="ds-primary-button" type="button" onClick={() => navigate(getLoggedInFamilyLandingPath(state), { replace: true })}>
             進入家長首頁
           </button>
         </section>

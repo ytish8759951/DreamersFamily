@@ -1,4 +1,4 @@
-import { createBrowserRouter, Navigate, useLocation } from 'react-router-dom';
+import { createBrowserRouter, Navigate } from 'react-router-dom';
 import { ParentLayout } from './components/layout/ParentLayout';
 import { ChildLayout } from './components/layout/ChildLayout';
 import { Children } from './pages/parent/Children';
@@ -28,6 +28,7 @@ import { JoinFamilyPage } from './pages/auth/JoinFamilyPage';
 import { CreateFamilyPage } from './pages/auth/CreateFamilyPage';
 import { JoinParentDevicePage } from './pages/auth/JoinParentDevicePage';
 import { dataMode } from './lib/dataRepository';
+import { getLoggedInFamilyLandingPath } from './lib/familyLanding';
 import { useLocalDataState } from './lib/useLocalData';
 import { useSupabaseRuntimeInfo } from './lib/useSupabaseRuntimeInfo';
 
@@ -36,29 +37,28 @@ function hasParentAccess(runtimeInfo: ReturnType<typeof useSupabaseRuntimeInfo>)
 }
 
 function RootRedirect() {
-  const location = useLocation();
   const state = useLocalDataState();
   const runtimeInfo = useSupabaseRuntimeInfo();
+
   if (dataMode === 'supabase' && runtimeInfo.authStatus === 'initializing') {
-    return <div className="auth-page">正在載入家庭資料...</div>;
+    return <div className="auth-page">Loading...</div>;
   }
-  if (dataMode === 'supabase' && hasParentAccess(runtimeInfo)) {
-    return <Navigate to="/parent" replace />;
-  }
+
   if (dataMode === 'supabase' && runtimeInfo.authStatus !== 'ready') {
     return <Navigate to={runtimeInfo.authStatus === 'needs_family' ? '/create-family' : '/login'} replace />;
   }
-  if (location.pathname === '/' && (state.currentChildIdentity || state.deviceBinding)) {
-    return <Navigate to="/child/home" replace />;
+
+  if (dataMode === 'supabase' && !hasParentAccess(runtimeInfo)) {
+    return <Navigate to="/login" replace />;
   }
 
-  return <Navigate to={state.currentChildIdentity?.childId || state.deviceBinding ? '/child/home' : '/parent'} replace />;
+  return <Navigate to={getLoggedInFamilyLandingPath(state, runtimeInfo)} replace />;
 }
 
 function RequireParentAuth() {
   const runtimeInfo = useSupabaseRuntimeInfo();
   if (dataMode === 'supabase' && runtimeInfo.authStatus === 'initializing') {
-    return <div className="auth-page">正在載入家庭資料...</div>;
+    return <div className="auth-page">Loading...</div>;
   }
   if (dataMode === 'supabase' && runtimeInfo.authStatus !== 'ready' && !hasParentAccess(runtimeInfo)) {
     return <Navigate to={runtimeInfo.authStatus === 'needs_family' ? '/create-family' : '/login'} replace />;
@@ -67,12 +67,13 @@ function RequireParentAuth() {
 }
 
 function RequireCreateFamilyAccess() {
+  const state = useLocalDataState();
   const runtimeInfo = useSupabaseRuntimeInfo();
   if (dataMode === 'supabase' && runtimeInfo.authStatus === 'initializing') {
-    return <div className="auth-page">正在載入家庭資料...</div>;
+    return <div className="auth-page">Loading...</div>;
   }
   if (dataMode === 'supabase' && hasParentAccess(runtimeInfo)) {
-    return <Navigate to="/parent" replace />;
+    return <Navigate to={getLoggedInFamilyLandingPath(state, runtimeInfo)} replace />;
   }
   if (dataMode === 'supabase' && runtimeInfo.authStatus === 'signed_out') {
     return <Navigate to="/login" replace />;

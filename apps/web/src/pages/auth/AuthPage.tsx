@@ -1,7 +1,9 @@
 import { useEffect, useState, type FormEvent } from 'react';
 import { useNavigate } from 'react-router-dom';
+import { getLoggedInFamilyLandingPath } from '../../lib/familyLanding';
 import { signInParentWithPassword, signOutParent, signUpParentWithPassword } from '../../lib/supabaseData';
 import { settingsRepository } from '../../lib/settingsRepository';
+import { useLocalDataState } from '../../lib/useLocalData';
 import { useSupabaseRuntimeInfo } from '../../lib/useSupabaseRuntimeInfo';
 
 function stringifyUnknown(value: unknown) {
@@ -43,6 +45,7 @@ function formatAuthError(error: unknown) {
 
 export function AuthPage() {
   const navigate = useNavigate();
+  const state = useLocalDataState();
   const runtimeInfo = useSupabaseRuntimeInfo();
   const [mode, setMode] = useState<'signin' | 'signup'>('signup');
   const [email, setEmail] = useState('');
@@ -52,9 +55,9 @@ export function AuthPage() {
 
   useEffect(() => {
     if (runtimeInfo.familyId || runtimeInfo.parentId) {
-      navigate('/parent', { replace: true });
+      navigate(getLoggedInFamilyLandingPath(state, runtimeInfo), { replace: true });
     }
-  }, [navigate, runtimeInfo.familyId, runtimeInfo.parentId]);
+  }, [navigate, runtimeInfo, state]);
 
   const submitAuth = async (event: FormEvent) => {
     event.preventDefault();
@@ -64,7 +67,7 @@ export function AuthPage() {
       if (mode === 'signin') {
         const runtime = await signInParentWithPassword(email, password);
         settingsRepository.updateSettings({ parent_email: email });
-        navigate(runtime.familyId || runtime.parentId ? '/parent' : '/create-family', { replace: true });
+        navigate(getLoggedInFamilyLandingPath(state, runtime), { replace: true });
         return;
       }
 
@@ -73,7 +76,7 @@ export function AuthPage() {
         parent_email: email,
         parent_name: displayName.trim() || email.split('@')[0] || '家長'
       });
-      navigate(runtime.familyId || runtime.parentId ? '/parent' : '/create-family', { replace: true });
+      navigate(getLoggedInFamilyLandingPath(state, runtime), { replace: true });
     } catch (caught) {
       console.error(caught);
       setMessage(formatAuthError(caught));

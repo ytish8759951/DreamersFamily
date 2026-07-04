@@ -1,13 +1,16 @@
 import { useState, type FormEvent } from 'react';
 import { useNavigate } from 'react-router-dom';
+import { getLoggedInFamilyLandingPath } from '../../lib/familyLanding';
 import { createProductionFamily } from '../../lib/supabaseData';
 import { settingsRepository } from '../../lib/settingsRepository';
+import { useLocalDataState } from '../../lib/useLocalData';
 
 const DEFAULT_FAMILY_NAME = '小小夢想家 Family';
 const PARENT_RELATION_OPTIONS = ['爸爸', '媽媽', '爺爺', '奶奶', '舅舅', '其他'] as const;
 
 export function CreateFamilyPage() {
   const navigate = useNavigate();
+  const state = useLocalDataState();
   const [familyName, setFamilyName] = useState('');
   const [parentRelation, setParentRelation] = useState<(typeof PARENT_RELATION_OPTIONS)[number]>('爸爸');
   const [customParentRelation, setCustomParentRelation] = useState('');
@@ -29,7 +32,7 @@ export function CreateFamilyPage() {
         family_name: nextFamilyName,
         parent_name: nextParentRelation
       });
-      navigate('/parent', { replace: true });
+      navigate(getLoggedInFamilyLandingPath(state), { replace: true });
     } catch (caught) {
       console.error('[CreateFamilyPage] create family failed', caught);
       setMessage(caught instanceof Error ? caught.message : '建立家庭失敗');
