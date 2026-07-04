@@ -4,15 +4,21 @@ import { RouterProvider } from 'react-router-dom';
 import { router } from './routes';
 import { prepareAppRuntime } from './lib/appRuntime';
 import { migrateLocalStorageMediaToRepository } from './lib/mediaMigration';
+import { markReactMounted, recordPromiseError, recordWindowError } from './lib/runtimeDebug';
 import './styles/index.css';
 
-window.addEventListener('error', (event) => {
-  console.error('WINDOW ERROR', event.error, event.message);
-});
+window.onerror = (_message, _source, _lineno, _colno, error) => {
+  const text = error instanceof Error ? error.message : typeof _message === 'string' ? _message : 'Unknown window error';
+  recordWindowError(text);
+  console.error('WINDOW ERROR', error, _message);
+  return false;
+};
 
-window.addEventListener('unhandledrejection', (event) => {
+window.onunhandledrejection = (event) => {
+  const text = event.reason instanceof Error ? event.reason.message : String(event.reason ?? 'Unknown promise error');
+  recordPromiseError(text);
   console.error('PROMISE ERROR', event.reason);
-});
+};
 
 void prepareAppRuntime().finally(() => migrateLocalStorageMediaToRepository()).finally(() => {
   ReactDOM.createRoot(document.getElementById('root')!).render(
@@ -20,5 +26,6 @@ void prepareAppRuntime().finally(() => migrateLocalStorageMediaToRepository()).f
       <RouterProvider router={router} />
     </React.StrictMode>
   );
+  markReactMounted();
   console.log('React Root Mounted');
 });
