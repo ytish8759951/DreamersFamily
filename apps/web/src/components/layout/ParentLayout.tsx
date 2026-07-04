@@ -1,277 +1,223 @@
-import {
-  Activity,
-  BookOpen,
-  CalendarHeart,
-  Camera,
-  CheckSquare,
-  Clock3,
-  Mail,
-  Menu,
-  PiggyBank,
-  Settings,
-  Users,
-  X
-} from 'lucide-react';
-import { useEffect, useLayoutEffect, useState } from 'react';
-import { NavLink, Outlet, useLocation } from 'react-router-dom';
-import { APP_BUNDLE_VERSION } from '../../lib/appRuntime';
-import { dataModeLabel } from '../../lib/dataRepository';
-import { useLocalDataState } from '../../lib/useLocalData';
+import { useEffect, useRef, useState } from 'react';
 
-const navigation = [
-  { label: '孩子管理', short: '孩子', to: '/parent/children', icon: Users },
-  { label: '任務管理', short: '任務', to: '/parent/tasks', icon: CheckSquare, count: 4 },
-  { label: '分享管理', short: '分享', to: '/parent/share', icon: Camera, count: 3 },
-  { label: '撲滿管理', short: '撲滿', to: '/parent/dreams', icon: PiggyBank },
-  { label: '信箱管理', short: '信箱', to: '/parent/mailbox', icon: Mail },
-  { label: '特別日', short: '特別日', to: '/parent/special-days', icon: CalendarHeart },
-  { label: '年度回憶冊', short: '回憶冊', to: '/parent/memory-book', icon: BookOpen },
-  { label: '螢幕時間', short: '螢幕', to: '/parent/screen-time', icon: Clock3 },
-  { label: '設定', short: '設定', to: '/parent/settings', icon: Settings }
-];
-
-const mobileNavigation = [
-  { label: '孩子管理', to: '/parent/children', icon: Users },
-  { label: '任務管理', to: '/parent/tasks', icon: CheckSquare },
-  { label: '分享管理', to: '/parent/share', icon: Camera },
-  { label: '撲滿管理', to: '/parent/dreams', icon: PiggyBank },
-  { label: '信箱管理', to: '/parent/mailbox', icon: Mail },
-  { label: '特別日', to: '/parent/special-days', icon: CalendarHeart },
-  { label: '成長紀錄', to: '/parent/growth', icon: Activity },
-  { label: '螢幕時間', to: '/parent/screen-time', icon: Clock3 },
-  { label: '設定', to: '/parent/settings', icon: Settings }
-];
-
-export function ParentLayout() {
-  const location = useLocation();
-  const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
-  const localState = useLocalDataState();
-  const familyName = localState.family_settings.family_name || '小小夢想家 Family';
-
-  const familyPath = location.pathname;
-  const pickNavigation = (paths: string[]) =>
-    paths
-      .map((path) => navigation.find((item) => item.to === path))
-      .filter((item): item is (typeof navigation)[number] => Boolean(item));
-  const reviewBottomNav = pickNavigation(['/parent/children', '/parent/tasks', '/parent/share', '/parent/dreams', '/parent/settings']);
-  const dreamBottomNav = pickNavigation(['/parent/children', '/parent/tasks', '/parent/share', '/parent/dreams', '/parent/mailbox']);
-  const growthBottomNav = pickNavigation(['/parent/children', '/parent/growth', '/parent/memory-book', '/parent/special-days', '/parent/settings']);
-  const memoryBookBottomNav = pickNavigation(['/parent/children', '/parent/share', '/parent/tasks', '/parent/growth', '/parent/memory-book']);
-  const bottomNavigation = familyPath === '/parent/tasks' || familyPath === '/parent/share'
-    ? reviewBottomNav
-    : familyPath === '/parent/memory-book'
-      ? memoryBookBottomNav
-    : familyPath === '/parent/growth'
-      ? growthBottomNav
-      : dreamBottomNav;
-  const pageClass = familyPath === '/parent/dreams' ? ' is-dream-page' : familyPath === '/parent/mailbox' ? ' is-mailbox-page' : '';
-
-  useLayoutEffect(() => {
-    if (typeof document === 'undefined') return;
-    const linkId = 'app-manifest-link';
-    const href = `/manifest-parent.webmanifest?v=${APP_BUNDLE_VERSION}`;
-    const iconHref = `/app-icon-parent.png?v=${APP_BUNDLE_VERSION}`;
-    const existing = document.getElementById(linkId) as HTMLLinkElement | null;
-    const link = existing ?? document.createElement('link');
-    link.id = linkId;
-    link.rel = 'manifest';
-    link.href = href;
-    if (!existing) document.head.appendChild(link);
-    let iconLink = document.querySelector('link[rel="apple-touch-icon"]') as HTMLLinkElement | null;
-    if (!iconLink) {
-      iconLink = document.createElement('link');
-      iconLink.rel = 'apple-touch-icon';
-      document.head.appendChild(iconLink);
-    }
-    iconLink.href = iconHref;
-    const title = document.querySelector('meta[name="apple-mobile-web-app-title"]');
-    if (title) title.setAttribute('content', familyName);
-    document.title = familyName;
-  }, [familyName]);
-
-  return (
-    <div className={`ph-shell${pageClass}`}>
-      <aside className="ph-sidebar">
-        <Brand familyName={familyName} />
-        <nav>
-          {navigation.map(({ label, to, icon: Icon, count }) => (
-            <NavLink key={to} to={to} className={({ isActive }) => isActive ? 'is-active' : ''}>
-              <Icon size={17} />
-              <span>{label}</span>
-              {count ? <b>{count}</b> : null}
-            </NavLink>
-          ))}
-        </nav>
-        <div className="ph-user"><span>家</span><strong>家長端</strong><small>{dataModeLabel}</small></div>
-      </aside>
-
-      <div className="ph-content">
-        <header className="ph-topbar">
-          <button
-            type="button"
-            className="ph-menu"
-            aria-label="開啟選單"
-            aria-expanded={isMobileMenuOpen}
-            onClick={() => setIsMobileMenuOpen(true)}
-          >
-            <Menu size={20} />
-          </button>
-          <Brand familyName={familyName} />
-          <div className="ph-top-copy">
-            <small>{familyName}</small>
-            <strong>家長管理中心</strong>
-          </div>
-          <NavLink to="/child/home">孩子首頁</NavLink>
-        </header>
-        <main className="ph-main"><Outlet /></main>
-      </div>
-
-      <button
-        type="button"
-        className={`ph-mobile-overlay${isMobileMenuOpen ? ' is-open' : ' is-closed'}`}
-        hidden={!isMobileMenuOpen}
-        aria-label="關閉選單"
-        onClick={() => setIsMobileMenuOpen(false)}
-      />
-      <aside
-        className={`ph-mobile-drawer${isMobileMenuOpen ? ' is-open' : ' is-closed'}`}
-        hidden={!isMobileMenuOpen}
-        aria-hidden={!isMobileMenuOpen}
-        aria-label="家長端選單"
-      >
-        <div className="ph-mobile-drawer-head">
-          <Brand familyName={familyName} />
-          <button type="button" aria-label="關閉選單" onClick={() => setIsMobileMenuOpen(false)}>
-            <X size={20} />
-          </button>
-        </div>
-        <nav>
-          {mobileNavigation.map(({ label, to, icon: Icon }) => (
-            <NavLink
-              key={to}
-              to={to}
-              className={({ isActive }) => isActive ? 'is-active' : ''}
-              onClick={() => setIsMobileMenuOpen(false)}
-            >
-              <Icon size={18} />
-              <span>{label}</span>
-            </NavLink>
-          ))}
-        </nav>
-      </aside>
-
-      <nav className="ph-bottom-nav">
-        {bottomNavigation.map(({ short, label, to, icon: Icon }) => (
-          <NavLink key={to} to={to} className={({ isActive }) => isActive ? 'is-active' : ''}>
-            <Icon size={17} /><span>{short || label}</span>
-          </NavLink>
-        ))}
-      </nav>
-      <MobileTapDiagnostics isMobileMenuOpen={isMobileMenuOpen} />
-    </div>
-  );
-}
-
-type TapInfo = {
-  tagName: string;
+type HitElement = {
+  index: number;
+  tag: string;
   className: string;
   id: string;
-  zIndex: string;
   pointerEvents: string;
+  zIndex: string;
   position: string;
+  opacity: string;
+  visibility: string;
+  display: string;
+  touchAction: string;
+  transform: string;
   width: number;
   height: number;
 };
 
-const BLOCKING_CLASS_PATTERN = /(overlay|backdrop|loading|drawer|modal|mask|auth-page)/i;
-
-function MobileTapDiagnostics({ isMobileMenuOpen }: { isMobileMenuOpen: boolean }) {
-  const [tapInfo, setTapInfo] = useState<TapInfo | null>(null);
+export function ParentLayout() {
+  const [stack, setStack] = useState<HitElement[]>([]);
+  const highlightedElement = useRef<HTMLElement | null>(null);
+  const previousOutline = useRef('');
 
   useEffect(() => {
-    if (typeof document === 'undefined') return;
+    const clearHighlight = () => {
+      if (!highlightedElement.current) return;
+      highlightedElement.current.style.outline = previousOutline.current;
+      highlightedElement.current = null;
+      previousOutline.current = '';
+    };
 
-    const inspectPoint = (clientX: number, clientY: number, source: string) => {
-      const element = document.elementFromPoint(clientX, clientY) as HTMLElement | null;
-      if (!element) return;
+    const inspect = (clientX: number, clientY: number, source: string) => {
+      const elements = document.elementsFromPoint(clientX, clientY) as HTMLElement[];
+      const nextStack = elements.map((element, index) => {
+        const styles = window.getComputedStyle(element);
+        const rect = element.getBoundingClientRect();
+        return {
+          index,
+          tag: element.tagName,
+          className: typeof element.className === 'string' ? element.className : '',
+          id: element.id,
+          pointerEvents: styles.pointerEvents,
+          zIndex: styles.zIndex,
+          position: styles.position,
+          opacity: styles.opacity,
+          visibility: styles.visibility,
+          display: styles.display,
+          touchAction: styles.touchAction,
+          transform: styles.transform,
+          width: Math.round(rect.width),
+          height: Math.round(rect.height)
+        };
+      });
 
-      const styles = window.getComputedStyle(element);
-      const rect = element.getBoundingClientRect();
-      const info: TapInfo = {
-        tagName: element.tagName.toLowerCase(),
-        className: typeof element.className === 'string' ? element.className : '',
-        id: element.id || '',
-        zIndex: styles.zIndex,
-        pointerEvents: styles.pointerEvents,
-        position: styles.position,
-        width: Math.round(rect.width),
-        height: Math.round(rect.height)
-      };
-
-      setTapInfo(info);
-      console.log('[tap-inspector]', { source, x: clientX, y: clientY, ...info, element });
-
-      if (!isMobileMenuOpen && isBlockingElement(element, info)) {
-        element.style.pointerEvents = 'none';
-        if (element.classList.contains('ph-mobile-overlay') || element.classList.contains('ph-mobile-drawer')) {
-          element.style.display = 'none';
-          element.setAttribute('hidden', '');
-        }
-        console.warn('[tap-inspector] disabled blocking element', info, element);
+      clearHighlight();
+      const top = elements[0];
+      if (top) {
+        highlightedElement.current = top;
+        previousOutline.current = top.style.outline;
+        top.style.outline = '5px solid red';
       }
+
+      setStack(nextStack);
+      console.log('[dom-hit-test]', { source, x: clientX, y: clientY, stack: nextStack, elements });
+      console.table(nextStack);
     };
 
     const onTouchStart = (event: TouchEvent) => {
       const touch = event.touches[0] ?? event.changedTouches[0];
       if (!touch) return;
-      inspectPoint(touch.clientX, touch.clientY, 'touchstart');
+      inspect(touch.clientX, touch.clientY, 'touchstart');
     };
 
     const onClick = (event: MouseEvent) => {
-      inspectPoint(event.clientX, event.clientY, 'click');
+      inspect(event.clientX, event.clientY, 'click');
     };
 
-    const inspectCenter = () => {
-      inspectPoint(window.innerWidth / 2, window.innerHeight / 2, 'initial-center');
-    };
-
-    window.setTimeout(inspectCenter, 250);
+    window.setTimeout(() => inspect(window.innerWidth / 2, window.innerHeight / 2, 'initial-center'), 250);
     document.addEventListener('touchstart', onTouchStart, { capture: true, passive: true });
     document.addEventListener('click', onClick, { capture: true });
+
     return () => {
       document.removeEventListener('touchstart', onTouchStart, { capture: true });
       document.removeEventListener('click', onClick, { capture: true });
+      clearHighlight();
     };
-  }, [isMobileMenuOpen]);
-
-  if (!tapInfo) return null;
+  }, []);
 
   return (
-    <aside className="ph-tap-inspector" aria-live="polite">
-      <strong>tap inspector</strong>
-      <span>tag: {tapInfo.tagName}</span>
-      <span>class: {tapInfo.className || '-'}</span>
-      <span>id: {tapInfo.id || '-'}</span>
-      <span>z: {tapInfo.zIndex}</span>
-      <span>pointer: {tapInfo.pointerEvents}</span>
-      <span>pos: {tapInfo.position}</span>
-      <span>size: {tapInfo.width}x{tapInfo.height}</span>
-    </aside>
+    <main style={pageStyle}>
+      <section style={panelStyle}>
+        <p style={eyebrowStyle}>/parent Safari touch diagnostic</p>
+        <h1 style={titleStyle}>Parent tap test</h1>
+        <button type="button" style={buttonStyle} onClick={() => window.alert('clicked')}>
+          測試按鈕 alert("clicked")
+        </button>
+        <p style={bodyStyle}>
+          這是暫時的最小 /parent 頁面。原本的 header、drawer、bottom tab、overlay、modal、transition 元件都沒有 render。
+          如果這個按鈕可以點、頁面可以滑，代表原本 /parent 元件樹中有元素擋住。若這頁仍不能點，代表全域 CSS 或 App shell 擋住。
+        </p>
+      </section>
+
+      <section style={contentStyle}>
+        {Array.from({ length: 36 }, (_, index) => (
+          <article key={index} style={rowStyle}>
+            <strong>Scroll test row {index + 1}</strong>
+            <span>上下滑動測試內容。點任意位置會在左下角列出 document.elementsFromPoint stack。</span>
+          </article>
+        ))}
+      </section>
+
+      <aside style={debugStyle} aria-live="polite">
+        <strong>DOM hit-test stack</strong>
+        {stack.length ? (
+          stack.slice(0, 12).map((item) => (
+            <pre key={`${item.index}-${item.tag}-${item.className}-${item.id}`} style={preStyle}>
+{`${item.index}. ${item.tag}${item.id ? `#${item.id}` : ''}${item.className ? `.${item.className}` : ''}
+pointer-events: ${item.pointerEvents}
+z-index: ${item.zIndex}
+position: ${item.position}
+opacity: ${item.opacity}
+visibility: ${item.visibility}
+display: ${item.display}
+touch-action: ${item.touchAction}
+transform: ${item.transform}
+size: ${item.width}x${item.height}`}
+            </pre>
+          ))
+        ) : (
+          <span>Tap anywhere to inspect DOM stack.</span>
+        )}
+      </aside>
+    </main>
   );
 }
 
-function isBlockingElement(element: HTMLElement, info: TapInfo) {
-  const label = `${info.className} ${info.id} ${info.tagName}`;
-  const coversViewport = info.width >= window.innerWidth * 0.8 && info.height >= window.innerHeight * 0.5;
-  const fixedLayer = info.position === 'fixed' || info.position === 'sticky';
-  return BLOCKING_CLASS_PATTERN.test(label) && (fixedLayer || coversViewport);
-}
+const pageStyle = {
+  minHeight: '220vh',
+  padding: '24px 16px 180px',
+  background: '#fff9f0',
+  color: '#222',
+  fontFamily: 'system-ui, -apple-system, BlinkMacSystemFont, sans-serif'
+} satisfies React.CSSProperties;
 
-function Brand({ familyName }: { familyName: string }) {
-  return (
-    <div className="ph-brand">
-      <span>夢</span>
-      <div><small>{familyName}</small><strong>家長管理中心</strong></div>
-    </div>
-  );
-}
+const panelStyle = {
+  display: 'grid',
+  gap: 14,
+  border: '2px solid #222',
+  borderRadius: 12,
+  background: '#fff',
+  padding: 18
+} satisfies React.CSSProperties;
+
+const eyebrowStyle = {
+  margin: 0,
+  color: '#666',
+  fontSize: 13,
+  fontWeight: 700
+} satisfies React.CSSProperties;
+
+const titleStyle = {
+  margin: 0,
+  fontSize: 28
+} satisfies React.CSSProperties;
+
+const buttonStyle = {
+  minHeight: 56,
+  border: '0',
+  borderRadius: 10,
+  background: '#1677ff',
+  color: '#fff',
+  fontSize: 18,
+  fontWeight: 800
+} satisfies React.CSSProperties;
+
+const bodyStyle = {
+  margin: 0,
+  fontSize: 15,
+  lineHeight: 1.6
+} satisfies React.CSSProperties;
+
+const contentStyle = {
+  display: 'grid',
+  gap: 12,
+  marginTop: 18
+} satisfies React.CSSProperties;
+
+const rowStyle = {
+  display: 'grid',
+  gap: 6,
+  border: '1px solid #ddd',
+  borderRadius: 10,
+  background: '#fff',
+  padding: 16
+} satisfies React.CSSProperties;
+
+const debugStyle = {
+  position: 'fixed',
+  zIndex: 2147483647,
+  left: 8,
+  bottom: 8,
+  display: 'grid',
+  gap: 6,
+  width: 'min(92vw, 420px)',
+  maxHeight: '46vh',
+  overflow: 'auto',
+  border: '2px solid #ff3333',
+  borderRadius: 10,
+  background: 'rgba(0,0,0,.86)',
+  padding: 10,
+  color: '#fff',
+  fontSize: 11,
+  pointerEvents: 'none'
+} satisfies React.CSSProperties;
+
+const preStyle = {
+  margin: 0,
+  whiteSpace: 'pre-wrap',
+  borderTop: '1px solid rgba(255,255,255,.2)',
+  paddingTop: 6,
+  font: '11px/1.35 ui-monospace, SFMono-Regular, Menlo, Consolas, monospace'
+} satisfies React.CSSProperties;
