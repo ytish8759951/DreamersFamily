@@ -3015,6 +3015,7 @@ textarea {
 html,
 body,
 #root {
+  min-height: 100%;
   overflow-x: hidden;
 }
 
@@ -3022,9 +3023,11 @@ body {
   margin: 0;
   min-width: 320px;
   min-height: 100vh;
+  min-height: 100dvh;
   overflow-x: hidden;
   background: var(--cream);
   color: var(--text);
+  -webkit-tap-highlight-color: transparent;
 }
 
 button,
@@ -5033,6 +5036,8 @@ p {
 /* Parent home V1 final */
 .ph-shell {
   min-height: 100vh;
+  min-height: 100dvh;
+  isolation: isolate;
   background: #fff9f0;
   color: #2f2e2b;
   font-family: "Microsoft JhengHei", "Noto Sans TC", "Nunito", sans-serif;
@@ -5153,10 +5158,13 @@ p {
 
 .ph-content {
   min-height: 100vh;
+  min-height: 100dvh;
   margin-left: 258px;
 }
 
 .ph-topbar {
+  position: relative;
+  z-index: 40;
   display: flex;
   height: 78px;
   align-items: center;
@@ -5200,6 +5208,8 @@ p {
 }
 
 .ph-main {
+  position: relative;
+  z-index: 1;
   padding: 22px 26px 32px;
 }
 
@@ -5579,6 +5589,7 @@ p {
 .ph-mobile-overlay,
 .ph-mobile-drawer {
   display: none;
+  pointer-events: none;
 }
 
 @media (max-width: 1100px) {
@@ -5588,7 +5599,7 @@ p {
 
   .ph-content {
     margin-left: 0;
-    padding-bottom: 95px;
+    padding-bottom: calc(95px + env(safe-area-inset-bottom, 0px));
   }
 
   .ph-topbar {
@@ -5617,6 +5628,7 @@ p {
     inset: 0;
     z-index: 80;
     display: block;
+    pointer-events: auto;
     border: 0;
     background: rgba(47, 38, 25, .34);
     padding: 0;
@@ -5630,16 +5642,22 @@ p {
     z-index: 90;
     display: flex;
     width: min(86vw, 340px);
+    height: 100vh;
+    height: 100dvh;
     transform: translateX(100%);
     flex-direction: column;
     border-left: 1px solid #ecdfcf;
     background: #fffdfa;
     box-shadow: -16px 0 34px rgba(74, 57, 35, .16);
+    pointer-events: none;
     transition: transform .2s ease;
+    visibility: hidden;
   }
 
   .ph-mobile-drawer.is-open {
     transform: translateX(0);
+    pointer-events: auto;
+    visibility: visible;
   }
 
   .ph-mobile-drawer-head {
@@ -5753,10 +5771,10 @@ p {
 
   .ph-bottom-nav {
     position: fixed;
-    z-index: 30;
+    z-index: 70;
     left: 20px;
     right: 20px;
-    bottom: 14px;
+    bottom: max(14px, env(safe-area-inset-bottom, 0px));
     display: grid;
     grid-template-columns: repeat(5, 1fr);
     border: 1px solid #ecdfcf;
@@ -5788,7 +5806,7 @@ p {
 
 @media (max-width: 640px) {
   .ph-content {
-    padding-bottom: 82px;
+    padding-bottom: calc(82px + env(safe-area-inset-bottom, 0px));
   }
 
   .ph-topbar {
@@ -6059,7 +6077,7 @@ p {
   .ph-bottom-nav {
     left: 10px;
     right: 10px;
-    bottom: 9px;
+    bottom: max(9px, env(safe-area-inset-bottom, 0px));
     grid-template-columns: repeat(4, 1fr);
     border-radius: 17px;
     padding: 5px;
