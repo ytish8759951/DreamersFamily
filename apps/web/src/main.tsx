@@ -23,6 +23,7 @@ window.onunhandledrejection = (event) => {
 void prepareAppRuntime().finally(() => migrateLocalStorageMediaToRepository()).finally(() => {
   ReactDOM.createRoot(document.getElementById('root')!).render(
     <React.StrictMode>
+      <div>Build: {__BUILD_COMMIT__.slice(0, 8)}</div>
       <RouterProvider router={router} />
     </React.StrictMode>
   );
