@@ -1,12 +1,28 @@
 import { useEffect, useState } from 'react';
 import { useLocation } from 'react-router-dom';
 import {
+  type CssDiagnosticSource,
   getRuntimeDebugState,
   recordBodyClick,
   recordReactClick,
   subscribeRuntimeDebug,
   setRuntimeDebugRoute
 } from '../../lib/runtimeDebug';
+
+const CSS_DIAGNOSTIC_PROPERTIES = [
+  'pointer-events',
+  'touch-action',
+  'overflow',
+  'overflow-x',
+  'overflow-y',
+  'position',
+  'display',
+  'height',
+  'min-height',
+  'max-height'
+] as const;
+
+const BLOCKING_CSS_VALUES = new Set(['pointer-events:none', 'touch-action:none', 'overflow:hidden', 'position:fixed']);
 
 export function ParentLayout() {
   const location = useLocation();
@@ -59,19 +75,60 @@ export function ParentLayout() {
           <Field label="Current Route" value={debug.route || location.pathname} />
           <Field label="User Agent" value={debug.userAgent || navigator.userAgent} />
           <Field label="document.readyState" value={debug.readyState} />
+          <Field label="document.body.className" value={debug.cssDiagnostics.bodyClassName || '(empty)'} />
+          <Field
+            label="document.documentElement.className"
+            value={debug.cssDiagnostics.documentElementClassName || '(empty)'}
+          />
+          <CssDiagnosticsGroup label="document.body.style" values={debug.cssDiagnostics.bodyStyle} />
+          <CssDiagnosticsGroup
+            label="document.documentElement.style"
+            values={debug.cssDiagnostics.documentElementStyle}
+          />
+          <CssDiagnosticsGroup
+            label="getComputedStyle(document.body)"
+            values={debug.cssDiagnostics.bodyComputedStyle}
+          />
+          <CssDiagnosticsGroup
+            label="getComputedStyle(document.documentElement)"
+            values={debug.cssDiagnostics.documentElementComputedStyle}
+          />
         </div>
       </section>
     </main>
   );
 }
 
-function Field({ label, value }: { label: string; value: string }) {
+function Field({ label, value, critical = false }: { label: string; value: string; critical?: boolean }) {
   return (
     <div style={fieldStyle}>
       <div style={fieldLabelStyle}>{label}</div>
-      <div style={fieldValueStyle}>{value}</div>
+      <div style={critical ? criticalFieldValueStyle : fieldValueStyle}>{value}</div>
     </div>
   );
+}
+
+function CssDiagnosticsGroup({ label, values }: { label: string; values: CssDiagnosticSource }) {
+  return (
+    <>
+      <Field label={label} value="selected properties" />
+      {CSS_DIAGNOSTIC_PROPERTIES.map((property) => {
+        const value = values[property] || '(empty)';
+        return (
+          <Field
+            key={`${label}.${property}`}
+            label={`${label}.${property}`}
+            value={value}
+            critical={isBlockingCssValue(property, value)}
+          />
+        );
+      })}
+    </>
+  );
+}
+
+function isBlockingCssValue(property: string, value: string) {
+  return BLOCKING_CSS_VALUES.has(`${property}:${value.replace(/\s+/g, '').toLowerCase()}`);
 }
 
 const pageStyle = {
@@ -141,4 +198,10 @@ const fieldValueStyle = {
   lineHeight: 1.35,
   whiteSpace: 'pre-wrap',
   wordBreak: 'break-word'
+} satisfies React.CSSProperties;
+
+const criticalFieldValueStyle = {
+  ...fieldValueStyle,
+  color: '#ff4d4f',
+  fontWeight: 900
 } satisfies React.CSSProperties;
