@@ -1,3 +1,4 @@
+import { NavLink } from 'react-router-dom';
 import { Dashboard } from '../../pages/parent/Dashboard';
 import { useLocalDataState } from '../../lib/useLocalData';
 
@@ -8,6 +9,11 @@ export function ParentLayout() {
 
   return (
     <main style={pageStyle}>
+      <header>
+        <h1>{familyName}</h1>
+        <p>Parent Header</p>
+      </header>
+
       <section style={familyCardStyle}>
         <h2 style={sectionTitleStyle}>FamilyCard</h2>
         <p style={familyCardTextStyle}>{familyName}</p>
@@ -34,6 +40,12 @@ export function ParentLayout() {
 
         <a href="https://google.com">Google</a>
       </div>
+
+      <nav aria-label="Parent bottom tab">
+        <NavLink to="/parent/dashboard">Dashboard</NavLink>
+        <NavLink to="/parent/mailbox">Mail</NavLink>
+        <NavLink to="/parent/settings">Settings</NavLink>
+      </nav>
 
     </main>
   );
