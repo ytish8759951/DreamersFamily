@@ -456,13 +456,102 @@ export function isSupabaseModeRequested() {
   return import.meta.env.VITE_DATA_MODE !== 'local';
 }
 
+class SupabaseAuthStorage implements KeyValueStorage {
+  private readonly storage = getSupabaseBrowserStorage();
+  private readonly chunkSize = 3000;
+
+  getItem(key: string) {
+    let stored: string | null = null;
+    try {
+      stored = this.storage.getItem(key);
+    } catch {
+      stored = null;
+    }
+    if (stored) return stored;
+    return this.readCookieChunks(key);
+  }
+
+  setItem(key: string, value: string) {
+    try {
+      this.storage.setItem(key, value);
+    } catch (error) {
+      console.warn('[supabase-auth] localStorage session write failed; using cookie fallback', error);
+    }
+    this.writeCookieChunks(key, value);
+  }
+
+  removeItem(key: string) {
+    try {
+      this.storage.removeItem(key);
+    } catch {
+      // Cookie cleanup below is the durable fallback.
+    }
+    this.clearCookieChunks(key);
+  }
+
+  private readCookieChunks(key: string) {
+    const count = Number(getCookieValue(`${key}.chunks`) ?? 0);
+    if (!count) return getCookieValue(key);
+
+    const chunks: string[] = [];
+    for (let index = 0; index < count; index += 1) {
+      const chunk = getCookieValue(`${key}.${index}`);
+      if (chunk === null) {
+        this.clearCookieChunks(key);
+        return null;
+      }
+      chunks.push(chunk);
+    }
+    const value = chunks.join('');
+    try {
+      this.storage.setItem(key, value);
+    } catch {
+      // localStorage can be isolated or unavailable in iOS standalone mode.
+    }
+    return value;
+  }
+
+  private writeCookieChunks(key: string, value: string) {
+    this.clearCookieChunks(key);
+    if (value.length <= this.chunkSize) {
+      setCookieValue(key, value);
+      return;
+    }
+
+    const chunks = Math.ceil(value.length / this.chunkSize);
+    setCookieValue(`${key}.chunks`, String(chunks));
+    for (let index = 0; index < chunks; index += 1) {
+      setCookieValue(`${key}.${index}`, value.slice(index * this.chunkSize, (index + 1) * this.chunkSize));
+    }
+  }
+
+  private clearCookieChunks(key: string) {
+    const count = Number(getCookieValue(`${key}.chunks`) ?? 0);
+    deleteCookieValue(key);
+    deleteCookieValue(`${key}.chunks`);
+    for (let index = 0; index < count; index += 1) {
+      deleteCookieValue(`${key}.${index}`);
+    }
+  }
+}
+
+function getSupabaseBrowserStorage(): KeyValueStorage {
+  if (typeof window === 'undefined') return getLocalStorage();
+  try {
+    return window.localStorage;
+  } catch {
+    return getLocalStorage();
+  }
+}
+
 export function createSupabaseClient(config = getSupabaseConfig()): SupabaseClient | null {
   if (!config) return null;
   return createClient(config.url, config.anonKey, {
     auth: {
       persistSession: true,
       autoRefreshToken: true,
-      detectSessionInUrl: true
+      detectSessionInUrl: true,
+      storage: new SupabaseAuthStorage()
     }
   });
 }
