@@ -1,5 +1,4 @@
-import { createBrowserRouter, Navigate } from 'react-router-dom';
-import { ParentLayout } from './components/layout/ParentLayout';
+import { createBrowserRouter, Navigate, Outlet } from 'react-router-dom';
 import { ChildLayout } from './components/layout/ChildLayout';
 import { Children } from './pages/parent/Children';
 import { Tasks } from './pages/parent/Tasks';
@@ -11,7 +10,6 @@ import { Settings } from './pages/parent/Settings';
 import { Growth } from './pages/parent/Growth';
 import { MemoryBook } from './pages/parent/MemoryBook';
 import { ParentScreenTime } from './pages/parent/ScreenTime';
-import { Dashboard } from './pages/parent/Dashboard';
 import { ChildHome } from './pages/child/Home';
 import { TodayTasks } from './pages/child/TodayTasks';
 import { ShareGrowth } from './pages/child/ShareGrowth';
@@ -55,7 +53,7 @@ function RootRedirect() {
   return <Navigate to={getLoggedInFamilyLandingPath(state, runtimeInfo)} replace />;
 }
 
-function RequireParentAuth() {
+function RequireFamilyAccess() {
   const runtimeInfo = useSupabaseRuntimeInfo();
   if (dataMode === 'supabase' && runtimeInfo.authStatus === 'initializing') {
     return <div className="auth-page">Loading...</div>;
@@ -63,7 +61,22 @@ function RequireParentAuth() {
   if (dataMode === 'supabase' && runtimeInfo.authStatus !== 'ready' && !hasParentAccess(runtimeInfo)) {
     return <Navigate to={runtimeInfo.authStatus === 'needs_family' ? '/create-family' : '/login'} replace />;
   }
-  return <ParentLayout />;
+  return <Outlet />;
+}
+
+function LegacyParentRedirect() {
+  const state = useLocalDataState();
+  const runtimeInfo = useSupabaseRuntimeInfo();
+
+  if (dataMode === 'supabase' && runtimeInfo.authStatus === 'initializing') {
+    return <div className="auth-page">Loading...</div>;
+  }
+
+  if (dataMode === 'supabase' && runtimeInfo.authStatus !== 'ready' && !hasParentAccess(runtimeInfo)) {
+    return <Navigate to={runtimeInfo.authStatus === 'needs_family' ? '/create-family' : '/login'} replace />;
+  }
+
+  return <Navigate to={getLoggedInFamilyLandingPath(state, runtimeInfo)} replace />;
 }
 
 function RequireCreateFamilyAccess() {
@@ -87,13 +100,18 @@ export const router = createBrowserRouter([
   { path: '/join', element: <JoinFamilyPage /> },
   { path: '/join-parent/:token', element: <JoinParentDevicePage /> },
   { path: '/create-family', element: <RequireCreateFamilyAccess /> },
+  {
+    path: '/create-child',
+    element: <RequireFamilyAccess />,
+    children: [{ index: true, element: <Children /> }]
+  },
   { path: '/preview/design-system', element: <DesignSystemPreview /> },
   {
     path: '/parent',
-    element: <RequireParentAuth />,
+    element: <RequireFamilyAccess />,
     children: [
-      { index: true, element: <Dashboard /> },
-      { path: 'dashboard', element: <Dashboard /> },
+      { index: true, element: <LegacyParentRedirect /> },
+      { path: 'dashboard', element: <LegacyParentRedirect /> },
       { path: 'children', element: <Children /> },
       { path: 'tasks', element: <Tasks /> },
       { path: 'dreams', element: <Wishes /> },

@@ -14,22 +14,12 @@ export function getLoggedInFamilyLandingPath(
     return `/child/home?childId=${encodeURIComponent(activeChildId)}`;
   }
 
-  return '/parent';
+  return '/create-child';
 }
 
 export function resolveActiveChildId(
   state: Pick<LocalDatabaseState, 'children' | 'currentChildIdentity' | 'deviceBinding' | 'active_child_id'>
 ) {
   const activeChildren = state.children.filter((child) => child.status === 'active');
-  const preferredChildId =
-    state.currentChildIdentity?.childId ??
-    state.deviceBinding ??
-    state.active_child_id ??
-    null;
-
-  if (preferredChildId && activeChildren.some((child) => child.id === preferredChildId)) {
-    return preferredChildId;
-  }
-
   return activeChildren[0]?.id ?? null;
 }
