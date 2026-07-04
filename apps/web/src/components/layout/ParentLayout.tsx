@@ -92,7 +92,14 @@ export function ParentLayout() {
       <section style={panelStyle}>
         <p style={eyebrowStyle}>/parent Safari touch diagnostic</p>
         <h1 style={titleStyle}>Parent tap test</h1>
-        <button type="button" style={buttonStyle} onClick={() => window.alert('clicked')}>
+        <button
+          type="button"
+          style={buttonStyle}
+          onClick={() => {
+            console.log('React Click');
+            window.alert('React Click');
+          }}
+        >
           測試按鈕 alert("clicked")
         </button>
         <p style={bodyStyle}>
