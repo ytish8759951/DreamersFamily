@@ -12,9 +12,10 @@ export function getLoggedInFamilyLandingPath(
     return path;
   }
 
-  path = '/parent/dashboard';
+  const activeChildId = resolveActiveChildId(state);
+  path = activeChildId ? `/child/home?childId=${encodeURIComponent(activeChildId)}` : '/create-child';
   console.log('[auth trace] getLoggedInFamilyLandingPath()', {
-    activeChildId: resolveActiveChildId(state),
+    activeChildId,
     runtimeInfo,
     path
   });

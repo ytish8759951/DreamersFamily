@@ -10,7 +10,6 @@ import { Settings } from './pages/parent/Settings';
 import { Growth } from './pages/parent/Growth';
 import { MemoryBook } from './pages/parent/MemoryBook';
 import { ParentScreenTime } from './pages/parent/ScreenTime';
-import { Dashboard } from './pages/parent/Dashboard';
 import { ChildHome } from './pages/child/Home';
 import { TodayTasks } from './pages/child/TodayTasks';
 import { ShareGrowth } from './pages/child/ShareGrowth';
@@ -126,7 +125,6 @@ export const router = createBrowserRouter([
     element: <RequireFamilyAccess />,
     children: [
       { index: true, element: <LegacyParentRedirect /> },
-      { path: 'dashboard', element: <Dashboard /> },
       { path: 'children', element: <Children /> },
       { path: 'tasks', element: <Tasks /> },
       { path: 'dreams', element: <Wishes /> },
