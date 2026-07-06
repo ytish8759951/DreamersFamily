@@ -1,5 +1,6 @@
 import { createBrowserRouter, Navigate, Outlet } from 'react-router-dom';
 import { ChildLayout } from './components/layout/ChildLayout';
+import { ParentLayout } from './components/layout/ParentLayout';
 import { Children } from './pages/parent/Children';
 import { Tasks } from './pages/parent/Tasks';
 import { Wishes } from './pages/parent/Wishes';
@@ -117,7 +118,12 @@ export const router = createBrowserRouter([
   {
     path: '/create-child',
     element: <RequireFamilyAccess />,
-    children: [{ index: true, element: <Children /> }]
+    children: [
+      {
+        element: <ParentLayout />,
+        children: [{ index: true, element: <Children /> }]
+      }
+    ]
   },
   { path: '/preview/design-system', element: <DesignSystemPreview /> },
   {
@@ -125,21 +131,26 @@ export const router = createBrowserRouter([
     element: <RequireFamilyAccess />,
     children: [
       { index: true, element: <LegacyParentRedirect /> },
-      { path: 'children', element: <Children /> },
-      { path: 'tasks', element: <Tasks /> },
-      { path: 'dreams', element: <Wishes /> },
-      { path: 'wishes', element: <Navigate to="/parent/dreams" replace /> },
-      { path: 'badges', element: <Navigate to="/parent/children" replace /> },
-      { path: 'mailbox', element: <Cards /> },
-      { path: 'cards', element: <Navigate to="/parent/mailbox" replace /> },
-      { path: 'share', element: <Albums /> },
-      { path: 'albums', element: <Navigate to="/parent/share" replace /> },
-      { path: 'honor-wall', element: <Navigate to="/parent/children" replace /> },
-      { path: 'special-days', element: <SpecialDays /> },
-      { path: 'growth', element: <Growth /> },
-      { path: 'memory-book', element: <MemoryBook /> },
-      { path: 'screen-time', element: <ParentScreenTime /> },
-      { path: 'settings', element: <Settings /> }
+      {
+        element: <ParentLayout />,
+        children: [
+          { path: 'children', element: <Children /> },
+          { path: 'tasks', element: <Tasks /> },
+          { path: 'dreams', element: <Wishes /> },
+          { path: 'wishes', element: <Navigate to="/parent/dreams" replace /> },
+          { path: 'badges', element: <Navigate to="/parent/children" replace /> },
+          { path: 'mailbox', element: <Cards /> },
+          { path: 'cards', element: <Navigate to="/parent/mailbox" replace /> },
+          { path: 'share', element: <Albums /> },
+          { path: 'albums', element: <Navigate to="/parent/share" replace /> },
+          { path: 'honor-wall', element: <Navigate to="/parent/children" replace /> },
+          { path: 'special-days', element: <SpecialDays /> },
+          { path: 'growth', element: <Growth /> },
+          { path: 'memory-book', element: <MemoryBook /> },
+          { path: 'screen-time', element: <ParentScreenTime /> },
+          { path: 'settings', element: <Settings /> }
+        ]
+      }
     ]
   },
   {
