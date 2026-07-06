@@ -1163,7 +1163,11 @@ export class SupabaseDataRepository implements LocalDataRepository {
   private async initializeAuthScope() {
     if (!this.client) return;
     await this.refreshAuthScope();
-    this.client.auth.onAuthStateChange(() => {
+    this.client.auth.onAuthStateChange((event, session) => {
+      console.log('[auth trace] auth callback', {
+        event,
+        userId: session?.user?.id ?? null
+      });
       void this.refreshAuthScope();
     });
   }

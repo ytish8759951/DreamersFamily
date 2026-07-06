@@ -5,16 +5,20 @@ export function getLoggedInFamilyLandingPath(
   state: Pick<LocalDatabaseState, 'children' | 'currentChildIdentity' | 'deviceBinding' | 'active_child_id'>,
   runtimeInfo?: Pick<SupabaseRuntimeInfo, 'authStatus' | 'familyId' | 'parentId'>
 ) {
+  let path: string;
   if (runtimeInfo && runtimeInfo.authStatus !== 'ready') {
-    return runtimeInfo.authStatus === 'needs_family' ? '/create-family' : '/login';
+    path = runtimeInfo.authStatus === 'needs_family' ? '/create-family' : '/login';
+    console.log('[auth trace] getLoggedInFamilyLandingPath()', { runtimeInfo, path });
+    return path;
   }
 
-  const activeChildId = resolveActiveChildId(state);
-  if (activeChildId) {
-    return `/child/home?childId=${encodeURIComponent(activeChildId)}`;
-  }
-
-  return '/create-child';
+  path = '/parent/dashboard';
+  console.log('[auth trace] getLoggedInFamilyLandingPath()', {
+    activeChildId: resolveActiveChildId(state),
+    runtimeInfo,
+    path
+  });
+  return path;
 }
 
 export function resolveActiveChildId(

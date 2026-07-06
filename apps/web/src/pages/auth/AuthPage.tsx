@@ -55,7 +55,9 @@ export function AuthPage() {
 
   useEffect(() => {
     if (runtimeInfo.familyId || runtimeInfo.parentId) {
-      navigate(getLoggedInFamilyLandingPath(state, runtimeInfo), { replace: true });
+      const path = getLoggedInFamilyLandingPath(state, runtimeInfo);
+      console.log('[auth trace] navigate()', { from: 'AuthPage runtime effect', to: path, runtimeInfo });
+      navigate(path, { replace: true });
     }
   }, [navigate, runtimeInfo, state]);
 
@@ -66,17 +68,23 @@ export function AuthPage() {
     try {
       if (mode === 'signin') {
         const runtime = await signInParentWithPassword(email, password);
+        console.log('[auth trace] login success', { mode, runtime });
         settingsRepository.updateSettings({ parent_email: email });
-        navigate(getLoggedInFamilyLandingPath(state, runtime), { replace: true });
+        const path = getLoggedInFamilyLandingPath(state, runtime);
+        console.log('[auth trace] navigate()', { from: 'AuthPage submit signin', to: path, runtime });
+        navigate(path, { replace: true });
         return;
       }
 
       const runtime = await signUpParentWithPassword(email, password, displayName);
+      console.log('[auth trace] login success', { mode, runtime });
       settingsRepository.updateSettings({
         parent_email: email,
         parent_name: displayName.trim() || email.split('@')[0] || '家長'
       });
-      navigate(getLoggedInFamilyLandingPath(state, runtime), { replace: true });
+      const path = getLoggedInFamilyLandingPath(state, runtime);
+      console.log('[auth trace] navigate()', { from: 'AuthPage submit signup', to: path, runtime });
+      navigate(path, { replace: true });
     } catch (caught) {
       console.error(caught);
       setMessage(formatAuthError(caught));

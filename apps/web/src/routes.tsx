@@ -10,6 +10,7 @@ import { Settings } from './pages/parent/Settings';
 import { Growth } from './pages/parent/Growth';
 import { MemoryBook } from './pages/parent/MemoryBook';
 import { ParentScreenTime } from './pages/parent/ScreenTime';
+import { Dashboard } from './pages/parent/Dashboard';
 import { ChildHome } from './pages/child/Home';
 import { TodayTasks } from './pages/child/TodayTasks';
 import { ShareGrowth } from './pages/child/ShareGrowth';
@@ -43,14 +44,19 @@ function RootRedirect() {
   }
 
   if (dataMode === 'supabase' && runtimeInfo.authStatus !== 'ready') {
-    return <Navigate to={runtimeInfo.authStatus === 'needs_family' ? '/create-family' : '/login'} replace />;
+    const path = runtimeInfo.authStatus === 'needs_family' ? '/create-family' : '/login';
+    console.log('[auth trace] navigate()', { from: 'RootRedirect', to: path, runtimeInfo });
+    return <Navigate to={path} replace />;
   }
 
   if (dataMode === 'supabase' && !hasParentAccess(runtimeInfo)) {
+    console.log('[auth trace] navigate()', { from: 'RootRedirect', to: '/login', runtimeInfo });
     return <Navigate to="/login" replace />;
   }
 
-  return <Navigate to={getLoggedInFamilyLandingPath(state, runtimeInfo)} replace />;
+  const path = getLoggedInFamilyLandingPath(state, runtimeInfo);
+  console.log('[auth trace] navigate()', { from: 'RootRedirect', to: path, runtimeInfo });
+  return <Navigate to={path} replace />;
 }
 
 function RequireFamilyAccess() {
@@ -59,7 +65,9 @@ function RequireFamilyAccess() {
     return <div className="auth-page">Loading...</div>;
   }
   if (dataMode === 'supabase' && runtimeInfo.authStatus !== 'ready' && !hasParentAccess(runtimeInfo)) {
-    return <Navigate to={runtimeInfo.authStatus === 'needs_family' ? '/create-family' : '/login'} replace />;
+    const path = runtimeInfo.authStatus === 'needs_family' ? '/create-family' : '/login';
+    console.log('[auth trace] navigate()', { from: 'RequireFamilyAccess', to: path, runtimeInfo });
+    return <Navigate to={path} replace />;
   }
   return <Outlet />;
 }
@@ -73,10 +81,14 @@ function LegacyParentRedirect() {
   }
 
   if (dataMode === 'supabase' && runtimeInfo.authStatus !== 'ready' && !hasParentAccess(runtimeInfo)) {
-    return <Navigate to={runtimeInfo.authStatus === 'needs_family' ? '/create-family' : '/login'} replace />;
+    const path = runtimeInfo.authStatus === 'needs_family' ? '/create-family' : '/login';
+    console.log('[auth trace] navigate()', { from: 'LegacyParentRedirect', to: path, runtimeInfo });
+    return <Navigate to={path} replace />;
   }
 
-  return <Navigate to={getLoggedInFamilyLandingPath(state, runtimeInfo)} replace />;
+  const path = getLoggedInFamilyLandingPath(state, runtimeInfo);
+  console.log('[auth trace] navigate()', { from: 'LegacyParentRedirect', to: path, runtimeInfo });
+  return <Navigate to={path} replace />;
 }
 
 function RequireCreateFamilyAccess() {
@@ -86,9 +98,12 @@ function RequireCreateFamilyAccess() {
     return <div className="auth-page">Loading...</div>;
   }
   if (dataMode === 'supabase' && hasParentAccess(runtimeInfo)) {
-    return <Navigate to={getLoggedInFamilyLandingPath(state, runtimeInfo)} replace />;
+    const path = getLoggedInFamilyLandingPath(state, runtimeInfo);
+    console.log('[auth trace] navigate()', { from: 'RequireCreateFamilyAccess', to: path, runtimeInfo });
+    return <Navigate to={path} replace />;
   }
   if (dataMode === 'supabase' && runtimeInfo.authStatus === 'signed_out') {
+    console.log('[auth trace] navigate()', { from: 'RequireCreateFamilyAccess', to: '/login', runtimeInfo });
     return <Navigate to="/login" replace />;
   }
   return <CreateFamilyPage />;
@@ -111,7 +126,7 @@ export const router = createBrowserRouter([
     element: <RequireFamilyAccess />,
     children: [
       { index: true, element: <LegacyParentRedirect /> },
-      { path: 'dashboard', element: <LegacyParentRedirect /> },
+      { path: 'dashboard', element: <Dashboard /> },
       { path: 'children', element: <Children /> },
       { path: 'tasks', element: <Tasks /> },
       { path: 'dreams', element: <Wishes /> },
@@ -150,3 +165,12 @@ export const router = createBrowserRouter([
     element: <ChildTokenEntry />
   }
 ]);
+
+if (typeof window !== 'undefined') {
+  router.subscribe((state) => {
+    console.log('[auth trace] final route', {
+      route: `${state.location.pathname}${state.location.search}${state.location.hash}`,
+      navigationState: state.navigation.state
+    });
+  });
+}
