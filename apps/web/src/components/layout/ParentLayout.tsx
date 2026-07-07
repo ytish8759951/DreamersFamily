@@ -3,7 +3,6 @@ import {
   Baby,
   Camera,
   CheckSquare,
-  Clock3,
   Heart,
   Menu,
   PiggyBank,
@@ -17,7 +16,6 @@ import { useLocalDataState } from '../../lib/useLocalData';
 
 const navItems = [
   { label: '任務管理', href: '/parent/tasks', icon: CheckSquare },
-  { label: '今日任務', href: '/parent/tasks', icon: Clock3 },
   { label: '今日分享', href: '/parent/share', icon: Camera },
   { label: '撲滿 / 商品兌換', href: '/parent/dreams', icon: PiggyBank },
   { label: '平板時間', href: '/parent/screen-time', icon: Tablet },
