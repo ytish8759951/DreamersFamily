@@ -1320,16 +1320,21 @@ export class SupabaseDataRepository implements LocalDataRepository {
 
   syncChildDeviceLogin(childId: UUID): LocalChild {
     const child = this.cache.syncChildDeviceLogin(childId);
-    this.persistChildDeviceBindingInBackground(child, child.child_token_consumed_at ? 'consumed' : 'active');
+    console.log('[child-home] syncChildDeviceLogin', {
+      childId,
+      familyId: child.family_id
+    });
+    this.persistChildDeviceBindingInBackground(child, 'active', 'syncChildDeviceLogin');
     this.emit();
     return child;
   }
 
   private persistChildDeviceBindingInBackground(
     child: LocalChild,
-    qrTokenStatus: LocalDeviceBindingRecord['qr_token_status']
+    qrTokenStatus: LocalDeviceBindingRecord['qr_token_status'],
+    debugSource?: 'syncChildDeviceLogin'
   ) {
-    void this.persistChildDeviceBinding(child, qrTokenStatus).catch((error) => {
+    void this.persistChildDeviceBinding(child, qrTokenStatus, debugSource).catch((error) => {
       console.warn('[supabase-repository] child device binding persistence failed', error, {
         childId: child.id,
         familyId: child.family_id,
@@ -1338,13 +1343,17 @@ export class SupabaseDataRepository implements LocalDataRepository {
     });
   }
 
-  private async persistChildDeviceBinding(child: LocalChild, qrTokenStatus: LocalDeviceBindingRecord['qr_token_status']) {
+  private async persistChildDeviceBinding(
+    child: LocalChild,
+    qrTokenStatus: LocalDeviceBindingRecord['qr_token_status'],
+    debugSource?: 'syncChildDeviceLogin'
+  ) {
     await Promise.all([
       this.upsertChildToSupabase(child),
       this.upsertDeviceBindingRecordToSupabase(child.id, 'bound', qrTokenStatus, {
         lastLoginAt: child.last_login_at,
         lastLoginDevice: child.last_login_device
-      })
+      }, debugSource)
     ]);
     this.queuePush();
     this.hydrateFromSupabase();
@@ -2034,7 +2043,8 @@ export class SupabaseDataRepository implements LocalDataRepository {
     childId: UUID,
     bindingStatus: LocalDeviceBindingRecord['binding_status'],
     qrTokenStatus: LocalDeviceBindingRecord['qr_token_status'],
-    input: { lastLoginAt?: string | null; lastLoginDevice?: string | null } = {}
+    input: { lastLoginAt?: string | null; lastLoginDevice?: string | null } = {},
+    debugSource?: 'syncChildDeviceLogin'
   ) {
     if (!this.client) return;
     const state = this.cache.getState();
@@ -2055,9 +2065,21 @@ export class SupabaseDataRepository implements LocalDataRepository {
       created_at: timestamp,
       updated_at: timestamp
     };
-    const { error } = await this.client
+    if (debugSource === 'syncChildDeviceLogin') {
+      console.log('[child-home] syncChildDeviceLogin deviceBinding payload', {
+        childId,
+        childFamilyId: child.family_id,
+        deviceBinding: record
+      });
+    }
+    const result = await this.client
       .from('device_bindings')
       .upsert(record, { onConflict: 'child_id,device_id' });
+    const { error } = result;
+    if (debugSource === 'syncChildDeviceLogin') {
+      console.log('[child-home] syncChildDeviceLogin Supabase upsert result', result);
+      console.log('[child-home] syncChildDeviceLogin Supabase error message', error?.message ?? null);
+    }
     if (error) {
       console.warn('[supabase-repository] device binding upsert failed', error, {
         childId,
@@ -3055,7 +3077,7 @@ function applyDeviceBindingsToChildren(children: LocalChild[], bindings: LocalDe
   bindings.forEach((binding) => {
     const existing = latestByChild.get(binding.child_id);
     if (!existing || binding.updated_at >= existing.updated_at) latestByChild.set(binding.child_id, binding);
-    if (binding.binding_status === 'bound' && binding.qr_token_status !== 'revoked') {
+    if (binding.binding_status === 'bound' && binding.qr_token_status === 'active') {
       const existingBound = latestBoundByChild.get(binding.child_id);
       if (!existingBound || binding.updated_at >= existingBound.updated_at) latestBoundByChild.set(binding.child_id, binding);
     }

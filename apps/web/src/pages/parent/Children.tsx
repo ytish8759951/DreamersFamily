@@ -45,7 +45,7 @@ function childDeviceUrl(child: LocalChild) {
 
 function activeDeviceBindingForChild(records: LocalDeviceBindingRecord[], childId: string) {
   return records
-    .filter((record) => record.child_id === childId && record.binding_status === 'bound' && record.qr_token_status !== 'revoked')
+    .filter((record) => record.child_id === childId && record.binding_status === 'bound' && record.qr_token_status === 'active')
     .sort((first, second) => second.updated_at.localeCompare(first.updated_at))[0] ?? null;
 }
 
