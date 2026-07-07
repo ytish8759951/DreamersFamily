@@ -87,6 +87,8 @@ export function Children() {
   const [expandedDeviceId, setExpandedDeviceId] = useState<string | null>(null);
   const [createdChildId, setCreatedChildId] = useState<string | null>(null);
   const [copiedChildId, setCopiedChildId] = useState<string | null>(null);
+  const [regeneratingChildId, setRegeneratingChildId] = useState<string | null>(null);
+  const [deviceErrorByChildId, setDeviceErrorByChildId] = useState<Record<string, string>>({});
 
   const activeChildren = useMemo(
     () => state.children.filter((child) => child.status === 'active'),
@@ -174,11 +176,25 @@ export function Children() {
     window.setTimeout(() => setCopiedChildId((current) => current === child.id ? null : current), 1600);
   };
 
-  const regenerateChildUrl = (child: LocalChild) => {
+  const regenerateChildUrl = async (child: LocalChild) => {
     const confirmed = window.confirm(`重新產生「${child.display_name}」的孩子專屬網址？舊網址會立即失效，已綁定裝置也會解除。`);
     if (!confirmed) return;
-    const next = childrenRepository.regenerateChildToken(child.id);
-    setExpandedDeviceId(next.id);
+    setRegeneratingChildId(child.id);
+    setDeviceErrorByChildId((current) => {
+      const next = { ...current };
+      delete next[child.id];
+      return next;
+    });
+    try {
+      const next = await childrenRepository.regenerateChildToken(child.id);
+      setExpandedDeviceId(next.id);
+      setCopiedChildId(null);
+    } catch (caught) {
+      const message = caught instanceof Error ? caught.message : '重新產生孩子專屬網址失敗';
+      setDeviceErrorByChildId((current) => ({ ...current, [child.id]: message }));
+    } finally {
+      setRegeneratingChildId((current) => current === child.id ? null : current);
+    }
   };
 
   const unbindChildDevice = (child: LocalChild) => {
@@ -275,8 +291,10 @@ export function Children() {
                         child={child}
                         deviceBinding={deviceBinding}
                         copied={copiedChildId === child.id}
+                        error={deviceErrorByChildId[child.id] ?? ''}
+                        regenerating={regeneratingChildId === child.id}
                         onCopy={() => void copyChildUrl(child)}
-                        onRegenerate={() => regenerateChildUrl(child)}
+                        onRegenerate={() => void regenerateChildUrl(child)}
                         onUnbind={() => unbindChildDevice(child)}
                       />
                     ) : null}
@@ -443,6 +461,8 @@ function ChildDeviceSettings({
   child: childInput,
   deviceBinding,
   copied,
+  error,
+  regenerating,
   onCopy,
   onRegenerate,
   onUnbind
@@ -450,6 +470,8 @@ function ChildDeviceSettings({
   child: LocalChild;
   deviceBinding: LocalDeviceBindingRecord | null;
   copied: boolean;
+  error: string;
+  regenerating: boolean;
   onCopy: () => void;
   onRegenerate: () => void;
   onUnbind: () => void;
@@ -463,6 +485,7 @@ function ChildDeviceSettings({
     last_login_at: lastLoginAt,
     last_login_device: lastLoginDevice
   } satisfies LocalChild;
+  const copyUrl = childDeviceUrl(child);
   return (
     <div className="child-device-settings">
       <dl>
@@ -471,9 +494,17 @@ function ChildDeviceSettings({
         <div><dt>最後登入時間</dt><dd>{child.last_login_at ? formatDateTime(child.last_login_at) : '尚無'}</dd></div>
         <div><dt>最後登入裝置</dt><dd>{child.last_login_device ?? '尚無'}</dd></div>
       </dl>
+      {error ? <p className="local-form-error">{error}</p> : null}
+      <div className="child-device-url">
+        <small>孩子專屬網址</small>
+        <code>{copyUrl}</code>
+      </div>
+      <div className="child-device-qr">
+        <LocalQRCode value={copyUrl} label={`${child.display_name} QR Code`} />
+      </div>
       <div className="child-device-actions">
         <button type="button" onClick={onCopy} disabled={Boolean(child.child_token_consumed_at)}><Copy size={16} /> {child.child_token_consumed_at ? 'QR 已失效' : copied ? '已複製' : '複製網址'}</button>
-        <button type="button" onClick={onRegenerate}><RefreshCw size={16} /> 重新產生網址</button>
+        <button type="button" onClick={onRegenerate} disabled={regenerating}><RefreshCw size={16} /> {regenerating ? '重新產生中' : '重新產生網址'}</button>
         <button type="button" className="is-danger" onClick={onUnbind} disabled={child.binding_status !== 'bound'}>解除綁定</button>
       </div>
     </div>

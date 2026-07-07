@@ -438,6 +438,18 @@ function upsertDeviceBindingRecord(
   return record;
 }
 
+function revokeDeviceBindingRecordsForChild(state: LocalDatabaseState, childId: UUID) {
+  const timestamp = now();
+  state.device_binding_records.forEach((record) => {
+    if (record.child_id !== childId) return;
+    record.binding_status = 'unbound';
+    record.qr_token_status = 'revoked';
+    record.last_login_at = null;
+    record.last_login_device = null;
+    record.updated_at = timestamp;
+  });
+}
+
 function getLedgerBalance(state: LocalDatabaseState, childId: UUID) {
   return Math.max(
     0,
@@ -698,7 +710,7 @@ export interface LocalDataRepository {
   getChildByToken(token: string): LocalChild | null;
   bindChildDeviceByToken(token: string): LocalChild;
   syncChildDeviceLogin(childId: UUID): LocalChild;
-  regenerateChildToken(childId: UUID): LocalChild;
+  regenerateChildToken(childId: UUID): LocalChild | Promise<LocalChild>;
   unbindChildDevice(childId: UUID): LocalChild;
   listDeviceBindingRecords(childId?: UUID): LocalDatabaseState['device_binding_records'];
   createTask(input: CreateTaskInput): LocalTask;
@@ -1014,6 +1026,7 @@ export class LocalDataService implements LocalDataRepository {
     return this.db.transaction((state) => {
       const child = requireChild(state, childId);
       const timestamp = now();
+      revokeDeviceBindingRecordsForChild(state, child.id);
       child.child_token = createChildDeviceTokenForChild(child);
       child.child_token_updated_at = timestamp;
       child.child_token_consumed_at = null;

@@ -1359,16 +1359,85 @@ export class SupabaseDataRepository implements LocalDataRepository {
     this.hydrateFromSupabase();
   }
 
-  regenerateChildToken(childId: UUID): LocalChild {
+  async regenerateChildToken(childId: UUID): Promise<LocalChild> {
     const child = this.cache.regenerateChildToken(childId);
-    void this.upsertChildToSupabase(child).catch((error) => {
+    const requestPayload = {
+      childId,
+      child: toSupabaseChild(child, child.family_id),
+      deviceBinding: this.buildDeviceBindingRecord(child.id, 'unbound', 'active')
+    };
+    const childUrl = childDeviceUrlFromToken(child.child_token);
+    console.log('[parent-children] regenerateChildToken request', {
+      childId,
+      regenerateRequestPayload: requestPayload,
+      newToken: child.child_token,
+      newChildUrl: childUrl
+    });
+    try {
+      await this.upsertRevokedDeviceBindingsForChildToSupabase(child.id, 'regenerateChildToken');
+      await Promise.all([
+        this.upsertChildToSupabase(child, 'regenerateChildToken'),
+        this.upsertDeviceBindingRecordToSupabase(child.id, 'unbound', 'active', {}, 'regenerateChildToken')
+      ]);
+      this.queuePush();
+      this.emit();
+      this.hydrateFromSupabase();
+      console.log('[parent-children] regenerateChildToken success', {
+        childId,
+        newToken: child.child_token,
+        newChildUrl: childUrl
+      });
+      return child;
+    } catch (error) {
       console.warn('[supabase-repository] child token regeneration sync failed', error);
-    });
-    void this.upsertDeviceBindingRecordToSupabase(child.id, 'unbound', 'active').catch((error) => {
-      console.warn('[supabase-repository] device binding token regeneration sync failed', error);
-    });
-    this.queuePush();
-    return child;
+      throw error;
+    }
+  }
+
+  private buildDeviceBindingRecord(
+    childId: UUID,
+    bindingStatus: LocalDeviceBindingRecord['binding_status'],
+    qrTokenStatus: LocalDeviceBindingRecord['qr_token_status'],
+    input: { lastLoginAt?: string | null; lastLoginDevice?: string | null } = {}
+  ): SupabaseDeviceBindingRow | null {
+    const state = this.cache.getState();
+    const child = state.children.find((item) => item.id === childId);
+    if (!child) return null;
+    const timestamp = new Date().toISOString();
+    const deviceId = toSupabaseUuid(state.device_id ?? LOCAL_DEVICE_ID, SUPABASE_DEVICE_FALLBACK_ID);
+    const familyId = child.family_id || SUPABASE_FAMILY_ID;
+    return {
+      id: `${childId}:${deviceId}`,
+      family_id: familyId,
+      child_id: childId,
+      device_id: deviceId,
+      last_login_at: input.lastLoginAt ?? child.last_login_at,
+      last_login_device: input.lastLoginDevice ?? child.last_login_device,
+      binding_status: bindingStatus,
+      qr_token_status: qrTokenStatus,
+      created_at: timestamp,
+      updated_at: timestamp
+    };
+  }
+
+  private async upsertRevokedDeviceBindingsForChildToSupabase(childId: UUID, debugSource?: 'regenerateChildToken') {
+    if (!this.client) return;
+    const timestamp = new Date().toISOString();
+    const result = await this.client
+      .from('device_bindings')
+      .update({
+        binding_status: 'unbound',
+        qr_token_status: 'revoked',
+        last_login_at: null,
+        last_login_device: null,
+        updated_at: timestamp
+      })
+      .eq('child_id', childId);
+    if (debugSource === 'regenerateChildToken') {
+      console.log('[parent-children] regenerateChildToken revoke Supabase result', result);
+      console.log('[parent-children] regenerateChildToken revoke Supabase error', result.error ?? null);
+    }
+    if (result.error) throw result.error;
   }
 
   unbindChildDevice(childId: UUID): LocalChild {
@@ -2028,11 +2097,16 @@ export class SupabaseDataRepository implements LocalDataRepository {
       });
   }
 
-  private async upsertChildToSupabase(child: LocalChild) {
+  private async upsertChildToSupabase(child: LocalChild, debugSource?: 'regenerateChildToken') {
     if (!this.client) return;
-    const { error } = await this.client
+    const result = await this.client
       .from('children')
       .upsert(toSupabaseChild(child, child.family_id), { onConflict: 'id' });
+    const { error } = result;
+    if (debugSource === 'regenerateChildToken') {
+      console.log('[parent-children] regenerateChildToken child Supabase result', result);
+      console.log('[parent-children] regenerateChildToken child Supabase error', error ?? null);
+    }
     if (error) {
       console.warn('[supabase-repository] child upsert failed', error);
       throw error;
@@ -2044,27 +2118,12 @@ export class SupabaseDataRepository implements LocalDataRepository {
     bindingStatus: LocalDeviceBindingRecord['binding_status'],
     qrTokenStatus: LocalDeviceBindingRecord['qr_token_status'],
     input: { lastLoginAt?: string | null; lastLoginDevice?: string | null } = {},
-    debugSource?: 'syncChildDeviceLogin'
+    debugSource?: 'syncChildDeviceLogin' | 'regenerateChildToken'
   ) {
     if (!this.client) return;
-    const state = this.cache.getState();
-    const child = state.children.find((item) => item.id === childId);
-    if (!child) return;
-    const timestamp = new Date().toISOString();
-    const deviceId = toSupabaseUuid(state.device_id ?? LOCAL_DEVICE_ID, SUPABASE_DEVICE_FALLBACK_ID);
-    const familyId = child.family_id || SUPABASE_FAMILY_ID;
-    const record: SupabaseDeviceBindingRow = {
-      id: `${childId}:${deviceId}`,
-      family_id: familyId,
-      child_id: childId,
-      device_id: deviceId,
-      last_login_at: input.lastLoginAt ?? child.last_login_at,
-      last_login_device: input.lastLoginDevice ?? child.last_login_device,
-      binding_status: bindingStatus,
-      qr_token_status: qrTokenStatus,
-      created_at: timestamp,
-      updated_at: timestamp
-    };
+    const child = this.cache.getState().children.find((item) => item.id === childId);
+    const record = this.buildDeviceBindingRecord(childId, bindingStatus, qrTokenStatus, input);
+    if (!child || !record) return;
     if (debugSource === 'syncChildDeviceLogin') {
       console.log('[child-home] syncChildDeviceLogin deviceBinding payload', {
         childId,
@@ -2080,11 +2139,15 @@ export class SupabaseDataRepository implements LocalDataRepository {
       console.log('[child-home] syncChildDeviceLogin Supabase upsert result', result);
       console.log('[child-home] syncChildDeviceLogin Supabase error message', error?.message ?? null);
     }
+    if (debugSource === 'regenerateChildToken') {
+      console.log('[parent-children] regenerateChildToken binding Supabase result', result);
+      console.log('[parent-children] regenerateChildToken binding Supabase error', error ?? null);
+    }
     if (error) {
       console.warn('[supabase-repository] device binding upsert failed', error, {
         childId,
-        familyId,
-        deviceId,
+        familyId: record.family_id,
+        deviceId: record.device_id,
         bindingStatus,
         qrTokenStatus
       });
@@ -2102,6 +2165,14 @@ function readRepositoryState(settings: SupabaseParentRow['settings']): LocalData
   const state = settings?.repository_state;
   if (!state || state.schema_version !== 1 || !Array.isArray(state.children)) return null;
   return state;
+}
+
+function childDeviceUrlFromToken(token: string) {
+  const productionOrigin = 'https://dreamersfamily.pages.dev';
+  const origin = typeof window !== 'undefined' && !window.location.hostname.includes('localhost')
+    ? window.location.origin
+    : productionOrigin;
+  return `${origin}/child/${token}`;
 }
 
 function scopeStateToCurrentFamily(state: LocalDatabaseState): LocalDatabaseState {
