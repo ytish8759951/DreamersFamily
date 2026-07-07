@@ -31,9 +31,10 @@ export function ChildTokenEntry() {
       return;
     }
 
+    void (async () => {
     try {
       console.log('[child-token-entry] received child URL token', { childToken: token });
-      const child = childrenRepository.bindChildDeviceByToken(token);
+      const child = await childrenRepository.bindChildDeviceByToken(token);
       console.log('[child-token-entry] bindChildDeviceByToken returned', {
         childId: child.id,
         childToken: token,
@@ -52,6 +53,7 @@ export function ChildTokenEntry() {
       });
       setInvalid(true);
     }
+    })();
   }, [navigate, reservedChildRoute, token]);
 
   if (reservedChildRoute || state.deviceBinding) return <Navigate to={childHomeTarget} replace />;

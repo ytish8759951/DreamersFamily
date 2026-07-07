@@ -147,11 +147,12 @@ function createChildFromTokenPayload(
   state: LocalDatabaseState,
   payload: ChildDeviceTokenPayload,
   token: string,
-  timestamp: string
+  timestamp: string,
+  familyId = state.family_id
 ): LocalChild {
   const child: LocalChild = {
     id: payload.childId,
-    family_id: state.family_id,
+    family_id: familyId,
     display_name: payload.displayName,
     legal_name: null,
     birth_date: payload.birthDate,
@@ -708,7 +709,7 @@ export interface LocalDataRepository {
   switchChild(childId: UUID): LocalChild;
   listChildren(includeArchived?: boolean): LocalChild[];
   getChildByToken(token: string): LocalChild | null;
-  bindChildDeviceByToken(token: string): LocalChild;
+  bindChildDeviceByToken(token: string, familyId?: UUID): LocalChild | Promise<LocalChild>;
   syncChildDeviceLogin(childId: UUID): LocalChild;
   regenerateChildToken(childId: UUID): LocalChild | Promise<LocalChild>;
   unbindChildDevice(childId: UUID): LocalChild;
@@ -950,7 +951,7 @@ export class LocalDataService implements LocalDataRepository {
     return state.children.find((item) => item.status === 'active' && item.id === onboardingToken.childId && !item.child_token_consumed_at) ?? null;
   }
 
-  bindChildDeviceByToken(token: string) {
+  bindChildDeviceByToken(token: string, familyId?: UUID) {
     return this.db.transaction((state) => {
       const normalized = token.trim();
       if (!normalized) throw new LocalDataError('Child token is empty', 'CHILD_TOKEN_EMPTY');
@@ -970,7 +971,7 @@ export class LocalDataService implements LocalDataRepository {
             throw new LocalDataError('Child token has already been used', 'CHILD_TOKEN_EXPIRED');
           }
         } else {
-          child = createChildFromTokenPayload(state, payload, normalized, now());
+          child = createChildFromTokenPayload(state, payload, normalized, now(), familyId);
         }
       }
       if (child.bound_device_id && child.bound_device_id !== state.device_id) {

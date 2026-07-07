@@ -1302,7 +1302,7 @@ export class SupabaseDataRepository implements LocalDataRepository {
     return this.cache.getChildByToken(token);
   }
 
-  bindChildDeviceByToken(token: string): LocalChild {
+  async bindChildDeviceByToken(token: string): Promise<LocalChild> {
     const normalized = token.trim();
     if (!normalized) throw new LocalDataError('Child token is empty', 'CHILD_TOKEN_EMPTY');
     console.log('[child-token-entry] bindChildDeviceByToken start', { childToken: normalized });
@@ -1317,14 +1317,33 @@ export class SupabaseDataRepository implements LocalDataRepository {
       return child;
     }
 
-    if (!parseChildDeviceToken(normalized)) throw new LocalDataError('Child token not found', 'CHILD_TOKEN_NOT_FOUND');
-    const child = this.cache.bindChildDeviceByToken(normalized);
+    const payload = parseChildDeviceToken(normalized);
+    if (!payload) throw new LocalDataError('Child token not found', 'CHILD_TOKEN_NOT_FOUND');
+    const familyId = await this.resolveChildFamilyId(payload.childId);
+    const child = this.cache.bindChildDeviceByToken(normalized, familyId);
     console.log('[child-token-entry] bindChildDeviceByToken parsed token child', {
       childId: child.id,
       childToken: normalized
     });
     this.persistChildDeviceBindingInBackground(child, 'active', 'bindChildDeviceByToken');
     return child;
+  }
+
+  private async resolveChildFamilyId(childId: UUID): Promise<UUID> {
+    const cachedChild = this.cache.getState().children.find((child) => child.id === childId);
+    if (cachedChild?.family_id && UUID_PATTERN.test(cachedChild.family_id)) return cachedChild.family_id;
+    if (!this.client) throw new LocalDataError('Supabase client is unavailable', 'SUPABASE_UNAVAILABLE');
+    const { data, error } = await this.client
+      .from('children')
+      .select('family_id')
+      .eq('id', childId)
+      .maybeSingle();
+    if (error) throw error;
+    const familyId = data?.family_id;
+    if (!familyId || !UUID_PATTERN.test(familyId)) {
+      throw new LocalDataError('Child family id not found', 'CHILD_FAMILY_ID_NOT_FOUND');
+    }
+    return familyId;
   }
 
   syncChildDeviceLogin(childId: UUID): LocalChild {
@@ -1416,7 +1435,10 @@ export class SupabaseDataRepository implements LocalDataRepository {
     if (!child) return null;
     const timestamp = new Date().toISOString();
     const deviceId = toSupabaseUuid(state.device_id ?? LOCAL_DEVICE_ID, SUPABASE_DEVICE_FALLBACK_ID);
-    const familyId = child.family_id || SUPABASE_FAMILY_ID;
+    const familyId = child.family_id;
+    if (!UUID_PATTERN.test(familyId)) {
+      throw new LocalDataError('Child family id must be a UUID before syncing device binding', 'CHILD_FAMILY_ID_INVALID');
+    }
     return {
       id: `${childId}:${deviceId}`,
       family_id: familyId,
