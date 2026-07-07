@@ -697,6 +697,7 @@ export interface LocalDataRepository {
   listChildren(includeArchived?: boolean): LocalChild[];
   getChildByToken(token: string): LocalChild | null;
   bindChildDeviceByToken(token: string): LocalChild;
+  syncChildDeviceLogin(childId: UUID): LocalChild;
   regenerateChildToken(childId: UUID): LocalChild;
   unbindChildDevice(childId: UUID): LocalChild;
   listDeviceBindingRecords(childId?: UUID): LocalDatabaseState['device_binding_records'];
@@ -979,6 +980,29 @@ export class LocalDataService implements LocalDataRepository {
       upsertDeviceBindingRecord(state, child.id, {
         bindingStatus: 'bound',
         qrTokenStatus: 'consumed',
+        lastLoginAt: timestamp,
+        lastLoginDevice: child.last_login_device
+      });
+      return child;
+    });
+  }
+
+  syncChildDeviceLogin(childId: UUID) {
+    return this.db.transaction((state) => {
+      const child = requireChild(state, childId);
+      const timestamp = now();
+      child.bound_device_id = state.device_id;
+      child.binding_status = 'bound';
+      child.bound_at ??= timestamp;
+      child.last_login_at = timestamp;
+      child.last_login_device = currentDeviceLabel();
+      child.updated_at = timestamp;
+      state.deviceBinding = child.id;
+      state.device_child_id = child.id;
+      state.active_child_id = child.id;
+      upsertDeviceBindingRecord(state, child.id, {
+        bindingStatus: 'bound',
+        qrTokenStatus: child.child_token_consumed_at ? 'consumed' : 'active',
         lastLoginAt: timestamp,
         lastLoginDevice: child.last_login_device
       });
@@ -2841,6 +2865,7 @@ export const {
   switchChild,
   getChildByToken,
   bindChildDeviceByToken,
+  syncChildDeviceLogin,
   regenerateChildToken,
   unbindChildDevice,
   listDeviceBindingRecords,
@@ -2906,6 +2931,7 @@ export const {
   switchChild: localData.switchChild.bind(localData),
   getChildByToken: localData.getChildByToken.bind(localData),
   bindChildDeviceByToken: localData.bindChildDeviceByToken.bind(localData),
+  syncChildDeviceLogin: localData.syncChildDeviceLogin.bind(localData),
   regenerateChildToken: localData.regenerateChildToken.bind(localData),
   unbindChildDevice: localData.unbindChildDevice.bind(localData),
   listDeviceBindingRecords: localData.listDeviceBindingRecords.bind(localData),

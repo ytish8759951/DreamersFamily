@@ -9,6 +9,7 @@ export const childrenRepository = {
   listChildren: dataRepository.listChildren.bind(dataRepository),
   getChildByToken: dataRepository.getChildByToken.bind(dataRepository),
   bindChildDeviceByToken: dataRepository.bindChildDeviceByToken.bind(dataRepository),
+  syncChildDeviceLogin: dataRepository.syncChildDeviceLogin.bind(dataRepository),
   regenerateChildToken: dataRepository.regenerateChildToken.bind(dataRepository),
   unbindChildDevice: dataRepository.unbindChildDevice.bind(dataRepository),
   saveChildAvatar,

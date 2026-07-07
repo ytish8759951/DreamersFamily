@@ -14,7 +14,7 @@ import {
   Users
 } from 'lucide-react';
 import { childrenRepository } from '../../lib/childrenRepository';
-import type { LocalChild } from '../../lib/localTypes';
+import type { LocalChild, LocalDeviceBindingRecord } from '../../lib/localTypes';
 import { useLocalDataState } from '../../lib/useLocalData';
 
 type FormMode = 'create' | 'edit';
@@ -41,6 +41,12 @@ function childDeviceUrl(child: LocalChild) {
     ? window.location.origin
     : productionOrigin;
   return `${origin}/child/${child.child_token}`;
+}
+
+function latestDeviceBindingForChild(records: LocalDeviceBindingRecord[], childId: string) {
+  return records
+    .filter((record) => record.child_id === childId)
+    .sort((first, second) => second.updated_at.localeCompare(first.updated_at))[0] ?? null;
 }
 
 function LocalQRCode({ value, label }: { value: string; label: string }) {
@@ -231,6 +237,8 @@ export function Children() {
             {activeChildren.map((child, index) => {
               const isActive = child.id === state.active_child_id;
               const tone = child.theme_color || tones[index % tones.length];
+              const deviceBinding = latestDeviceBindingForChild(state.device_binding_records, child.id);
+              const isDeviceBound = deviceBinding?.binding_status === 'bound';
               return (
                 <article className={`child-manager-item${isActive ? ' is-active' : ''}`} key={child.id}>
                   <div className="child-manager-main">
@@ -260,11 +268,12 @@ export function Children() {
                     >
                       <Tablet size={16} />
                       裝置設定
-                      <span>{child.binding_status === 'bound' ? '已綁定' : '尚未綁定'}</span>
+                      <span>{isDeviceBound ? '已綁定' : '尚未綁定'}</span>
                     </button>
                     {expandedDeviceId === child.id ? (
                       <ChildDeviceSettings
                         child={child}
+                        deviceBinding={deviceBinding}
                         copied={copiedChildId === child.id}
                         onCopy={() => void copyChildUrl(child)}
                         onRegenerate={() => regenerateChildUrl(child)}
@@ -431,18 +440,29 @@ function QRCodeDialogContent({
 }
 
 function ChildDeviceSettings({
-  child,
+  child: childInput,
+  deviceBinding,
   copied,
   onCopy,
   onRegenerate,
   onUnbind
 }: {
   child: LocalChild;
+  deviceBinding: LocalDeviceBindingRecord | null;
   copied: boolean;
   onCopy: () => void;
   onRegenerate: () => void;
   onUnbind: () => void;
 }) {
+  const isBound = deviceBinding?.binding_status === 'bound';
+  const lastLoginAt = deviceBinding?.last_login_at ?? null;
+  const lastLoginDevice = deviceBinding?.last_login_device ?? null;
+  const child = {
+    ...childInput,
+    binding_status: isBound ? 'bound' : 'unbound',
+    last_login_at: lastLoginAt,
+    last_login_device: lastLoginDevice
+  } satisfies LocalChild;
   return (
     <div className="child-device-settings">
       <dl>

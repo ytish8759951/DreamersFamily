@@ -1320,6 +1320,18 @@ export class SupabaseDataRepository implements LocalDataRepository {
     return child;
   }
 
+  syncChildDeviceLogin(childId: UUID): LocalChild {
+    const child = this.cache.syncChildDeviceLogin(childId);
+    this.upsertChildToSupabase(child);
+    this.upsertDeviceBindingRecordToSupabase(child.id, 'bound', child.child_token_consumed_at ? 'consumed' : 'active', {
+      lastLoginAt: child.last_login_at,
+      lastLoginDevice: child.last_login_device
+    });
+    this.queuePush();
+    this.emit();
+    return child;
+  }
+
   regenerateChildToken(childId: UUID): LocalChild {
     const child = this.cache.regenerateChildToken(childId);
     this.upsertChildToSupabase(child);
@@ -1511,8 +1523,13 @@ export class SupabaseDataRepository implements LocalDataRepository {
     const parentState = readRepositoryState(parentSettings);
     const remoteChildren = ((children ?? []) as SupabaseChildRow[]).map(fromSupabaseChild);
     const baseState = scopeStateToCurrentFamily(parentState ?? state);
-    const mergedChildren = mergeChildren(baseState.children, remoteChildren).filter(
-      (child) => child.family_id === SUPABASE_FAMILY_ID
+    const remoteDeviceBindings = ((bindings ?? []) as SupabaseDeviceBindingRow[]).map(fromSupabaseDeviceBinding);
+    const mergedDeviceBindings = mergeDeviceBindings(baseState.device_binding_records, remoteDeviceBindings);
+    const mergedChildren = applyDeviceBindingsToChildren(
+      mergeChildren(baseState.children, remoteChildren).filter(
+        (child) => child.family_id === SUPABASE_FAMILY_ID
+      ),
+      mergedDeviceBindings
     );
     const taskRecords = (taskRecordRows ?? []) as SupabaseTaskRecordRow[];
     const remoteTasks = mergeTasks(
@@ -1643,10 +1660,7 @@ export class SupabaseDataRepository implements LocalDataRepository {
           childToken: child.child_token,
           createdAt: child.child_token_updated_at
         })),
-      device_binding_records: mergeDeviceBindings(
-        baseState.device_binding_records,
-        ((bindings ?? []) as SupabaseDeviceBindingRow[]).map(fromSupabaseDeviceBinding)
-      ),
+      device_binding_records: mergedDeviceBindings,
       active_child_id: baseState.active_child_id ?? mergedChildren.find((child) => child.status === 'active')?.id ?? null,
       updated_at: updatedAt
     });
@@ -2998,6 +3012,39 @@ function mergeChildren(localChildren: LocalChild[], remoteChildren: LocalChild[]
     if (!existing || child.updated_at >= existing.updated_at) byId.set(child.id, child);
   });
   return [...byId.values()].sort((first, second) => first.created_at.localeCompare(second.created_at));
+}
+
+function applyDeviceBindingsToChildren(children: LocalChild[], bindings: LocalDeviceBindingRecord[]): LocalChild[] {
+  const latestByChild = new Map<string, LocalDeviceBindingRecord>();
+  bindings.forEach((binding) => {
+    const existing = latestByChild.get(binding.child_id);
+    if (!existing || binding.updated_at >= existing.updated_at) latestByChild.set(binding.child_id, binding);
+  });
+
+  return children.map((child) => {
+    const binding = latestByChild.get(child.id);
+    if (!binding) return child;
+    if (binding.binding_status !== 'bound') {
+      return {
+        ...child,
+        binding_status: 'unbound' as const,
+        bound_device_id: null,
+        bound_at: null,
+        last_login_at: binding.last_login_at ?? child.last_login_at,
+        last_login_device: binding.last_login_device ?? child.last_login_device,
+        updated_at: maxIsoDate([child.updated_at, binding.updated_at]) ?? child.updated_at
+      };
+    }
+    return {
+      ...child,
+      binding_status: 'bound' as const,
+      bound_device_id: binding.device_id,
+      bound_at: child.bound_at ?? binding.created_at,
+      last_login_at: binding.last_login_at ?? child.last_login_at,
+      last_login_device: binding.last_login_device ?? child.last_login_device,
+      updated_at: maxIsoDate([child.updated_at, binding.updated_at]) ?? child.updated_at
+    };
+  });
 }
 
 function mergeDeviceBindings(

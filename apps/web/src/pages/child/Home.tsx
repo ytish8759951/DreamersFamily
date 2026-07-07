@@ -1,9 +1,9 @@
 ﻿import type { LucideIcon } from 'lucide-react';
 import { Camera, ChevronRight, Image, Mic, Play, Volume2 } from 'lucide-react';
-import { useMemo, type ReactNode } from 'react';
+import { useEffect, useMemo, type ReactNode } from 'react';
 import { Link, useLocation } from 'react-router-dom';
 import { LocalShareMedia as LocalShareMediaView } from '../../components/LocalShareMedia';
-import { dataRepository } from '../../lib/dataRepository';
+import { dataMode, dataRepository } from '../../lib/dataRepository';
 import { useDreamCoverMigration } from '../../lib/dreamCoverMigration';
 import type {
   LocalDatabaseState,
@@ -37,7 +37,7 @@ export function ChildHome() {
   const localState = useLocalDataState();
   const currentChildIdentity = localState.currentChildIdentity;
   const deviceBinding = localState.deviceBinding;
-  const hasChildBinding = Boolean(localState.currentChildIdentity || deviceBinding);
+  const hasChildDeviceSession = Boolean(localState.currentChildIdentity || deviceBinding);
   const selectedChildId = useMemo(() => {
     const childId = new URLSearchParams(location.search).get('childId');
     return childId || localState.currentChildIdentity?.childId || deviceBinding || null;
@@ -45,8 +45,26 @@ export function ChildHome() {
   const selectedChild = selectedChildId
     ? localState.children.find((child) => child.id === selectedChildId && child.status === 'active')
     : null;
+  const latestDeviceBinding = selectedChildId
+    ? localState.device_binding_records
+        .filter((record) => record.child_id === selectedChildId)
+        .sort((first, second) => second.updated_at.localeCompare(first.updated_at))[0] ?? null
+    : null;
+  const hasActiveDeviceBinding = dataMode === 'supabase'
+    ? latestDeviceBinding?.binding_status === 'bound'
+    : hasChildDeviceSession;
 
-  if (!selectedChild && !hasChildBinding) {
+  useEffect(() => {
+    const sessionChildId = localState.currentChildIdentity?.childId ?? deviceBinding;
+    if (!sessionChildId) return;
+    try {
+      dataRepository.syncChildDeviceLogin(sessionChildId);
+    } catch {
+      // The child route can be opened without a bound child session.
+    }
+  }, [deviceBinding, localState.currentChildIdentity?.childId]);
+
+  if (!selectedChild && !hasActiveDeviceBinding) {
     return (
       <div className="v1-page v1-home v2-home-page">
         <section className="child-home-install-banner">
@@ -83,7 +101,7 @@ export function ChildHome() {
 
   return (
     <div className="v1-page v1-home v2-home-page">
-      {hasChildBinding ? (
+      {hasActiveDeviceBinding ? (
         <section className="child-home-install-banner">
           <strong>孩子裝置已啟用</strong>
           <p>請在這個孩子首頁加入主畫面。</p>
