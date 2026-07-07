@@ -5,14 +5,6 @@ import { piggyUiAssets, type CoinPileItem, type DepositRecordView, type PiggyCoi
 
 const dockCoins: PiggyCoinValue[] = [100, 50, 10, 5, 1];
 
-const fallbackDepositRows: DepositRecordView[] = [
-  { id: 'sample-0629', date: '06/29', label: '零用錢', amount: '+100' },
-  { id: 'sample-0628', date: '06/28', label: '做家事', amount: '+50' },
-  { id: 'sample-0627', date: '06/27', label: '完成任務', amount: '+20' },
-  { id: 'sample-0626', date: '06/26', label: '購買商品', amount: '-599' },
-  { id: 'sample-0625', date: '06/25', label: '紅包', amount: '+200' }
-];
-
 export type PiggySceneV2ShelfSlot = {
   id: string;
   name: string;
@@ -181,7 +173,7 @@ function Notebook({
   onPrevPage: () => void;
   onNextPage: () => void;
 }) {
-  const rows = Array.from({ length: 5 }, (_, index) => records[index] ?? fallbackDepositRows[index]);
+  const rows = records.slice(0, 5);
 
   return (
     <section className="piggy-v2-notebook" aria-label="存錢紀錄">
@@ -201,13 +193,19 @@ function Notebook({
           <span>{incomeCount} 筆</span>
         </header>
         <div className="piggy-v2-deposit-list">
-          {rows.map((record) => (
-            <article key={record.id}>
-              <time>{record.date?.slice(0, 5) ?? '--/--'}</time>
-              <span>{record.label}</span>
-              <b className={record.amount.trim().startsWith('-') ? 'is-negative' : ''}>{record.amount}</b>
+          {rows.length ? (
+            rows.map((record) => (
+              <article key={record.id}>
+                <time>{record.date?.slice(0, 5) ?? '--/--'}</time>
+                <span>{record.label}</span>
+                <b className={record.amount.trim().startsWith('-') ? 'is-negative' : ''}>{record.amount}</b>
+              </article>
+            ))
+          ) : (
+            <article className="is-empty">
+              <span>尚無存錢紀錄</span>
             </article>
-          ))}
+          )}
         </div>
         <footer>
           <button disabled={page === 0} onClick={onPrevPage} aria-label="上一頁">

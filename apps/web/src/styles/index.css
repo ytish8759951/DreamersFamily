@@ -1359,7 +1359,13 @@
 }
 
 .piggy-v2-deposit-list article.is-empty {
+  grid-template-columns: 1fr;
+  min-height: 120px;
   opacity: .46;
+}
+
+.piggy-v2-deposit-list article.is-empty span {
+  text-align: center;
 }
 
 .piggy-v2-deposit-list time {
