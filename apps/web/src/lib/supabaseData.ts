@@ -3016,34 +3016,42 @@ function mergeChildren(localChildren: LocalChild[], remoteChildren: LocalChild[]
 
 function applyDeviceBindingsToChildren(children: LocalChild[], bindings: LocalDeviceBindingRecord[]): LocalChild[] {
   const latestByChild = new Map<string, LocalDeviceBindingRecord>();
+  const latestBoundByChild = new Map<string, LocalDeviceBindingRecord>();
   bindings.forEach((binding) => {
     const existing = latestByChild.get(binding.child_id);
     if (!existing || binding.updated_at >= existing.updated_at) latestByChild.set(binding.child_id, binding);
+    if (binding.binding_status === 'bound' && binding.qr_token_status !== 'revoked') {
+      const existingBound = latestBoundByChild.get(binding.child_id);
+      if (!existingBound || binding.updated_at >= existingBound.updated_at) latestBoundByChild.set(binding.child_id, binding);
+    }
   });
 
   return children.map((child) => {
-    const binding = latestByChild.get(child.id);
-    if (!binding) return child;
-    if (binding.binding_status !== 'bound') {
+    const binding = latestBoundByChild.get(child.id);
+    if (binding) {
       return {
         ...child,
-        binding_status: 'unbound' as const,
-        bound_device_id: null,
-        bound_at: null,
+        binding_status: 'bound' as const,
+        bound_device_id: binding.device_id,
+        bound_at: child.bound_at ?? binding.created_at,
         last_login_at: binding.last_login_at ?? child.last_login_at,
         last_login_device: binding.last_login_device ?? child.last_login_device,
         updated_at: maxIsoDate([child.updated_at, binding.updated_at]) ?? child.updated_at
       };
     }
-    return {
-      ...child,
-      binding_status: 'bound' as const,
-      bound_device_id: binding.device_id,
-      bound_at: child.bound_at ?? binding.created_at,
-      last_login_at: binding.last_login_at ?? child.last_login_at,
-      last_login_device: binding.last_login_device ?? child.last_login_device,
-      updated_at: maxIsoDate([child.updated_at, binding.updated_at]) ?? child.updated_at
-    };
+    const latestBinding = latestByChild.get(child.id);
+    if (latestBinding) {
+      return {
+        ...child,
+        binding_status: 'unbound' as const,
+        bound_device_id: null,
+        bound_at: null,
+        last_login_at: latestBinding.last_login_at ?? child.last_login_at,
+        last_login_device: latestBinding.last_login_device ?? child.last_login_device,
+        updated_at: maxIsoDate([child.updated_at, latestBinding.updated_at]) ?? child.updated_at
+      };
+    }
+    return child;
   });
 }
 

@@ -47,11 +47,11 @@ export function ChildHome() {
     : null;
   const latestDeviceBinding = selectedChildId
     ? localState.device_binding_records
-        .filter((record) => record.child_id === selectedChildId)
+        .filter((record) => record.child_id === selectedChildId && record.binding_status === 'bound' && record.qr_token_status !== 'revoked')
         .sort((first, second) => second.updated_at.localeCompare(first.updated_at))[0] ?? null
     : null;
   const hasActiveDeviceBinding = dataMode === 'supabase'
-    ? latestDeviceBinding?.binding_status === 'bound'
+    ? Boolean(latestDeviceBinding)
     : hasChildDeviceSession;
 
   useEffect(() => {

@@ -43,9 +43,9 @@ function childDeviceUrl(child: LocalChild) {
   return `${origin}/child/${child.child_token}`;
 }
 
-function latestDeviceBindingForChild(records: LocalDeviceBindingRecord[], childId: string) {
+function activeDeviceBindingForChild(records: LocalDeviceBindingRecord[], childId: string) {
   return records
-    .filter((record) => record.child_id === childId)
+    .filter((record) => record.child_id === childId && record.binding_status === 'bound' && record.qr_token_status !== 'revoked')
     .sort((first, second) => second.updated_at.localeCompare(first.updated_at))[0] ?? null;
 }
 
@@ -237,8 +237,8 @@ export function Children() {
             {activeChildren.map((child, index) => {
               const isActive = child.id === state.active_child_id;
               const tone = child.theme_color || tones[index % tones.length];
-              const deviceBinding = latestDeviceBindingForChild(state.device_binding_records, child.id);
-              const isDeviceBound = deviceBinding?.binding_status === 'bound';
+              const deviceBinding = activeDeviceBindingForChild(state.device_binding_records, child.id);
+              const isDeviceBound = Boolean(deviceBinding);
               return (
                 <article className={`child-manager-item${isActive ? ' is-active' : ''}`} key={child.id}>
                   <div className="child-manager-main">
