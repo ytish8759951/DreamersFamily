@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import { Navigate, useLocation, useNavigate } from 'react-router-dom';
-import { childrenRepository } from '../../lib/childrenRepository';
+import { deviceBindingRepository } from '../../lib/deviceBindingRepository';
 import { useLocalDataState } from '../../lib/useLocalData';
 
 const childRoutes = new Set([
@@ -34,13 +34,13 @@ export function ChildTokenEntry() {
     void (async () => {
     try {
       console.log('[child-token-entry] received child URL token', { childToken: token });
-      const child = await childrenRepository.bindChildDeviceByToken(token);
+      const child = await deviceBindingRepository.bindChildDeviceByToken(token);
       console.log('[child-token-entry] bindChildDeviceByToken returned', {
         childId: child.id,
         childToken: token,
         enteringSyncChildDeviceLogin: true
       });
-      childrenRepository.syncChildDeviceLogin(child.id);
+      deviceBindingRepository.syncChildDeviceLogin(child.id);
       console.log('[child-token-entry] syncChildDeviceLogin invoked', {
         childId: child.id,
         childToken: token

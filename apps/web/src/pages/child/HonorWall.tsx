@@ -2,6 +2,7 @@ import type { ReactNode } from 'react';
 import { Award, CheckCircle2, MoonStar, Sparkles, Star, Trophy } from 'lucide-react';
 import { resolveCurrentChildId } from '../../lib/childSession';
 import { dataRepository } from '../../lib/dataRepository';
+import { starRepository } from '../../lib/starRepository';
 import type { LocalChildBadge } from '../../lib/localTypes';
 import { useLocalDataState } from '../../lib/useLocalData';
 
@@ -24,9 +25,7 @@ export function ChildHonorWall() {
         .filter((record) => record.child_id === activeChild.id)
         .sort((a, b) => b.awarded_at.localeCompare(a.awarded_at))
     : [];
-  const starTotal = activeChild
-    ? state.stars.filter((star) => star.child_id === activeChild.id).reduce((total, star) => total + star.amount, 0)
-    : 0;
+  const starTotal = activeChild ? starRepository.getStarBalance(activeChild.id) : 0;
   const completedTasks = activeChild
     ? state.tasks.filter((task) => task.child_id === activeChild.id && task.status === 'approved')
     : [];

@@ -169,7 +169,7 @@ export interface LocalShareMedia {
   child_id: UUID;
   share_id: UUID;
   media_type: 'photo' | 'audio' | 'video';
-  bucket: 'local-media';
+  bucket: 'local-media' | 'family-media';
   storage_path: string;
   mime_type: string;
   file_size_bytes: number;

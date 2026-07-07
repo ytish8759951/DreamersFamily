@@ -1,6 +1,7 @@
 import { useMemo, useState, type FormEvent, type ReactNode } from 'react';
 import { Award, Medal, Plus, Trash2, Trophy } from 'lucide-react';
 import { dataModeBadgeLabel, dataRepository } from '../../lib/dataRepository';
+import { starRepository } from '../../lib/starRepository';
 import type { LocalBadge, LocalChildBadge } from '../../lib/localTypes';
 import { useLocalDataState } from '../../lib/useLocalData';
 
@@ -39,8 +40,11 @@ export function Badges() {
   const childName = (childId: string) =>
     state.children.find((child) => child.id === childId)?.display_name ?? '已封存孩子';
   const badgeById = (badgeId: string) => state.badges.find((badge) => badge.id === badgeId);
-  const starBalance = (childId: string) =>
-    state.stars.filter((item) => item.child_id === childId).reduce((total, item) => total + item.amount, 0);
+  const starBalance = (childId: string) => starRepository.getStarBalance(childId);
+  const badgeRewardStars = activeChildren
+    .flatMap((child) => starRepository.listStarTransactions(child.id))
+    .filter((star) => star.reason?.startsWith('獲得徽章'))
+    .reduce((total, star) => total + star.amount, 0);
 
   const openBadgeForm = () => {
     setBadgeForm({ name: '', icon: '🏅', description: '', reward_stars: '5' });
@@ -108,7 +112,7 @@ export function Badges() {
       <section className="badge-admin-stats">
         <Stat icon={<Award />} label="徽章圖鑑" value={`${badges.length} 枚`} tone="blue" />
         <Stat icon={<Medal />} label="已頒發" value={`${state.child_badges.length} 次`} tone="green" />
-        <Stat icon={<Trophy />} label="獎勵星星" value={`${state.stars.filter((star) => star.reason?.startsWith('獲得徽章')).reduce((total, star) => total + star.amount, 0)} 顆`} tone="yellow" />
+        <Stat icon={<Trophy />} label="獎勵星星" value={`${badgeRewardStars} 顆`} tone="yellow" />
         <Stat icon={<Award />} label="孩子數" value={`${activeChildren.length} 位`} tone="pink" />
       </section>
 

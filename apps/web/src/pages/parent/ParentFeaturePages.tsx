@@ -9,6 +9,7 @@ import { compressImageFile } from '../../lib/imageCompression';
 import { mailboxRepository, type MailboxRecordingDraft } from '../../lib/mailboxRepository';
 import { memoryRepository } from '../../lib/memoryRepository';
 import { shareRepository } from '../../lib/shareRepository';
+import { taskCompletionRepository } from '../../lib/taskCompletionRepository';
 import { taskRepository } from '../../lib/taskRepository';
 import { getParentHistoryTasks, getParentOpenTasks } from '../../lib/taskRules';
 import type {
@@ -279,7 +280,7 @@ export function ParentTasksPage() {
 
   const approve = (task: LocalTask) => {
     try {
-      taskRepository.approveTask(task.id);
+      taskCompletionRepository.approveTask(task.id);
     } catch (caught) {
       window.alert(caught instanceof Error ? caught.message : '審核失敗');
     }

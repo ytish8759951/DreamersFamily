@@ -29,11 +29,15 @@ import { LocalTaskMedia } from '../../components/LocalTaskMedia';
 import { resolveCurrentChildId } from '../../lib/childSession';
 import { dataModeBadgeLabel, dataRepository } from '../../lib/dataRepository';
 import { useDreamCoverMigration } from '../../lib/dreamCoverMigration';
+import { growthRepository } from '../../lib/growthRepository';
 import { compressImageFile } from '../../lib/imageCompression';
 import { logVideoStorageDiagnostics } from '../../lib/localVideoStore';
 import { shareRepository, type ShareMediaChunk, type ShareRecordedMedia } from '../../lib/shareRepository';
 import { mailboxRepository } from '../../lib/mailboxRepository';
 import { piggyRepository } from '../../lib/piggyRepository';
+import { starRepository } from '../../lib/starRepository';
+import { tabletRepository } from '../../lib/tabletRepository';
+import { taskCompletionRepository } from '../../lib/taskCompletionRepository';
 import { taskRepository } from '../../lib/taskRepository';
 import type {
   DreamWithBalance,
@@ -109,16 +113,12 @@ function HomePage() {
   const piggySavings = selectedChild
     ? piggyRepository.getPiggyBankSummary(selectedChild.id).currentSavings
     : 0;
-  const totalStars = selectedChild
-    ? localState.stars
-        .filter((transaction) => transaction.child_id === selectedChild.id)
-        .reduce((total, transaction) => total + transaction.amount, 0)
-    : 0;
+  const totalStars = selectedChild ? starRepository.getStarBalance(selectedChild.id) : 0;
   const remainingScreenMinutes = selectedChild
-    ? getTodayScreenTimeRemaining(localState, selectedChild.id)
+    ? tabletRepository.getTodayScreenTimeByChild(selectedChild.id).remainingMinutes
     : 0;
   const latestGrowth = selectedChild
-    ? getLatestGrowthRecord(localState, selectedChild.id)
+    ? growthRepository.getLatestGrowthRecordByChild(selectedChild.id)
     : null;
   const specialDays = selectedChild ? getHomeSpecialDays(localState, selectedChild.id) : [];
   const hasMoreSpecialDays = specialDays.length > 3;
@@ -238,25 +238,10 @@ function HomeSpecialDayRow({ day }: { day: HomeSpecialDay }) {
   );
 }
 
-function getLatestGrowthRecord(state: LocalDatabaseState, childId: string) {
-  return state.growth_records
-    .filter((record) => record.child_id === childId)
-    .sort((a, b) => b.date.localeCompare(a.date) || b.created_at.localeCompare(a.created_at))[0] ?? null;
-}
-
 function getLatestChildBadge(state: LocalDatabaseState, childId: string): LocalChildBadge | null {
   return state.child_badges
     .filter((badge) => badge.child_id === childId)
     .sort((a, b) => b.awarded_at.localeCompare(a.awarded_at))[0] ?? null;
-}
-
-function getTodayScreenTimeRemaining(state: LocalDatabaseState, childId: string) {
-  return Math.max(
-    0,
-    state.screen_time_logs
-      .filter((log) => log.child_id === childId)
-      .reduce((total, log) => total + log.minutes_delta, 0)
-  );
 }
 
 function formatMetric(value: number) {
@@ -289,11 +274,7 @@ function TaskPage() {
         .sort((a, b) => b.created_at.localeCompare(a.created_at))
     : [];
   const completedToday = todayAdventureTasks.length - todayPendingTasks.length;
-  const totalStars = selectedChild
-    ? localState.stars
-        .filter((transaction) => transaction.child_id === selectedChild.id)
-        .reduce((total, transaction) => total + transaction.amount, 0)
-    : 0;
+  const totalStars = selectedChild ? starRepository.getStarBalance(selectedChild.id) : 0;
   const pageSize = 5;
   const visibleRedeemHistory = redeemLogs.slice((redeemHistoryPage - 1) * pageSize, redeemHistoryPage * pageSize);
   const redeemHistoryPages = Math.max(1, Math.ceil(redeemLogs.length / pageSize));
@@ -340,7 +321,7 @@ function TaskPage() {
     if (flyingTimerRef.current) window.clearTimeout(flyingTimerRef.current);
     completionTimerRef.current = window.setTimeout(() => {
       try {
-        taskRepository.completeTask(task.id, '孩子已完成任務');
+        taskCompletionRepository.completeTask(task.id, '孩子已完成任務');
       } finally {
         setCompletingTaskId(null);
         flyingTimerRef.current = window.setTimeout(() => setFlyingTaskId(null), 160);
@@ -591,11 +572,7 @@ function SharePage() {
   const selectedChild = currentChildId
     ? localState.children.find((child) => child.id === currentChildId && child.status === 'active')
     : null;
-  const totalStars = selectedChild
-    ? localState.stars
-        .filter((transaction) => transaction.child_id === selectedChild.id)
-        .reduce((total, transaction) => total + transaction.amount, 0)
-    : 0;
+  const totalStars = selectedChild ? starRepository.getStarBalance(selectedChild.id) : 0;
   const childShares = useMemo(
     () =>
       selectedChild

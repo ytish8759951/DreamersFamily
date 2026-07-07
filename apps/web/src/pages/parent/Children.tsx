@@ -14,6 +14,8 @@ import {
   Users
 } from 'lucide-react';
 import { childrenRepository } from '../../lib/childrenRepository';
+import { deviceBindingRepository } from '../../lib/deviceBindingRepository';
+import { starRepository } from '../../lib/starRepository';
 import type { LocalChild, LocalDeviceBindingRecord } from '../../lib/localTypes';
 import { useLocalDataState } from '../../lib/useLocalData';
 
@@ -99,10 +101,7 @@ export function Children() {
     ? activeChildren.find((child) => child.id === createdChildId) ?? null
     : null;
 
-  const starBalance = (childId: string) =>
-    state.stars
-      .filter((transaction) => transaction.child_id === childId)
-      .reduce((total, transaction) => total + transaction.amount, 0);
+  const starBalance = (childId: string) => starRepository.getStarBalance(childId);
 
   const screenTimeBalance = (childId: string) =>
     state.screen_time_logs
@@ -186,7 +185,7 @@ export function Children() {
       return next;
     });
     try {
-      const next = await childrenRepository.regenerateChildToken(child.id);
+      const next = await deviceBindingRepository.regenerateChildToken(child.id);
       setExpandedDeviceId(next.id);
       setCopiedChildId(null);
     } catch (caught) {
@@ -199,7 +198,7 @@ export function Children() {
 
   const unbindChildDevice = (child: LocalChild) => {
     const confirmed = window.confirm(`解除「${child.display_name}」目前綁定的裝置？解除後下一台裝置可重新綁定。`);
-    if (confirmed) childrenRepository.unbindChildDevice(child.id);
+    if (confirmed) deviceBindingRepository.unbindChildDevice(child.id);
   };
 
   return (

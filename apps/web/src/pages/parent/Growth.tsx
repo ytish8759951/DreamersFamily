@@ -46,7 +46,7 @@ export function Growth() {
       visibleChildren
         .flatMap((child) => growthRepository.getGrowthRecordsByChild(child.id))
         .sort((a, b) => b.date.localeCompare(a.date) || b.created_at.localeCompare(a.created_at)),
-    [state.growth_records, visibleChildren]
+    [state.updated_at, visibleChildren]
   );
   const childName = (childId: string) =>
     state.children.find((child) => child.id === childId)?.display_name ?? '已封存孩子';

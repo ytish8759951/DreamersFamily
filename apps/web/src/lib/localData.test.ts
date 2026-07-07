@@ -154,7 +154,7 @@ describe('local MVP data flows', () => {
       child_id: child.id,
       device_id: 'local-device',
       binding_status: 'bound',
-      qr_token_status: 'consumed'
+      qr_token_status: 'active'
     });
     expect(childDeviceData.listDeviceBindingRecords(child.id)[0].last_login_at).toBeTruthy();
     expect(childDeviceData.listDeviceBindingRecords(child.id)[0].last_login_device).toBeTruthy();

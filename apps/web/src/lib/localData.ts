@@ -727,6 +727,7 @@ export interface LocalDataRepository {
   completeDream(dreamId: UUID): LocalDream;
   listDreams(childId?: UUID, includeCompleted?: boolean): DreamWithBalance[];
   createShare(input: CreateShareInput): ShareWithMedia;
+  updateShareMediaStorage(mediaId: UUID, input: UpdateShareMediaStorageInput): LocalShareMedia;
   listShares(childId?: UUID): ShareWithMedia[];
   deleteShare(shareId: UUID): LocalShare;
   approveShare(shareId: UUID, rewardStars?: number): LocalShare;
@@ -798,6 +799,17 @@ export interface LocalDataRepository {
   exportMemoryPack(memoryPackId: UUID): string;
   deleteMemoryPack(memoryPackId: UUID): MemoryPack;
   listMemoryPacks(childId?: UUID): MemoryPack[];
+}
+
+export interface UpdateShareMediaStorageInput {
+  bucket: LocalShareMedia['bucket'];
+  storage_path: string;
+  thumbnail_path?: string | null;
+  mime_type?: string;
+  file_size_bytes?: number;
+  width?: number | null;
+  height?: number | null;
+  duration_seconds?: number | null;
 }
 
 export class LocalDataService implements LocalDataRepository {
@@ -1425,6 +1437,22 @@ export class LocalDataService implements LocalDataRepository {
         sourceId: share.id
       });
       return { ...share, media: records };
+    });
+  }
+
+  updateShareMediaStorage(mediaId: UUID, input: UpdateShareMediaStorageInput) {
+    return this.db.transaction((state) => {
+      const media = state.share_media.find((item) => item.id === mediaId);
+      if (!media) throw new LocalDataError('Share media not found', 'SHARE_MEDIA_NOT_FOUND');
+      media.bucket = input.bucket;
+      media.storage_path = input.storage_path;
+      media.thumbnail_path = input.thumbnail_path ?? media.thumbnail_path;
+      media.mime_type = input.mime_type ?? media.mime_type;
+      media.file_size_bytes = input.file_size_bytes ?? media.file_size_bytes;
+      media.width = input.width ?? media.width;
+      media.height = input.height ?? media.height;
+      media.duration_seconds = input.duration_seconds ?? media.duration_seconds;
+      return { ...media };
     });
   }
 

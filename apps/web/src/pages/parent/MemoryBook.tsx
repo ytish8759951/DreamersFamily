@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from 'react';
 import { Archive, BookOpen, CalendarDays, Download, FileText, Mic, Save } from 'lucide-react';
 import { memoryBookRepository } from '../../lib/memoryBookRepository';
 import { memoryRepository } from '../../lib/memoryRepository';
+import { growthRepository } from '../../lib/growthRepository';
 import type { LocalChild, LocalDatabaseState, LocalShareMedia } from '../../lib/localTypes';
 import { getBirthdaySpecialDays } from '../../lib/specialDays';
 import { useLocalDataState } from '../../lib/useLocalData';
@@ -304,7 +305,7 @@ function buildAnnualBooks(state: LocalDatabaseState, children: LocalChild[], yea
   const selectedChildren = childId === 'all' ? children : children.filter((child) => child.id === childId);
   return selectedChildren.map((child) => {
     const entries = buildEntriesForChild(state, child, year).sort((a, b) => b.date.localeCompare(a.date));
-    const growth = state.growth_records
+    const growth = growthRepository.getGrowthRecords()
       .filter((record) => record.child_id === child.id && yearOf(record.date) === year)
       .sort((a, b) => a.date.localeCompare(b.date));
     const coverPhotoIds = entries
@@ -409,7 +410,7 @@ function buildEntriesForChild(state: LocalDatabaseState, child: LocalChild, year
       exportData: dream
     }));
 
-  const growthEntries = state.growth_records
+  const growthEntries = growthRepository.getGrowthRecords()
     .filter((record) => record.child_id === child.id && yearOf(record.date) === year)
     .map((record): MemoryEntry => ({
       id: `growth:${record.id}`,
@@ -452,7 +453,7 @@ function buildAvailableYears(state: LocalDatabaseState) {
     ...state.piggy_bank_logs.map((item) => item.created_at),
     ...state.piggy_purchases.map((item) => item.purchased_at ?? item.requested_at),
     ...state.dreams.map((item) => item.completed_at ?? item.updated_at),
-    ...state.growth_records.map((item) => item.date),
+    ...growthRepository.getGrowthRecords().map((item) => item.date),
     ...state.special_days.map((item) => item.date)
   ].forEach((value) => {
     const itemYear = yearOf(value);

@@ -630,8 +630,10 @@ values
       'audio/mpeg',
       'audio/mp4',
       'audio/wav',
+      'audio/webm',
       'video/mp4',
-      'video/quicktime'
+      'video/quicktime',
+      'video/webm'
     ]
   ),
   (

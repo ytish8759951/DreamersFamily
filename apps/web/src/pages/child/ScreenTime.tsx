@@ -2,6 +2,8 @@ import { Clock3, History, ShieldCheck, Star } from 'lucide-react';
 import { useMemo, useState } from 'react';
 import { resolveCurrentChildId } from '../../lib/childSession';
 import { dataRepository } from '../../lib/dataRepository';
+import { starRepository } from '../../lib/starRepository';
+import { tabletRepository } from '../../lib/tabletRepository';
 import type { LocalScreenTimeLog } from '../../lib/localTypes';
 import { useLocalDataState } from '../../lib/useLocalData';
 
@@ -55,10 +57,10 @@ export function ChildScreenTime() {
   const activeChildren = state.children.filter((child) => child.status === 'active');
   const currentChildId = resolveCurrentChildId(state);
   const activeChild = activeChildren.find((child) => child.id === currentChildId) ?? activeChildren[0] ?? null;
-  const logs = activeChild ? dataRepository.getScreenTimeLogsByChild(activeChild.id) : [];
+  const logs = activeChild ? tabletRepository.getScreenTimeLogsByChild(activeChild.id) : [];
   const ledger = useMemo(() => buildLedger(logs), [logs]);
-  const balance = activeChild ? dataRepository.getScreenTimeBalance(activeChild.id) : 0;
-  const stars = activeChild ? dataRepository.getStarBalance(activeChild.id) : 0;
+  const balance = activeChild ? tabletRepository.getScreenTimeBalance(activeChild.id) : 0;
+  const stars = activeChild ? starRepository.getStarBalance(activeChild.id) : 0;
   const recentRows = ledger.slice(0, 3);
   const totalPages = Math.max(1, Math.ceil(ledger.length / PAGE_SIZE));
   const visibleRows = ledger.slice((page - 1) * PAGE_SIZE, page * PAGE_SIZE);

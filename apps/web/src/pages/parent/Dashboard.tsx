@@ -19,6 +19,9 @@ import {
   Video
 } from 'lucide-react';
 import { dataRepository } from '../../lib/dataRepository';
+import { growthRepository } from '../../lib/growthRepository';
+import { starRepository } from '../../lib/starRepository';
+import { tabletRepository } from '../../lib/tabletRepository';
 import type { LocalDatabaseState, LocalTask, ShareWithMedia } from '../../lib/localTypes';
 import { useLocalDataState } from '../../lib/useLocalData';
 
@@ -129,7 +132,7 @@ function buildLatestActivity(state: LocalDatabaseState): DashboardActivity[] {
       meta: record.note || '徽章紀錄',
       time: record.awarded_at
     })),
-    ...state.growth_records.map((record) => ({
+    ...growthRepository.getGrowthRecords().map((record) => ({
       id: `growth:${record.id}`,
       icon: <Baby size={18} />,
       title: `${childName(record.child_id)} 成長紀錄`,
@@ -159,12 +162,12 @@ export function Dashboard() {
       state.children.find((child) => child.id === childId)?.display_name ?? '未知孩子';
 
     const childCards = activeChildren.map((child, index) => {
-      const starBalance = dataRepository.getStarBalance(child.id);
+      const starBalance = starRepository.getStarBalance(child.id);
       return {
         child,
         tone: (child.theme_color as Tone | null) ?? tones[index % tones.length],
         stars: starBalance,
-        tablet: dataRepository.getScreenTimeBalance(child.id)
+        tablet: tabletRepository.getScreenTimeBalance(child.id)
       };
     });
 
@@ -182,11 +185,12 @@ export function Dashboard() {
     const todayDreams = dreams
       .filter((dream) => sameDay(dream.created_at, date) || sameDay(dream.updated_at, date))
       .sort((a, b) => b.updated_at.localeCompare(a.updated_at));
-    const todayStars = state.stars
+    const todayStars = activeChildren
+      .flatMap((child) => starRepository.listStarTransactions(child.id))
       .filter((star) => sameDay(star.created_at, date))
       .reduce((total, star) => total + star.amount, 0);
     const todayScreenMinutes = activeChildren
-      .map((child) => dataRepository.getScreenTimeBalance(child.id))
+      .map((child) => tabletRepository.getScreenTimeBalance(child.id))
       .reduce((total, minutes) => total + minutes, 0);
 
     const reviews = [
@@ -320,7 +324,7 @@ export function Dashboard() {
           text={`${dashboard.todayDreams.length} 個 · ${dashboard.todayDreams[0]?.title ?? '尚無夢想更新'}`}
         />
         <QuickAction icon={<Camera />} title="分享素材" text={`${state.share_media.length} 個媒體檔`} />
-        <QuickAction icon={<Heart />} title="成長紀錄" text={`${state.growth_records.length} 筆紀錄`} />
+        <QuickAction icon={<Heart />} title="成長紀錄" text={`${growthRepository.getGrowthRecords().length} 筆紀錄`} />
       </section>
     </div>
   );

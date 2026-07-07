@@ -1,4 +1,5 @@
-import { dataRepository } from './dataRepository';
+import { dataMode, dataRepository } from './dataRepository';
+import { supabaseClient } from './supabaseData';
 
 const DB_NAME = 'little-dreamers-family-media';
 const DB_VERSION = 4;
@@ -28,8 +29,11 @@ export type UnifiedMediaRecord = {
   width?: number;
   height?: number;
   duration?: number;
+  bucket?: 'family-media';
+  storagePath?: string;
   thumbnailBlob?: Blob;
   thumbnailMimeType?: string;
+  thumbnailPath?: string | null;
   createdAt: number;
   blob: Blob;
 };
@@ -169,6 +173,9 @@ function normalizeLegacyRecord(record: LegacyMediaRecord, ownerType: MediaOwnerT
 
 export async function saveMedia(input: SaveMediaInput) {
   const record = await normalizeSaveInput(input);
+  if (shouldUseSupabaseStorage(record.ownerType)) {
+    return saveSupabaseStorageMedia(record);
+  }
   const db = await openMediaDb();
   await writeTransaction(db, (store) => store.put(record));
   db.close();
@@ -176,6 +183,8 @@ export async function saveMedia(input: SaveMediaInput) {
 }
 
 export async function getMedia(id: string) {
+  const remoteShareMedia = findRemoteShareMedia(id);
+  if (remoteShareMedia) return getSupabaseStorageMedia(remoteShareMedia);
   const db = await openMediaDb();
   const record = await new Promise<UnifiedMediaRecord | null>((resolve, reject) => {
     const transaction = db.transaction(MEDIA_STORE_NAME, 'readonly');
@@ -189,6 +198,11 @@ export async function getMedia(id: string) {
 
 export async function deleteMedia(id: string) {
   revokeCachedObjectUrl(id);
+  const remoteShareMedia = findRemoteShareMedia(id);
+  if (remoteShareMedia) {
+    await deleteSupabaseStorageMedia(remoteShareMedia);
+    return;
+  }
   const db = await openMediaDb();
   await writeTransaction(db, (store) => store.delete(id));
   db.close();
@@ -383,6 +397,105 @@ async function normalizeSaveInput(input: SaveMediaInput): Promise<UnifiedMediaRe
     createdAt: input.createdAt ?? Date.now(),
     blob
   };
+}
+
+function shouldUseSupabaseStorage(ownerType: MediaOwnerType) {
+  return dataMode === 'supabase' && ownerType === 'share' && Boolean(supabaseClient);
+}
+
+async function saveSupabaseStorageMedia(record: UnifiedMediaRecord): Promise<UnifiedMediaRecord> {
+  if (!supabaseClient) throw new Error('Supabase Storage is not configured');
+  const share = dataRepository.getState().shares.find((item) => item.id === record.ownerId);
+  if (!share) throw new Error('Share metadata must exist before uploading media');
+  const extension = extensionFromMimeType(record.mimeType, record.fileName);
+  const createdAt = new Date(record.createdAt);
+  const year = String(createdAt.getUTCFullYear());
+  const month = String(createdAt.getUTCMonth() + 1).padStart(2, '0');
+  const storagePath = `${share.family_id}/${share.child_id}/${year}/${month}/${record.id}.${extension}`;
+  const upload = await supabaseClient.storage
+    .from('family-media')
+    .upload(storagePath, record.blob, {
+      cacheControl: '31536000',
+      contentType: record.mimeType,
+      upsert: true
+    });
+  if (upload.error) throw upload.error;
+
+  let thumbnailPath: string | null = null;
+  if (record.thumbnailBlob) {
+    thumbnailPath = `${share.family_id}/${share.child_id}/${year}/${month}/${record.id}-thumb.webp`;
+    const thumbnailUpload = await supabaseClient.storage
+      .from('family-media')
+      .upload(thumbnailPath, record.thumbnailBlob, {
+        cacheControl: '31536000',
+        contentType: record.thumbnailMimeType ?? record.thumbnailBlob.type ?? 'image/webp',
+        upsert: true
+      });
+    if (thumbnailUpload.error) throw thumbnailUpload.error;
+  }
+
+  return {
+    ...record,
+    bucket: 'family-media',
+    storagePath,
+    thumbnailPath
+  };
+}
+
+async function getSupabaseStorageMedia(media: ReturnType<typeof findRemoteShareMedia> extends infer T ? NonNullable<T> : never) {
+  if (!supabaseClient) throw new Error('Supabase Storage is not configured');
+  const download = await supabaseClient.storage.from(media.bucket).download(media.storage_path);
+  if (download.error) throw download.error;
+  let thumbnailBlob: Blob | undefined;
+  if (media.thumbnail_path) {
+    const thumbnailDownload = await supabaseClient.storage.from(media.bucket).download(media.thumbnail_path);
+    if (!thumbnailDownload.error && thumbnailDownload.data) thumbnailBlob = thumbnailDownload.data;
+  }
+  return {
+    id: media.id,
+    ownerType: 'share',
+    ownerId: media.share_id,
+    mediaType: media.media_type,
+    mimeType: media.mime_type,
+    fileName: media.storage_path.split('/').pop(),
+    width: media.width ?? undefined,
+    height: media.height ?? undefined,
+    duration: media.duration_seconds ?? undefined,
+    bucket: 'family-media',
+    storagePath: media.storage_path,
+    thumbnailBlob,
+    thumbnailMimeType: thumbnailBlob?.type,
+    thumbnailPath: media.thumbnail_path,
+    createdAt: normalizeCreatedAt(media.created_at),
+    blob: download.data
+  } satisfies UnifiedMediaRecord;
+}
+
+async function deleteSupabaseStorageMedia(media: ReturnType<typeof findRemoteShareMedia> extends infer T ? NonNullable<T> : never) {
+  if (!supabaseClient) throw new Error('Supabase Storage is not configured');
+  const paths = [media.storage_path, media.thumbnail_path].filter((path): path is string => Boolean(path));
+  if (!paths.length) return;
+  const { error } = await supabaseClient.storage.from(media.bucket).remove(paths);
+  if (error) throw error;
+}
+
+function findRemoteShareMedia(mediaId: string) {
+  if (dataMode !== 'supabase') return null;
+  const media = dataRepository.getState().share_media.find((item) => item.id === mediaId);
+  return media?.bucket === 'family-media' ? media : null;
+}
+
+function extensionFromMimeType(mimeType: string, fileName?: string) {
+  if (mimeType.includes('webp')) return 'webp';
+  if (mimeType.includes('png')) return 'png';
+  if (mimeType.includes('jpeg') || mimeType.includes('jpg')) return 'jpg';
+  if (mimeType.includes('mp4')) return 'mp4';
+  if (mimeType.includes('quicktime')) return 'mov';
+  if (mimeType.includes('mpeg')) return 'mp3';
+  if (mimeType.includes('wav')) return 'wav';
+  if (mimeType.includes('webm')) return 'webm';
+  const extension = fileName?.split('.').pop()?.toLowerCase();
+  return extension && /^[a-z0-9]+$/.test(extension) ? extension : 'bin';
 }
 
 function findShareOwnerId(mediaId: string) {

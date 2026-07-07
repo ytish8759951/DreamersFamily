@@ -80,7 +80,7 @@ function releasePreviewUrl(url?: string | null) {
 async function saveShareMedia(input: SaveShareMediaInput) {
   const mediaId = input.id ?? createLocalId();
   const mediaType = input.mediaType as UnifiedMediaType;
-  await mediaRepository.saveMedia({
+  const savedMedia = await mediaRepository.saveMedia({
     id: mediaId,
     ownerType: 'share',
     ownerId: input.shareId,
@@ -90,6 +90,18 @@ async function saveShareMedia(input: SaveShareMediaInput) {
     duration: input.durationSeconds,
     blob: input.blob
   } satisfies SaveMediaInput);
+  if (savedMedia.bucket === 'family-media' && savedMedia.storagePath) {
+    dataRepository.updateShareMediaStorage(mediaId, {
+      bucket: savedMedia.bucket,
+      storage_path: savedMedia.storagePath,
+      thumbnail_path: savedMedia.thumbnailPath ?? null,
+      mime_type: savedMedia.mimeType,
+      file_size_bytes: savedMedia.blob.size,
+      width: savedMedia.width ?? input.width ?? null,
+      height: savedMedia.height ?? input.height ?? null,
+      duration_seconds: savedMedia.duration ?? input.durationSeconds ?? null
+    });
+  }
   return {
     id: mediaId,
     media_type: input.mediaType,

@@ -6,6 +6,7 @@ import type { PiggyCoinValue } from '../components/piggy/PiggyUiAssets';
 import { dataModeBadgeLabel } from '../lib/dataRepository';
 import { compressImageFile } from '../lib/imageCompression';
 import { piggyRepository } from '../lib/piggyRepository';
+import { purchaseRepository } from '../lib/purchaseRepository';
 import type { LocalDatabaseState, LocalPiggyBankLog, LocalPiggyProduct, LocalPiggyPurchase } from '../lib/localTypes';
 import { useLocalDataState } from '../lib/useLocalData';
 
@@ -25,7 +26,7 @@ export function ChildPiggyBankPage() {
   const bankLogs = selectedChild ? piggyRepository.getPiggyBankLogs(selectedChild.id) : [];
   const products = selectedChild ? piggyRepository.listPiggyProducts(selectedChild.id) : [];
   const displaySettings = selectedChild ? piggyRepository.getPiggyProductDisplaySettings(selectedChild.id) : null;
-  const purchases = selectedChild ? piggyRepository.listPiggyPurchases(selectedChild.id) : [];
+  const purchases = selectedChild ? purchaseRepository.listPiggyPurchases(selectedChild.id) : [];
   const activePurchases = purchases.filter((purchase) => isActivePiggyPurchaseStatus(purchase.status));
   const completedPurchases = purchases.filter((purchase) => isCompletedPiggyPurchaseStatus(purchase.status));
   const [page, setPage] = useState(0);
@@ -128,7 +129,7 @@ export function ChildPiggyBankPage() {
   const buyProduct = (product: LocalPiggyProduct) => {
     if (!selectedChild) return;
     try {
-      piggyRepository.requestPiggyPurchase(selectedChild.id, product.id);
+      purchaseRepository.requestPiggyPurchase(selectedChild.id, product.id);
       playCoinSound('buy');
     } catch {
       // Disabled buttons should prevent this; keep child UI silent.
@@ -142,7 +143,7 @@ export function ChildPiggyBankPage() {
     setExitingProductId(productId);
     window.setTimeout(() => {
       try {
-        piggyRepository.confirmPiggyPurchaseArrived(purchase.id);
+        purchaseRepository.confirmPiggyPurchaseArrived(purchase.id);
       } catch {
         // Keep child UI silent.
       } finally {
@@ -153,7 +154,7 @@ export function ChildPiggyBankPage() {
 
   const cancelPurchase = (purchase: LocalPiggyPurchase) => {
     try {
-      piggyRepository.cancelPiggyPurchase(purchase.id);
+      purchaseRepository.cancelPiggyPurchase(purchase.id);
     } catch {
       // Keep child UI silent.
     }
@@ -423,7 +424,7 @@ export function ParentPiggyBankPage() {
   const [editingProduct, setEditingProduct] = useState<LocalPiggyProduct | null>(null);
   const selectedChild = activeChildren.find((child) => child.id === childId) ?? null;
   const products = childId ? piggyRepository.listPiggyProducts(childId) : [];
-  const purchases = childId ? piggyRepository.listPiggyPurchases(childId) : [];
+  const purchases = childId ? purchaseRepository.listPiggyPurchases(childId) : [];
   const pending = purchases.filter((purchase) => isPendingPiggyPurchaseStatus(purchase.status));
   const arrived = purchases.filter((purchase) => isArrivedPiggyPurchaseStatus(purchase.status));
   const completed = purchases.filter((purchase) => isCompletedPiggyPurchaseStatus(purchase.status));
@@ -469,15 +470,15 @@ export function ParentPiggyBankPage() {
               <article key={purchase.id}>
                 <PiggyMediaImage mediaId={purchase.product_snapshot.main_media_id} alt={purchase.product_snapshot.name} />
                 <div><strong>{childName(state, purchase.child_id)}</strong><span>{purchase.product_snapshot.name}</span><small>{formatMoney(purchase.amount)} · {formatDate(purchase.requested_at)}</small></div>
-                <button onClick={() => piggyRepository.completePiggyPurchase(purchase.id)}><Check size={16} /> 已購買 / 已到貨</button>
-                <button onClick={() => piggyRepository.cancelPiggyPurchase(purchase.id)}>取消退款</button>
+                <button onClick={() => purchaseRepository.completePiggyPurchase(purchase.id)}><Check size={16} /> 已購買 / 已到貨</button>
+                <button onClick={() => purchaseRepository.cancelPiggyPurchase(purchase.id)}>取消退款</button>
               </article>
             ))}
             {arrived.map((purchase) => (
               <article key={purchase.id}>
                 <PiggyMediaImage mediaId={purchase.product_snapshot.main_media_id} alt={purchase.product_snapshot.name} />
                 <div><strong>{childName(state, purchase.child_id)}</strong><span>{purchase.product_snapshot.name}</span><small>已到貨，等待孩子確認</small></div>
-                <button onClick={() => piggyRepository.cancelPiggyPurchase(purchase.id)}>取消退款</button>
+                <button onClick={() => purchaseRepository.cancelPiggyPurchase(purchase.id)}>取消退款</button>
               </article>
             ))}
             {!pending.length && !arrived.length ? <EmptyPiggy text="目前沒有待購買商品" /> : null}

@@ -3,8 +3,13 @@ import { Camera, ChevronRight, Image, Mic, Play, Volume2 } from 'lucide-react';
 import { useEffect, useMemo, type ReactNode } from 'react';
 import { Link, useLocation } from 'react-router-dom';
 import { LocalShareMedia as LocalShareMediaView } from '../../components/LocalShareMedia';
-import { dataMode, dataRepository } from '../../lib/dataRepository';
+import { dataMode } from '../../lib/dataRepository';
+import { deviceBindingRepository } from '../../lib/deviceBindingRepository';
 import { useDreamCoverMigration } from '../../lib/dreamCoverMigration';
+import { growthRepository } from '../../lib/growthRepository';
+import { piggyRepository } from '../../lib/piggyRepository';
+import { starRepository } from '../../lib/starRepository';
+import { tabletRepository } from '../../lib/tabletRepository';
 import type {
   LocalDatabaseState,
   LocalSpecialDay,
@@ -58,7 +63,7 @@ export function ChildHome() {
     const sessionChildId = localState.currentChildIdentity?.childId ?? deviceBinding;
     if (!sessionChildId) return;
     try {
-      dataRepository.syncChildDeviceLogin(sessionChildId);
+      deviceBindingRepository.syncChildDeviceLogin(sessionChildId);
     } catch {
       // The child route can be opened without a bound child session.
     }
@@ -83,18 +88,16 @@ export function ChildHome() {
     ? buildChildShares(localState).filter((share) => share.child_id === selectedChild.id).slice(0, 3)
     : [];
   const piggySavings = selectedChild
-    ? dataRepository.getPiggyBankSummary(selectedChild.id).currentSavings
+    ? piggyRepository.getPiggyBankSummary(selectedChild.id).currentSavings
     : 0;
   const totalStars = selectedChild
-    ? localState.stars
-        .filter((transaction) => transaction.child_id === selectedChild.id)
-        .reduce((total, transaction) => total + transaction.amount, 0)
+    ? starRepository.getStarBalance(selectedChild.id)
     : 0;
   const remainingScreenMinutes = selectedChild
-    ? getTodayScreenTimeRemaining(localState, selectedChild.id)
+    ? tabletRepository.getTodayScreenTimeByChild(selectedChild.id).remainingMinutes
     : 0;
   const latestGrowth = selectedChild
-    ? getLatestGrowthRecord(localState, selectedChild.id)
+    ? growthRepository.getLatestGrowthRecordByChild(selectedChild.id)
     : null;
   const specialDaySummary = selectedChild ? getHomeSpecialDaySummary(localState, selectedChild.id) : null;
   const visibleSpecialDays = specialDaySummary?.specialDays.slice(0, 3) ?? [];
@@ -348,21 +351,6 @@ function LocalRecentCard({ share }: { share: ShareWithMedia }) {
 
 function ChildTaskEmpty({ text }: { text: string }) {
   return <div className="child-task-empty"><span>☁</span><p>{text}</p></div>;
-}
-
-function getLatestGrowthRecord(state: LocalDatabaseState, childId: string) {
-  return state.growth_records
-    .filter((record) => record.child_id === childId)
-    .sort((a, b) => b.date.localeCompare(a.date) || b.created_at.localeCompare(a.created_at))[0] ?? null;
-}
-
-function getTodayScreenTimeRemaining(state: LocalDatabaseState, childId: string) {
-  return Math.max(
-    0,
-    state.screen_time_logs
-      .filter((log) => log.child_id === childId)
-      .reduce((total, log) => total + log.minutes_delta, 0)
-  );
 }
 
 function buildChildShares(state: LocalDatabaseState): ShareWithMedia[] {

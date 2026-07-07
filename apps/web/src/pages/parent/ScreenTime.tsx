@@ -1,6 +1,8 @@
 import { Clock3, Minus, Plus, Star } from 'lucide-react';
 import { useMemo, useState, type FormEvent } from 'react';
 import { dataRepository } from '../../lib/dataRepository';
+import { starRepository } from '../../lib/starRepository';
+import { tabletRepository } from '../../lib/tabletRepository';
 import type { LocalChild, LocalScreenTimeLog } from '../../lib/localTypes';
 import { useLocalDataState } from '../../lib/useLocalData';
 
@@ -79,21 +81,21 @@ export function ParentScreenTime() {
 
   const selectedChild = activeChildren.find((child) => child.id === activeChildId) ?? activeChildren[0] ?? null;
   const selectedChildId = selectedChild?.id ?? '';
-  const logs = selectedChild ? dataRepository.getScreenTimeLogsByChild(selectedChild.id) : [];
+  const logs = selectedChild ? tabletRepository.getScreenTimeLogsByChild(selectedChild.id) : [];
   const ledger = useMemo(() => buildLedger(logs), [logs]);
   const monthTotals = getMonthTotals(logs);
-  const stars = selectedChild ? dataRepository.getStarBalance(selectedChild.id) : 0;
-  const balance = selectedChild ? dataRepository.getScreenTimeBalance(selectedChild.id) : 0;
+  const stars = selectedChild ? starRepository.getStarBalance(selectedChild.id) : 0;
+  const balance = selectedChild ? tabletRepository.getScreenTimeBalance(selectedChild.id) : 0;
 
   const redeemAllStars = (child: LocalChild) => {
     setError('');
-    const currentStars = dataRepository.getStarBalance(child.id);
+    const currentStars = starRepository.getStarBalance(child.id);
     if (currentStars <= 0) {
       setError(`${child.display_name} 目前沒有可兌換的星星。`);
       return;
     }
     try {
-      dataRepository.redeemStarsForScreenTime(child.id, today(), currentStars, `${currentStars}顆星星兌換`);
+      tabletRepository.redeemStarsForScreenTime(child.id, today(), currentStars, `${currentStars}顆星星兌換`);
     } catch (caught) {
       setError(caught instanceof Error ? caught.message : '星星兌換失敗');
     }
@@ -217,9 +219,9 @@ function ScreenTimeDialog({
     const minutes = Number(form.minutes);
     try {
       if (dialog.kind === 'manual_add') {
-        dataRepository.addScreenTime(child.id, today(), minutes, form.reason);
+        tabletRepository.addScreenTime(child.id, today(), minutes, form.reason);
       } else {
-        dataRepository.deductScreenTimePenalty(child.id, today(), minutes, form.reason);
+        tabletRepository.deductScreenTimePenalty(child.id, today(), minutes, form.reason);
       }
       onClose();
     } catch (caught) {

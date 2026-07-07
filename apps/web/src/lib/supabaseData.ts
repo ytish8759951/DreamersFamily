@@ -1504,6 +1504,7 @@ export class SupabaseDataRepository implements LocalDataRepository {
   completeDream = this.delegateWrite('completeDream');
   listDreams = this.delegate('listDreams');
   createShare = this.delegateWrite('createShare');
+  updateShareMediaStorage = this.delegateWrite('updateShareMediaStorage');
   listShares = this.delegate('listShares');
   deleteShare = this.delegateWrite('deleteShare');
   approveShare = this.delegateWrite('approveShare');
@@ -2668,7 +2669,7 @@ function fromSupabaseShareMedia(row: SupabaseShareMediaRow): LocalShareMedia {
     child_id: row.child_id,
     share_id: row.share_id,
     media_type: row.media_type,
-    bucket: 'local-media',
+    bucket: row.bucket === 'family-media' ? 'family-media' : 'local-media',
     storage_path: row.storage_path,
     mime_type: row.mime_type,
     file_size_bytes: Number(row.file_size_bytes),
