@@ -1305,16 +1305,25 @@ export class SupabaseDataRepository implements LocalDataRepository {
   bindChildDeviceByToken(token: string): LocalChild {
     const normalized = token.trim();
     if (!normalized) throw new LocalDataError('Child token is empty', 'CHILD_TOKEN_EMPTY');
+    console.log('[child-token-entry] bindChildDeviceByToken start', { childToken: normalized });
     const cachedChild = this.cache.getChildByToken(normalized);
     if (cachedChild) {
       const child = this.cache.bindChildDeviceByToken(normalized);
-      this.persistChildDeviceBindingInBackground(child, 'consumed');
+      console.log('[child-token-entry] bindChildDeviceByToken matched cached child', {
+        childId: child.id,
+        childToken: normalized
+      });
+      this.persistChildDeviceBindingInBackground(child, 'active', 'bindChildDeviceByToken');
       return child;
     }
 
     if (!parseChildDeviceToken(normalized)) throw new LocalDataError('Child token not found', 'CHILD_TOKEN_NOT_FOUND');
     const child = this.cache.bindChildDeviceByToken(normalized);
-    this.persistChildDeviceBindingInBackground(child, 'consumed');
+    console.log('[child-token-entry] bindChildDeviceByToken parsed token child', {
+      childId: child.id,
+      childToken: normalized
+    });
+    this.persistChildDeviceBindingInBackground(child, 'active', 'bindChildDeviceByToken');
     return child;
   }
 
@@ -1322,7 +1331,9 @@ export class SupabaseDataRepository implements LocalDataRepository {
     const child = this.cache.syncChildDeviceLogin(childId);
     console.log('[child-home] syncChildDeviceLogin', {
       childId,
-      familyId: child.family_id
+      childToken: child.child_token,
+      familyId: child.family_id,
+      enteredSyncChildDeviceLogin: true
     });
     this.persistChildDeviceBindingInBackground(child, 'active', 'syncChildDeviceLogin');
     this.emit();
@@ -1332,7 +1343,7 @@ export class SupabaseDataRepository implements LocalDataRepository {
   private persistChildDeviceBindingInBackground(
     child: LocalChild,
     qrTokenStatus: LocalDeviceBindingRecord['qr_token_status'],
-    debugSource?: 'syncChildDeviceLogin'
+    debugSource?: 'syncChildDeviceLogin' | 'bindChildDeviceByToken'
   ) {
     void this.persistChildDeviceBinding(child, qrTokenStatus, debugSource).catch((error) => {
       console.warn('[supabase-repository] child device binding persistence failed', error, {
@@ -1346,7 +1357,7 @@ export class SupabaseDataRepository implements LocalDataRepository {
   private async persistChildDeviceBinding(
     child: LocalChild,
     qrTokenStatus: LocalDeviceBindingRecord['qr_token_status'],
-    debugSource?: 'syncChildDeviceLogin'
+    debugSource?: 'syncChildDeviceLogin' | 'bindChildDeviceByToken'
   ) {
     await Promise.all([
       this.upsertChildToSupabase(child),
@@ -2118,41 +2129,115 @@ export class SupabaseDataRepository implements LocalDataRepository {
     bindingStatus: LocalDeviceBindingRecord['binding_status'],
     qrTokenStatus: LocalDeviceBindingRecord['qr_token_status'],
     input: { lastLoginAt?: string | null; lastLoginDevice?: string | null } = {},
-    debugSource?: 'syncChildDeviceLogin' | 'regenerateChildToken'
+    debugSource?: 'syncChildDeviceLogin' | 'regenerateChildToken' | 'bindChildDeviceByToken'
   ) {
     if (!this.client) return;
     const child = this.cache.getState().children.find((item) => item.id === childId);
     const record = this.buildDeviceBindingRecord(childId, bindingStatus, qrTokenStatus, input);
     if (!child || !record) return;
-    if (debugSource === 'syncChildDeviceLogin') {
-      console.log('[child-home] syncChildDeviceLogin deviceBinding payload', {
+    if (debugSource === 'syncChildDeviceLogin' || debugSource === 'bindChildDeviceByToken') {
+      console.log('[child-device-binding] deviceBinding payload', {
+        source: debugSource,
         childId,
+        childToken: child.child_token,
         childFamilyId: child.family_id,
         deviceBinding: record
       });
     }
-    const result = await this.client
+    const updatePayload = {
+      family_id: record.family_id,
+      last_login_at: record.last_login_at,
+      last_login_device: record.last_login_device,
+      binding_status: record.binding_status,
+      qr_token_status: record.qr_token_status,
+      updated_at: record.updated_at
+    };
+    const updateResult = await this.client
       .from('device_bindings')
-      .upsert(record, { onConflict: 'child_id,device_id' });
-    const { error } = result;
-    if (debugSource === 'syncChildDeviceLogin') {
-      console.log('[child-home] syncChildDeviceLogin Supabase upsert result', result);
-      console.log('[child-home] syncChildDeviceLogin Supabase error message', error?.message ?? null);
+      .update(updatePayload)
+      .eq('child_id', record.child_id)
+      .eq('device_id', record.device_id)
+      .select('id');
+    if (debugSource === 'syncChildDeviceLogin' || debugSource === 'bindChildDeviceByToken') {
+      console.log('[child-device-binding] Supabase update result', {
+        source: debugSource,
+        childId,
+        childToken: child.child_token,
+        where: {
+          child_id: record.child_id,
+          device_id: record.device_id
+        },
+        updateRowCount: updateResult.count ?? updateResult.data?.length ?? 0,
+        result: updateResult
+      });
+      console.log('[child-device-binding] Supabase update error', updateResult.error ?? null);
     }
-    if (debugSource === 'regenerateChildToken') {
-      console.log('[parent-children] regenerateChildToken binding Supabase result', result);
-      console.log('[parent-children] regenerateChildToken binding Supabase error', error ?? null);
-    }
-    if (error) {
-      console.warn('[supabase-repository] device binding upsert failed', error, {
+    if (updateResult.error) {
+      console.warn('[supabase-repository] device binding update failed', updateResult.error, {
         childId,
         familyId: record.family_id,
         deviceId: record.device_id,
         bindingStatus,
         qrTokenStatus
       });
-      throw error;
+      throw updateResult.error;
     }
+    const updateRowCount = updateResult.count ?? updateResult.data?.length ?? 0;
+    if (updateRowCount > 0) {
+      console.log('[child-device-binding] final affected row count', {
+        source: debugSource,
+        childId,
+        operation: 'update',
+        updateRowCount,
+        insertRowCount: 0
+      });
+      return;
+    }
+    console.warn('[child-device-binding] update matched zero rows; inserting new binding', {
+      source: debugSource,
+      childId,
+      reason: 'No device_bindings row matched child_id and device_id',
+      where: {
+        child_id: record.child_id,
+        device_id: record.device_id
+      }
+    });
+    const insertResult = await this.client
+      .from('device_bindings')
+      .insert(record)
+      .select('id');
+    if (debugSource === 'syncChildDeviceLogin' || debugSource === 'bindChildDeviceByToken') {
+      console.log('[child-device-binding] Supabase insert result', {
+        source: debugSource,
+        childId,
+        childToken: child.child_token,
+        insertRowCount: insertResult.count ?? insertResult.data?.length ?? 0,
+        result: insertResult
+      });
+      console.log('[child-device-binding] Supabase insert error', insertResult.error ?? null);
+    }
+    if (debugSource === 'regenerateChildToken') {
+      console.log('[parent-children] regenerateChildToken binding Supabase update result', updateResult);
+      console.log('[parent-children] regenerateChildToken binding Supabase insert result', insertResult);
+      console.log('[parent-children] regenerateChildToken binding Supabase error', insertResult.error ?? null);
+    }
+    if (insertResult.error) {
+      console.warn('[supabase-repository] device binding insert failed', insertResult.error, {
+        childId,
+        familyId: record.family_id,
+        deviceId: record.device_id,
+        bindingStatus,
+        qrTokenStatus
+      });
+      throw insertResult.error;
+    }
+    console.log('[child-device-binding] final affected row count', {
+      source: debugSource,
+      childId,
+      operation: 'insert',
+      updateRowCount,
+      insertRowCount: insertResult.count ?? insertResult.data?.length ?? 0
+    });
   }
 
   private emit() {

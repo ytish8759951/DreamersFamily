@@ -991,7 +991,7 @@ export class LocalDataService implements LocalDataRepository {
       setCurrentChildIdentity(state, child, normalized, timestamp);
       upsertDeviceBindingRecord(state, child.id, {
         bindingStatus: 'bound',
-        qrTokenStatus: 'consumed',
+        qrTokenStatus: 'active',
         lastLoginAt: timestamp,
         lastLoginDevice: child.last_login_device
       });

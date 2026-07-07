@@ -32,9 +32,24 @@ export function ChildTokenEntry() {
     }
 
     try {
-      childrenRepository.bindChildDeviceByToken(token);
+      console.log('[child-token-entry] received child URL token', { childToken: token });
+      const child = childrenRepository.bindChildDeviceByToken(token);
+      console.log('[child-token-entry] bindChildDeviceByToken returned', {
+        childId: child.id,
+        childToken: token,
+        enteringSyncChildDeviceLogin: true
+      });
+      childrenRepository.syncChildDeviceLogin(child.id);
+      console.log('[child-token-entry] syncChildDeviceLogin invoked', {
+        childId: child.id,
+        childToken: token
+      });
       navigate('/child/home', { replace: true });
-    } catch {
+    } catch (error) {
+      console.warn('[child-token-entry] child URL token binding failed', {
+        childToken: token,
+        error
+      });
       setInvalid(true);
     }
   }, [navigate, reservedChildRoute, token]);
