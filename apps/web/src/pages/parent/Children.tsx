@@ -479,20 +479,14 @@ function ChildDeviceSettings({
   const isBound = deviceBinding?.binding_status === 'bound';
   const lastLoginAt = deviceBinding?.last_login_at ?? null;
   const lastLoginDevice = deviceBinding?.last_login_device ?? null;
-  const child = {
-    ...childInput,
-    binding_status: isBound ? 'bound' : 'unbound',
-    last_login_at: lastLoginAt,
-    last_login_device: lastLoginDevice
-  } satisfies LocalChild;
-  const copyUrl = childDeviceUrl(child);
+  const copyUrl = childDeviceUrl(childInput);
   return (
     <div className="child-device-settings">
       <dl>
-        <div><dt>綁定狀態</dt><dd>{child.binding_status === 'bound' ? '已綁定' : '尚未綁定'}</dd></div>
-        <div><dt>QR 狀態</dt><dd>{child.child_token_consumed_at ? '已失效' : '可使用'}</dd></div>
-        <div><dt>最後登入時間</dt><dd>{child.last_login_at ? formatDateTime(child.last_login_at) : '尚無'}</dd></div>
-        <div><dt>最後登入裝置</dt><dd>{child.last_login_device ?? '尚無'}</dd></div>
+        <div><dt>綁定狀態</dt><dd>{isBound ? '已綁定' : '尚未綁定'}</dd></div>
+        <div><dt>QR 狀態</dt><dd>{childInput.child_token_consumed_at ? '已失效' : '可使用'}</dd></div>
+        <div><dt>最後登入時間</dt><dd>{lastLoginAt ? formatDateTime(lastLoginAt) : '尚無'}</dd></div>
+        <div><dt>最後登入裝置</dt><dd>{lastLoginDevice ?? '尚無'}</dd></div>
       </dl>
       {error ? <p className="local-form-error">{error}</p> : null}
       <div className="child-device-url">
@@ -500,12 +494,12 @@ function ChildDeviceSettings({
         <code>{copyUrl}</code>
       </div>
       <div className="child-device-qr">
-        <LocalQRCode value={copyUrl} label={`${child.display_name} QR Code`} />
+        <LocalQRCode value={copyUrl} label={`${childInput.display_name} QR Code`} />
       </div>
       <div className="child-device-actions">
-        <button type="button" onClick={onCopy} disabled={Boolean(child.child_token_consumed_at)}><Copy size={16} /> {child.child_token_consumed_at ? 'QR 已失效' : copied ? '已複製' : '複製網址'}</button>
+        <button type="button" onClick={onCopy} disabled={Boolean(childInput.child_token_consumed_at)}><Copy size={16} /> {childInput.child_token_consumed_at ? 'QR 已失效' : copied ? '已複製' : '複製網址'}</button>
         <button type="button" onClick={onRegenerate} disabled={regenerating}><RefreshCw size={16} /> {regenerating ? '重新產生中' : '重新產生網址'}</button>
-        <button type="button" className="is-danger" onClick={onUnbind} disabled={child.binding_status !== 'bound'}>解除綁定</button>
+        <button type="button" className="is-danger" onClick={onUnbind} disabled={!isBound}>解除綁定</button>
       </div>
     </div>
   );

@@ -869,8 +869,8 @@ export class LocalDataService implements LocalDataRepository {
       upsertDeviceBindingRecord(state, child.id, {
         bindingStatus: 'unbound',
         qrTokenStatus: 'active',
-        lastLoginAt: child.last_login_at,
-        lastLoginDevice: child.last_login_device
+        lastLoginAt: null,
+        lastLoginDevice: null
       });
       state.active_child_id ??= child.id;
       return child;
@@ -904,7 +904,6 @@ export class LocalDataService implements LocalDataRepository {
     return this.db.transaction((state) => {
       const child = requireChild(state, childId);
       child.status = 'archived';
-      child.binding_status = 'unbound';
       child.archived_at = now();
       child.updated_at = child.archived_at;
 
@@ -974,15 +973,8 @@ export class LocalDataService implements LocalDataRepository {
           child = createChildFromTokenPayload(state, payload, normalized, now(), familyId);
         }
       }
-      if (child.bound_device_id && child.bound_device_id !== state.device_id) {
-        throw new LocalDataError('Child token is already bound to another device', 'CHILD_TOKEN_ALREADY_BOUND');
-      }
       const timestamp = now();
-      child.bound_device_id = state.device_id;
-      child.binding_status = 'bound';
-      child.bound_at ??= timestamp;
-      child.last_login_at = timestamp;
-      child.last_login_device = currentDeviceLabel();
+      const lastLoginDevice = currentDeviceLabel();
       child.updated_at = timestamp;
       child.child_token_consumed_at = timestamp;
       removeChildOnboardingToken(state, child.id);
@@ -994,7 +986,7 @@ export class LocalDataService implements LocalDataRepository {
         bindingStatus: 'bound',
         qrTokenStatus: 'active',
         lastLoginAt: timestamp,
-        lastLoginDevice: child.last_login_device
+        lastLoginDevice
       });
       return child;
     });
@@ -1004,11 +996,7 @@ export class LocalDataService implements LocalDataRepository {
     return this.db.transaction((state) => {
       const child = requireChild(state, childId);
       const timestamp = now();
-      child.bound_device_id = state.device_id;
-      child.binding_status = 'bound';
-      child.bound_at ??= timestamp;
-      child.last_login_at = timestamp;
-      child.last_login_device = currentDeviceLabel();
+      const lastLoginDevice = currentDeviceLabel();
       child.updated_at = timestamp;
       state.deviceBinding = child.id;
       state.device_child_id = child.id;
@@ -1017,7 +1005,7 @@ export class LocalDataService implements LocalDataRepository {
         bindingStatus: 'bound',
         qrTokenStatus: 'active',
         lastLoginAt: timestamp,
-        lastLoginDevice: child.last_login_device
+        lastLoginDevice
       });
       return child;
     });
@@ -1031,18 +1019,13 @@ export class LocalDataService implements LocalDataRepository {
       child.child_token = createChildDeviceTokenForChild(child);
       child.child_token_updated_at = timestamp;
       child.child_token_consumed_at = null;
-      child.binding_status = 'unbound';
-      child.bound_device_id = null;
-      child.bound_at = null;
-      child.last_login_at = null;
-      child.last_login_device = null;
       child.updated_at = timestamp;
       upsertChildOnboardingToken(state, child);
       upsertDeviceBindingRecord(state, child.id, {
         bindingStatus: 'unbound',
         qrTokenStatus: 'active',
-        lastLoginAt: child.last_login_at,
-        lastLoginDevice: child.last_login_device
+        lastLoginAt: null,
+        lastLoginDevice: null
       });
       if (state.device_child_id === childId || state.deviceBinding === childId) {
         state.device_child_id = null;
@@ -1054,17 +1037,14 @@ export class LocalDataService implements LocalDataRepository {
   }
 
   unbindChildDevice(childId: UUID) {
-    return this.db.transaction((state) => {
+      return this.db.transaction((state) => {
       const child = requireChild(state, childId);
-      child.bound_device_id = null;
-      child.binding_status = 'unbound';
-      child.bound_at = null;
       child.updated_at = now();
       upsertDeviceBindingRecord(state, child.id, {
         bindingStatus: 'unbound',
         qrTokenStatus: 'revoked',
-        lastLoginAt: child.last_login_at,
-        lastLoginDevice: child.last_login_device
+        lastLoginAt: null,
+        lastLoginDevice: null
       });
       if (state.device_child_id === childId || state.deviceBinding === childId) {
         state.device_child_id = null;

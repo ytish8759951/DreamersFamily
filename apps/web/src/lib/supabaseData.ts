@@ -1378,13 +1378,14 @@ export class SupabaseDataRepository implements LocalDataRepository {
     qrTokenStatus: LocalDeviceBindingRecord['qr_token_status'],
     debugSource?: 'syncChildDeviceLogin' | 'bindChildDeviceByToken'
   ) {
-    await Promise.all([
-      this.upsertChildToSupabase(child),
-      this.upsertDeviceBindingRecordToSupabase(child.id, 'bound', qrTokenStatus, {
-        lastLoginAt: child.last_login_at,
-        lastLoginDevice: child.last_login_device
-      }, debugSource)
-    ]);
+    const binding = this.cache
+      .listDeviceBindingRecords(child.id)
+      .filter((record) => record.binding_status === 'bound' && record.qr_token_status === 'active')
+      .sort((first, second) => second.updated_at.localeCompare(first.updated_at))[0] ?? null;
+    await this.upsertDeviceBindingRecordToSupabase(child.id, 'bound', qrTokenStatus, {
+      lastLoginAt: binding?.last_login_at ?? null,
+      lastLoginDevice: binding?.last_login_device ?? null
+    }, debugSource);
     this.queuePush();
     this.hydrateFromSupabase();
   }
@@ -1444,8 +1445,8 @@ export class SupabaseDataRepository implements LocalDataRepository {
       family_id: familyId,
       child_id: childId,
       device_id: deviceId,
-      last_login_at: input.lastLoginAt ?? child.last_login_at,
-      last_login_device: input.lastLoginDevice ?? child.last_login_device,
+      last_login_at: input.lastLoginAt ?? null,
+      last_login_device: input.lastLoginDevice ?? null,
       binding_status: bindingStatus,
       qr_token_status: qrTokenStatus,
       created_at: timestamp,
@@ -1475,12 +1476,9 @@ export class SupabaseDataRepository implements LocalDataRepository {
 
   unbindChildDevice(childId: UUID): LocalChild {
     const child = this.cache.unbindChildDevice(childId);
-    void this.upsertChildToSupabase(child).catch((error) => {
-      console.warn('[supabase-repository] child unbind sync failed', error);
-    });
     void this.upsertDeviceBindingRecordToSupabase(child.id, 'unbound', 'revoked', {
-      lastLoginAt: child.last_login_at,
-      lastLoginDevice: child.last_login_device
+      lastLoginAt: null,
+      lastLoginDevice: null
     }).catch((error) => {
       console.warn('[supabase-repository] device binding unbind sync failed', error);
     });
@@ -1662,11 +1660,8 @@ export class SupabaseDataRepository implements LocalDataRepository {
     const baseState = scopeStateToCurrentFamily(parentState ?? state);
     const remoteDeviceBindings = ((bindings ?? []) as SupabaseDeviceBindingRow[]).map(fromSupabaseDeviceBinding);
     const mergedDeviceBindings = mergeDeviceBindings(baseState.device_binding_records, remoteDeviceBindings);
-    const mergedChildren = applyDeviceBindingsToChildren(
-      mergeChildren(baseState.children, remoteChildren).filter(
-        (child) => child.family_id === SUPABASE_FAMILY_ID
-      ),
-      mergedDeviceBindings
+    const mergedChildren = mergeChildren(baseState.children, remoteChildren).filter(
+      (child) => child.family_id === SUPABASE_FAMILY_ID
     );
     const taskRecords = (taskRecordRows ?? []) as SupabaseTaskRecordRow[];
     const remoteTasks = mergeTasks(
@@ -3177,11 +3172,11 @@ function toSupabaseChild(child: LocalChild, familyId = SUPABASE_FAMILY_ID): Supa
     child_token: child.child_token || createChildDeviceTokenForChild(child),
     child_token_updated_at: child.child_token_updated_at,
     child_token_consumed_at: child.child_token_consumed_at,
-    binding_status: child.binding_status,
-    bound_device_id: child.bound_device_id,
-    bound_at: child.bound_at,
-    last_login_at: child.last_login_at,
-    last_login_device: child.last_login_device,
+    binding_status: 'unbound',
+    bound_device_id: null,
+    bound_at: null,
+    last_login_at: null,
+    last_login_device: null,
     created_by: SUPABASE_PARENT_ID,
     created_at: child.created_at,
     updated_at: child.updated_at,
@@ -3247,47 +3242,6 @@ function mergeChildren(localChildren: LocalChild[], remoteChildren: LocalChild[]
     if (!existing || child.updated_at >= existing.updated_at) byId.set(child.id, child);
   });
   return [...byId.values()].sort((first, second) => first.created_at.localeCompare(second.created_at));
-}
-
-function applyDeviceBindingsToChildren(children: LocalChild[], bindings: LocalDeviceBindingRecord[]): LocalChild[] {
-  const latestByChild = new Map<string, LocalDeviceBindingRecord>();
-  const latestBoundByChild = new Map<string, LocalDeviceBindingRecord>();
-  bindings.forEach((binding) => {
-    const existing = latestByChild.get(binding.child_id);
-    if (!existing || binding.updated_at >= existing.updated_at) latestByChild.set(binding.child_id, binding);
-    if (binding.binding_status === 'bound' && binding.qr_token_status === 'active') {
-      const existingBound = latestBoundByChild.get(binding.child_id);
-      if (!existingBound || binding.updated_at >= existingBound.updated_at) latestBoundByChild.set(binding.child_id, binding);
-    }
-  });
-
-  return children.map((child) => {
-    const binding = latestBoundByChild.get(child.id);
-    if (binding) {
-      return {
-        ...child,
-        binding_status: 'bound' as const,
-        bound_device_id: binding.device_id,
-        bound_at: child.bound_at ?? binding.created_at,
-        last_login_at: binding.last_login_at ?? child.last_login_at,
-        last_login_device: binding.last_login_device ?? child.last_login_device,
-        updated_at: maxIsoDate([child.updated_at, binding.updated_at]) ?? child.updated_at
-      };
-    }
-    const latestBinding = latestByChild.get(child.id);
-    if (latestBinding) {
-      return {
-        ...child,
-        binding_status: 'unbound' as const,
-        bound_device_id: null,
-        bound_at: null,
-        last_login_at: latestBinding.last_login_at ?? child.last_login_at,
-        last_login_device: latestBinding.last_login_device ?? child.last_login_device,
-        updated_at: maxIsoDate([child.updated_at, latestBinding.updated_at]) ?? child.updated_at
-      };
-    }
-    return child;
-  });
 }
 
 function mergeDeviceBindings(
