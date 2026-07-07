@@ -1727,7 +1727,7 @@ export class SupabaseDataRepository implements LocalDataRepository {
 
   private async pushChildrenAndBindings(state: LocalDatabaseState) {
     if (!this.client) return;
-    const children = state.children.map(toSupabaseChild);
+    const children = state.children.map((child) => toSupabaseChild(child));
     if (children.length) {
       const { error } = await this.client.from('children').upsert(children, { onConflict: 'id' });
       if (error) throw error;
@@ -1997,7 +1997,7 @@ export class SupabaseDataRepository implements LocalDataRepository {
     if (!this.client) return;
     void this.client
       .from('children')
-      .upsert(toSupabaseChild(child), { onConflict: 'id' })
+      .upsert(toSupabaseChild(child, child.family_id), { onConflict: 'id' })
       .then(({ error }) => {
         if (error) console.warn('[supabase-repository] child upsert failed', error);
       });
@@ -2015,9 +2015,10 @@ export class SupabaseDataRepository implements LocalDataRepository {
     if (!child) return;
     const timestamp = new Date().toISOString();
     const deviceId = toSupabaseUuid(state.device_id ?? LOCAL_DEVICE_ID, SUPABASE_DEVICE_FALLBACK_ID);
+    const familyId = child.family_id || SUPABASE_FAMILY_ID;
     const record: SupabaseDeviceBindingRow = {
       id: `${childId}:${deviceId}`,
-      family_id: SUPABASE_FAMILY_ID,
+      family_id: familyId,
       child_id: childId,
       device_id: deviceId,
       last_login_at: input.lastLoginAt ?? child.last_login_at,
@@ -2923,11 +2924,11 @@ function getPiggySavingsFromState(state: LocalDatabaseState, childId: UUID) {
     .reduce((total, log) => total + (log.type === 'purchase_debit' ? -log.amount : log.amount), 0);
 }
 
-function toSupabaseChild(child: LocalChild): SupabaseChildRow {
+function toSupabaseChild(child: LocalChild, familyId = SUPABASE_FAMILY_ID): SupabaseChildRow {
   return {
     id: child.id,
     parent_id: SUPABASE_PARENT_ID,
-    family_id: SUPABASE_FAMILY_ID,
+    family_id: familyId,
     display_name: child.display_name,
     legal_name: child.legal_name,
     birth_date: child.birth_date,
