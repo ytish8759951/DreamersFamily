@@ -8,22 +8,29 @@ const APP_BUILD_REFRESH_GUARD_KEY = 'little-dreamers-family:build-refresh-guard'
 const BUILD_META_URL = '/build-meta.json';
 
 export async function prepareAppRuntime() {
-  const latestBuildId = await fetchLatestBuildId();
   await disableServiceWorkersAndCaches();
+  const latestBuildId = await fetchLatestBuildId();
   const storedBuildId = readVersionMarker();
 
   if (latestBuildId && latestBuildId !== APP_BUILD_ID) {
     const refreshGuard = readSessionValue(APP_BUILD_REFRESH_GUARD_KEY);
-    if (refreshGuard !== latestBuildId) {
+    const nextGuard = `${APP_BUILD_ID}:${latestBuildId}`;
+    if (refreshGuard !== nextGuard) {
       writeVersionMarker(latestBuildId);
-      writeSessionValue(APP_BUILD_REFRESH_GUARD_KEY, latestBuildId);
+      writeSessionValue(APP_BUILD_REFRESH_GUARD_KEY, nextGuard);
       console.info('[app-runtime] Detected newer build, reloading', {
         currentBuildId: APP_BUILD_ID,
         latestBuildId
       });
-      window.location.reload();
+      reloadWithBuildBust(latestBuildId);
       return false;
     }
+    console.warn('[app-runtime] Still running stale build after refresh attempt', {
+      currentBuildId: APP_BUILD_ID,
+      latestBuildId
+    });
+    renderStaleBuildNotice(latestBuildId);
+    return false;
   }
 
   const buildIdToPersist = latestBuildId ?? APP_BUILD_ID;
@@ -33,6 +40,40 @@ export async function prepareAppRuntime() {
   deleteSessionValue(APP_BUILD_REFRESH_GUARD_KEY);
   syncAppShellMetadata();
   return true;
+}
+
+function reloadWithBuildBust(buildId: string) {
+  const url = new URL(window.location.href);
+  url.searchParams.set('build', buildId);
+  window.location.replace(url.toString());
+}
+
+function renderStaleBuildNotice(buildId: string) {
+  if (typeof document === 'undefined') return;
+  document.body.innerHTML = `
+    <main style="display:grid;min-height:100vh;place-items:center;padding:24px;font-family:system-ui,-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;background:#fff9f0;color:#2f2e2b;">
+      <section style="max-width:420px;border:1px solid #ecdfcf;border-radius:18px;background:#fff;padding:24px;box-shadow:0 12px 30px rgba(77,59,35,.08);">
+        <h1 style="margin:0 0 10px;font-size:22px;">正在更新 Dreamers Family</h1>
+        <p style="margin:0 0 18px;line-height:1.6;color:#6f675e;">偵測到新版已部署，但目前瀏覽器仍載入舊版檔案。請重新載入最新版。</p>
+        <button id="reload-latest-build" style="border:0;border-radius:12px;background:#78966c;color:#fff;padding:12px 16px;font-weight:700;cursor:pointer;">重新載入最新版</button>
+        <p style="margin:14px 0 0;font-size:12px;color:#8a8178;">Latest build: ${escapeHtml(buildId.slice(0, 12))}</p>
+      </section>
+    </main>
+  `;
+  document.getElementById('reload-latest-build')?.addEventListener('click', () => {
+    deleteSessionValue(APP_BUILD_REFRESH_GUARD_KEY);
+    reloadWithBuildBust(buildId);
+  });
+}
+
+function escapeHtml(value: string) {
+  return value.replace(/[&<>"']/g, (character) => ({
+    '&': '&amp;',
+    '<': '&lt;',
+    '>': '&gt;',
+    '"': '&quot;',
+    "'": '&#39;'
+  })[character] ?? character);
 }
 
 async function disableServiceWorkersAndCaches() {
