@@ -9,7 +9,6 @@ import {
   PiggyBank,
   Settings,
   Share2,
-  Star,
   Tablet,
   X
 } from 'lucide-react';
@@ -20,9 +19,8 @@ import { useLocalDataState } from '../../lib/useLocalData';
 const navItems = [
   { label: '孩子管理', href: '/parent/children', icon: Baby },
   { label: '任務管理', href: '/parent/tasks', icon: CheckSquare },
-  { label: '待審核', href: '/parent/share', icon: Share2 },
+  { label: '分享管理', href: '/parent/share', icon: Share2 },
   { label: '今日任務', href: '/parent/tasks', icon: Clock3 },
-  { label: '星星管理', href: '/parent/children', icon: Star },
   { label: '平板時間', href: '/parent/screen-time', icon: Tablet },
   { label: '撲滿 / 商品兌換', href: '/parent/dreams', icon: PiggyBank },
   { label: '今日分享', href: '/parent/share', icon: Camera },
