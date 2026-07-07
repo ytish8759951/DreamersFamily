@@ -30,14 +30,6 @@ const navItems = [
   { label: '家長設定', href: '/parent/settings', icon: Settings }
 ];
 
-const bottomNavItems = [
-  { label: '孩子', href: '/parent/children', icon: Baby },
-  { label: '任務', href: '/parent/tasks', icon: CheckSquare },
-  { label: '分享', href: '/parent/share', icon: Share2 },
-  { label: '撲滿', href: '/parent/dreams', icon: PiggyBank },
-  { label: '設定', href: '/parent/settings', icon: Settings }
-];
-
 export function ParentLayout() {
   const location = useLocation();
   const state = useLocalDataState();
@@ -111,18 +103,6 @@ export function ParentLayout() {
         <main className="ph-main">
           <Outlet />
         </main>
-
-        <nav className="ph-bottom-nav" aria-label="家長端底部導覽">
-          {bottomNavItems.map((item) => {
-            const Icon = item.icon;
-            return (
-              <NavLink key={item.label} to={item.href} className={({ isActive }) => isActive ? 'is-active' : ''}>
-                <Icon size={20} />
-                <span>{item.label}</span>
-              </NavLink>
-            );
-          })}
-        </nav>
       </div>
     </div>
   );
