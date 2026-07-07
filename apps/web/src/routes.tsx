@@ -72,8 +72,7 @@ function RequireFamilyAccess() {
   return <Outlet />;
 }
 
-function LegacyParentRedirect() {
-  const state = useLocalDataState();
+function ParentIndexRedirect() {
   const runtimeInfo = useSupabaseRuntimeInfo();
 
   if (dataMode === 'supabase' && runtimeInfo.authStatus === 'initializing') {
@@ -82,13 +81,12 @@ function LegacyParentRedirect() {
 
   if (dataMode === 'supabase' && runtimeInfo.authStatus !== 'ready' && !hasParentAccess(runtimeInfo)) {
     const path = runtimeInfo.authStatus === 'needs_family' ? '/create-family' : '/login';
-    console.log('[auth trace] navigate()', { from: 'LegacyParentRedirect', to: path, runtimeInfo });
+    console.log('[auth trace] navigate()', { from: 'ParentIndexRedirect', to: path, runtimeInfo });
     return <Navigate to={path} replace />;
   }
 
-  const path = getLoggedInFamilyLandingPath(state, runtimeInfo);
-  console.log('[auth trace] navigate()', { from: 'LegacyParentRedirect', to: path, runtimeInfo });
-  return <Navigate to={path} replace />;
+  console.log('[auth trace] navigate()', { from: 'ParentIndexRedirect', to: '/parent/children', runtimeInfo });
+  return <Navigate to="/parent/children" replace />;
 }
 
 function RequireCreateFamilyAccess() {
@@ -130,7 +128,7 @@ export const router = createBrowserRouter([
     path: '/parent',
     element: <RequireFamilyAccess />,
     children: [
-      { index: true, element: <LegacyParentRedirect /> },
+      { index: true, element: <ParentIndexRedirect /> },
       {
         element: <ParentLayout />,
         children: [
