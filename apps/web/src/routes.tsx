@@ -85,8 +85,8 @@ function ParentIndexRedirect() {
     return <Navigate to={path} replace />;
   }
 
-  console.log('[auth trace] navigate()', { from: 'ParentIndexRedirect', to: '/parent/children', runtimeInfo });
-  return <Navigate to="/parent/children" replace />;
+  console.log('[auth trace] navigate()', { from: 'ParentIndexRedirect', to: '/parent/share', runtimeInfo });
+  return <Navigate to="/parent/share" replace />;
 }
 
 function RequireCreateFamilyAccess() {
