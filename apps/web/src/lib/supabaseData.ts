@@ -1256,22 +1256,30 @@ export class SupabaseDataRepository implements LocalDataRepository {
 
   createChild(input: CreateChildInput): LocalChild {
     const child = this.cache.createChild(input);
-    this.upsertChildToSupabase(child);
-    this.upsertDeviceBindingRecordToSupabase(child.id, 'unbound', 'active');
+    void this.upsertChildToSupabase(child).catch((error) => {
+      console.warn('[supabase-repository] child create sync failed', error);
+    });
+    void this.upsertDeviceBindingRecordToSupabase(child.id, 'unbound', 'active').catch((error) => {
+      console.warn('[supabase-repository] device binding create sync failed', error);
+    });
     this.queuePush();
     return child;
   }
 
   updateChild(childId: UUID, input: UpdateChildInput): LocalChild {
     const child = this.cache.updateChild(childId, input);
-    this.upsertChildToSupabase(child);
+    void this.upsertChildToSupabase(child).catch((error) => {
+      console.warn('[supabase-repository] child update sync failed', error);
+    });
     this.queuePush();
     return child;
   }
 
   deleteChild(childId: UUID): LocalChild {
     const child = this.cache.deleteChild(childId);
-    this.upsertChildToSupabase(child);
+    void this.upsertChildToSupabase(child).catch((error) => {
+      console.warn('[supabase-repository] child delete sync failed', error);
+    });
     this.queuePush();
     return child;
   }
@@ -1300,52 +1308,70 @@ export class SupabaseDataRepository implements LocalDataRepository {
     const cachedChild = this.cache.getChildByToken(normalized);
     if (cachedChild) {
       const child = this.cache.bindChildDeviceByToken(normalized);
-      this.upsertChildToSupabase(child);
-      this.upsertDeviceBindingRecordToSupabase(child.id, 'bound', 'consumed', {
-        lastLoginAt: child.last_login_at,
-        lastLoginDevice: child.last_login_device
-      });
-      this.queuePush();
+      this.persistChildDeviceBindingInBackground(child, 'consumed');
       return child;
     }
 
     if (!parseChildDeviceToken(normalized)) throw new LocalDataError('Child token not found', 'CHILD_TOKEN_NOT_FOUND');
     const child = this.cache.bindChildDeviceByToken(normalized);
-    this.upsertChildToSupabase(child);
-    this.upsertDeviceBindingRecordToSupabase(child.id, 'bound', 'consumed', {
-      lastLoginAt: child.last_login_at,
-      lastLoginDevice: child.last_login_device
-    });
-    this.queuePush();
+    this.persistChildDeviceBindingInBackground(child, 'consumed');
     return child;
   }
 
   syncChildDeviceLogin(childId: UUID): LocalChild {
     const child = this.cache.syncChildDeviceLogin(childId);
-    this.upsertChildToSupabase(child);
-    this.upsertDeviceBindingRecordToSupabase(child.id, 'bound', child.child_token_consumed_at ? 'consumed' : 'active', {
-      lastLoginAt: child.last_login_at,
-      lastLoginDevice: child.last_login_device
-    });
-    this.queuePush();
+    this.persistChildDeviceBindingInBackground(child, child.child_token_consumed_at ? 'consumed' : 'active');
     this.emit();
     return child;
   }
 
+  private persistChildDeviceBindingInBackground(
+    child: LocalChild,
+    qrTokenStatus: LocalDeviceBindingRecord['qr_token_status']
+  ) {
+    void this.persistChildDeviceBinding(child, qrTokenStatus).catch((error) => {
+      console.warn('[supabase-repository] child device binding persistence failed', error, {
+        childId: child.id,
+        familyId: child.family_id,
+        qrTokenStatus
+      });
+    });
+  }
+
+  private async persistChildDeviceBinding(child: LocalChild, qrTokenStatus: LocalDeviceBindingRecord['qr_token_status']) {
+    await Promise.all([
+      this.upsertChildToSupabase(child),
+      this.upsertDeviceBindingRecordToSupabase(child.id, 'bound', qrTokenStatus, {
+        lastLoginAt: child.last_login_at,
+        lastLoginDevice: child.last_login_device
+      })
+    ]);
+    this.queuePush();
+    this.hydrateFromSupabase();
+  }
+
   regenerateChildToken(childId: UUID): LocalChild {
     const child = this.cache.regenerateChildToken(childId);
-    this.upsertChildToSupabase(child);
-    this.upsertDeviceBindingRecordToSupabase(child.id, 'unbound', 'active');
+    void this.upsertChildToSupabase(child).catch((error) => {
+      console.warn('[supabase-repository] child token regeneration sync failed', error);
+    });
+    void this.upsertDeviceBindingRecordToSupabase(child.id, 'unbound', 'active').catch((error) => {
+      console.warn('[supabase-repository] device binding token regeneration sync failed', error);
+    });
     this.queuePush();
     return child;
   }
 
   unbindChildDevice(childId: UUID): LocalChild {
     const child = this.cache.unbindChildDevice(childId);
-    this.upsertChildToSupabase(child);
-    this.upsertDeviceBindingRecordToSupabase(child.id, 'unbound', 'revoked', {
+    void this.upsertChildToSupabase(child).catch((error) => {
+      console.warn('[supabase-repository] child unbind sync failed', error);
+    });
+    void this.upsertDeviceBindingRecordToSupabase(child.id, 'unbound', 'revoked', {
       lastLoginAt: child.last_login_at,
       lastLoginDevice: child.last_login_device
+    }).catch((error) => {
+      console.warn('[supabase-repository] device binding unbind sync failed', error);
     });
     this.queuePush();
     return child;
@@ -1727,7 +1753,7 @@ export class SupabaseDataRepository implements LocalDataRepository {
 
   private async pushChildrenAndBindings(state: LocalDatabaseState) {
     if (!this.client) return;
-    const children = state.children.map((child) => toSupabaseChild(child));
+    const children = state.children.map((child) => toSupabaseChild(child, child.family_id));
     if (children.length) {
       const { error } = await this.client.from('children').upsert(children, { onConflict: 'id' });
       if (error) throw error;
@@ -1993,17 +2019,18 @@ export class SupabaseDataRepository implements LocalDataRepository {
       });
   }
 
-  private upsertChildToSupabase(child: LocalChild) {
+  private async upsertChildToSupabase(child: LocalChild) {
     if (!this.client) return;
-    void this.client
+    const { error } = await this.client
       .from('children')
-      .upsert(toSupabaseChild(child, child.family_id), { onConflict: 'id' })
-      .then(({ error }) => {
-        if (error) console.warn('[supabase-repository] child upsert failed', error);
-      });
+      .upsert(toSupabaseChild(child, child.family_id), { onConflict: 'id' });
+    if (error) {
+      console.warn('[supabase-repository] child upsert failed', error);
+      throw error;
+    }
   }
 
-  private upsertDeviceBindingRecordToSupabase(
+  private async upsertDeviceBindingRecordToSupabase(
     childId: UUID,
     bindingStatus: LocalDeviceBindingRecord['binding_status'],
     qrTokenStatus: LocalDeviceBindingRecord['qr_token_status'],
@@ -2028,12 +2055,19 @@ export class SupabaseDataRepository implements LocalDataRepository {
       created_at: timestamp,
       updated_at: timestamp
     };
-    void this.client
+    const { error } = await this.client
       .from('device_bindings')
-      .upsert(record, { onConflict: 'child_id,device_id' })
-      .then(({ error }) => {
-        if (error) console.warn('[supabase-repository] device binding upsert failed', error);
+      .upsert(record, { onConflict: 'child_id,device_id' });
+    if (error) {
+      console.warn('[supabase-repository] device binding upsert failed', error, {
+        childId,
+        familyId,
+        deviceId,
+        bindingStatus,
+        qrTokenStatus
       });
+      throw error;
+    }
   }
 
   private emit() {
@@ -2158,7 +2192,7 @@ function toSupabaseDeviceBinding(binding: LocalDeviceBindingRecord): SupabaseDev
   const deviceId = toSupabaseUuid(binding.device_id, SUPABASE_DEVICE_FALLBACK_ID);
   return {
     id: `${binding.child_id}:${deviceId}`,
-    family_id: SUPABASE_FAMILY_ID,
+    family_id: binding.family_id,
     child_id: binding.child_id,
     device_id: deviceId,
     last_login_at: binding.last_login_at,
