@@ -16,13 +16,13 @@ import { syncAppShellMetadata } from '../../lib/appRuntime';
 import { useLocalDataState } from '../../lib/useLocalData';
 
 const navItems = [
-  { label: '孩子管理', href: '/parent/children', icon: Baby },
   { label: '任務管理', href: '/parent/tasks', icon: CheckSquare },
   { label: '今日任務', href: '/parent/tasks', icon: Clock3 },
-  { label: '平板時間', href: '/parent/screen-time', icon: Tablet },
-  { label: '撲滿 / 商品兌換', href: '/parent/dreams', icon: PiggyBank },
   { label: '今日分享', href: '/parent/share', icon: Camera },
+  { label: '撲滿 / 商品兌換', href: '/parent/dreams', icon: PiggyBank },
+  { label: '平板時間', href: '/parent/screen-time', icon: Tablet },
   { label: '成長紀錄', href: '/parent/growth', icon: Heart },
+  { label: '孩子管理', href: '/parent/children', icon: Baby },
   { label: '家長設定', href: '/parent/settings', icon: Settings }
 ];
 
