@@ -146,9 +146,14 @@ interface SupabaseChildRow {
 
 interface SupabaseDeviceBindingRow {
   id: string;
+  token: string | null;
   family_id: UUID;
   child_id: UUID;
+  child_name: string;
   device_id: UUID;
+  expires_at: string;
+  used_at: string | null;
+  revoked_at: string | null;
   last_login_at: string | null;
   last_login_device: string | null;
   binding_status: LocalDeviceBinding['binding_status'];
@@ -1391,10 +1396,16 @@ export class SupabaseDataRepository implements LocalDataRepository {
       return child;
     }
 
-    const payload = decodedToken;
-    if (!payload) throw new LocalDataError('Child token not found', 'CHILD_TOKEN_NOT_FOUND');
-    const familyId = await this.resolveChildFamilyId(payload.childId);
-    const child = this.cache.bindChildDeviceByToken(normalized, familyId);
+    const binding = await this.resolveQrBindingByToken(normalized);
+    const childRow = await this.resolveChildForBinding(binding);
+    const child = this.cache.bindChildDeviceByToken(normalized, binding.family_id, {
+      family_id: binding.family_id,
+      child_id: binding.child_id,
+      child_name: binding.child_name || childRow.display_name,
+      expires_at: binding.expires_at,
+      used_at: binding.used_at,
+      revoked_at: binding.revoked_at
+    });
     console.log('[child-token-entry] bindChildDeviceByToken parsed token child', {
       childId: child.id,
       childToken: normalized,
@@ -1408,6 +1419,61 @@ export class SupabaseDataRepository implements LocalDataRepository {
       familyId: child.family_id
     });
     this.persistChildDeviceBindingInBackground(child, 'active', 'bindChildDeviceByToken');
+    return child;
+  }
+
+  private async resolveQrBindingByToken(token: string): Promise<SupabaseDeviceBindingRow> {
+    if (!this.client) throw new LocalDataError('Supabase client is unavailable', 'SUPABASE_UNAVAILABLE');
+    const request = {
+      table: 'device_bindings',
+      select: 'token,family_id,child_id,child_name,expires_at,used_at,revoked_at,qr_token_status,binding_status,device_id,last_login_at,last_login_device,created_at,updated_at',
+      eq: { token },
+      maybeSingle: true
+    };
+    console.log('[child-binding-debug] E.supabase.qrBinding.request', request);
+    const { data, error } = await this.client
+      .from('device_bindings')
+      .select('*')
+      .eq('token', token)
+      .maybeSingle();
+    console.log('[child-binding-debug] E.supabase.qrBinding.response', {
+      request,
+      response: data,
+      error
+    });
+    if (error) throw error;
+    const binding = data as SupabaseDeviceBindingRow | null;
+    if (!binding) throw new LocalDataError('QR binding record not found', 'QR_BINDING_NOT_FOUND');
+    const timestamp = new Date().toISOString();
+    if (binding.revoked_at || binding.qr_token_status === 'revoked') throw new LocalDataError('QR 已使用', 'QR_USED');
+    if (binding.used_at || binding.qr_token_status === 'consumed') throw new LocalDataError('QR 已使用', 'QR_USED');
+    if (binding.expires_at && binding.expires_at <= timestamp) throw new LocalDataError('QR 已過期', 'QR_EXPIRED');
+    return binding;
+  }
+
+  private async resolveChildForBinding(binding: SupabaseDeviceBindingRow): Promise<SupabaseChildRow> {
+    if (!this.client) throw new LocalDataError('Supabase client is unavailable', 'SUPABASE_UNAVAILABLE');
+    const request = {
+      table: 'children',
+      select: 'id,family_id,display_name,status',
+      eq: { id: binding.child_id },
+      maybeSingle: true
+    };
+    console.log('[child-binding-debug] E.supabase.childForBinding.request', request);
+    const { data, error } = await this.client
+      .from('children')
+      .select('*')
+      .eq('id', binding.child_id)
+      .maybeSingle();
+    console.log('[child-binding-debug] E.supabase.childForBinding.response', {
+      request,
+      response: data,
+      error
+    });
+    if (error) throw error;
+    const child = data as SupabaseChildRow | null;
+    if (!child || child.status !== 'active') throw new LocalDataError('找不到孩子', 'CHILD_NOT_FOUND');
+    if (child.family_id !== binding.family_id) throw new LocalDataError('家庭驗證失敗', 'FAMILY_VERIFICATION_FAILED');
     return child;
   }
 
@@ -1483,9 +1549,9 @@ export class SupabaseDataRepository implements LocalDataRepository {
   ) {
     const binding = this.cache
       .listDeviceBindings(child.id)
-      .filter((record) => record.binding_status === 'bound' && record.qr_token_status === 'active')
+      .filter((record) => record.binding_status === 'bound' && Boolean(record.used_at))
       .sort((first, second) => second.updated_at.localeCompare(first.updated_at))[0] ?? null;
-    await this.upsertDeviceBindingToSupabase(child.id, 'bound', qrTokenStatus, {
+    await this.upsertDeviceBindingToSupabase(child.id, 'bound', 'consumed', {
       lastLoginAt: binding?.last_login_at ?? null,
       lastLoginDevice: binding?.last_login_device ?? null
     }, debugSource);
@@ -1557,9 +1623,18 @@ export class SupabaseDataRepository implements LocalDataRepository {
     });
     return {
       id: `${childId}:${deviceId}`,
+      token: child.child_token,
       family_id: familyId,
       child_id: childId,
+      child_name: child.display_name,
       device_id: deviceId,
+      expires_at: child.child_token_consumed_at
+        ? new Date(new Date(child.child_token_updated_at).getTime() + 24 * 60 * 60 * 1000).toISOString()
+        : new Date(timestamp).getTime() > new Date(child.child_token_updated_at).getTime()
+          ? new Date(new Date(child.child_token_updated_at).getTime() + 24 * 60 * 60 * 1000).toISOString()
+          : new Date(new Date(timestamp).getTime() + 24 * 60 * 60 * 1000).toISOString(),
+      used_at: child.child_token_consumed_at,
+      revoked_at: qrTokenStatus === 'revoked' ? timestamp : null,
       last_login_at: input.lastLoginAt ?? null,
       last_login_device: input.lastLoginDevice ?? null,
       binding_status: bindingStatus,
@@ -1593,7 +1668,7 @@ export class SupabaseDataRepository implements LocalDataRepository {
     if (!this.client) return null;
     const request = {
       table: 'device_bindings',
-      select: 'child_id,family_id,device_id,binding_status,qr_token_status,last_login_at,last_login_device,created_at,updated_at',
+      select: 'token,child_id,child_name,family_id,device_id,expires_at,used_at,revoked_at,binding_status,qr_token_status,last_login_at,last_login_device,created_at,updated_at',
       eq: { child_id: childId },
       order: { column: 'updated_at', ascending: false }
     };
@@ -2308,7 +2383,14 @@ export class SupabaseDataRepository implements LocalDataRepository {
       });
     }
     const updatePayload = {
+      id: record.id,
       family_id: record.family_id,
+      token: record.token,
+      child_name: record.child_name,
+      expires_at: record.expires_at,
+      used_at: record.used_at,
+      revoked_at: record.revoked_at,
+      device_id: record.device_id,
       last_login_at: record.last_login_at,
       last_login_device: record.last_login_device,
       binding_status: record.binding_status,
@@ -2319,10 +2401,12 @@ export class SupabaseDataRepository implements LocalDataRepository {
       table: 'device_bindings',
       operation: 'update',
       payload: updatePayload,
-      where: {
-        child_id: record.child_id,
-        device_id: record.device_id
-      },
+      where: record.token && debugSource === 'bindChildDeviceByToken'
+        ? { token: record.token }
+        : {
+            child_id: record.child_id,
+            device_id: record.device_id
+          },
       select: 'id'
     };
     console.log('[child-binding-debug] E.supabase.update.request', {
@@ -2330,12 +2414,13 @@ export class SupabaseDataRepository implements LocalDataRepository {
       childId,
       request: updateRequest
     });
-    const updateResult = await this.client
+    const updateQuery = this.client
       .from('device_bindings')
-      .update(updatePayload)
-      .eq('child_id', record.child_id)
-      .eq('device_id', record.device_id)
-      .select('id');
+      .update(updatePayload);
+    const scopedUpdateQuery = record.token && debugSource === 'bindChildDeviceByToken'
+      ? updateQuery.eq('token', record.token)
+      : updateQuery.eq('child_id', record.child_id).eq('device_id', record.device_id);
+    const updateResult = await scopedUpdateQuery.select('id');
     console.log('[child-binding-debug] E.supabase.update.response', {
       source: debugSource,
       childId,
@@ -2605,9 +2690,14 @@ function toSupabaseDeviceBinding(binding: LocalDeviceBinding): SupabaseDeviceBin
   const deviceId = toSupabaseUuid(binding.device_id, SUPABASE_DEVICE_FALLBACK_ID);
   return {
     id: `${binding.child_id}:${deviceId}`,
+    token: binding.token ?? null,
     family_id: binding.family_id,
     child_id: binding.child_id,
+    child_name: binding.child_name,
     device_id: deviceId,
+    expires_at: binding.expires_at,
+    used_at: binding.used_at,
+    revoked_at: binding.revoked_at,
     last_login_at: binding.last_login_at,
     last_login_device: binding.last_login_device,
     binding_status: binding.binding_status,
@@ -3431,9 +3521,14 @@ function fromSupabaseChild(row: SupabaseChildRow): LocalChild {
 function fromSupabaseDeviceBinding(row: SupabaseDeviceBindingRow): LocalDeviceBinding {
   return {
     id: row.id,
+    token: row.token ?? null,
     family_id: row.family_id,
     child_id: row.child_id,
+    child_name: row.child_name ?? '',
     device_id: row.device_id,
+    expires_at: row.expires_at ?? row.updated_at,
+    used_at: row.used_at,
+    revoked_at: row.revoked_at,
     last_login_at: row.last_login_at,
     last_login_device: row.last_login_device,
     binding_status: row.binding_status,

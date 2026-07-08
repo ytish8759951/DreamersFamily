@@ -87,7 +87,13 @@ async function traceAsyncStep<T>(step: string, run: () => Promise<T>): Promise<T
 }
 
 function getErrorMessage(error: unknown) {
-  return error instanceof Error ? error.message : String(error);
+  const message = error instanceof Error ? error.message : String(error);
+  if (message.includes('QR_EXPIRED') || message.includes('QR 已過期')) return 'QR 已過期';
+  if (message.includes('QR_USED') || message.includes('QR 已使用')) return 'QR 已使用';
+  if (message.includes('CHILD_NOT_FOUND') || message.includes('找不到孩子')) return '找不到孩子';
+  if (message.includes('FAMILY_VERIFICATION_FAILED') || message.includes('家庭驗證失敗')) return '家庭驗證失敗';
+  if (message.includes('binding') || message.includes('Binding') || message.includes('device')) return '裝置綁定失敗';
+  return message;
 }
 
 function getErrorStack(error: unknown) {
@@ -224,13 +230,9 @@ export function ChildTokenEntry() {
 
         const tokenDebug = decodeChildTokenForDebug(token);
         debugChildBinding('B.token', tokenDebug);
-        if (!tokenDebug.decoded?.childId) {
-          throw new Error('Child token decode failed: childId is missing');
-        }
-
         updateDiagnostics({
           stage: 'Token parsed',
-          childId: tokenDebug.decoded.childId,
+          childId: tokenDebug.decoded?.childId ?? null,
           familyId: tokenDebug.familyId,
           details: { tokenDebug }
         });

@@ -403,19 +403,34 @@ function upsertDeviceBinding(
   input: {
     bindingStatus: 'unbound' | 'bound';
     qrTokenStatus: 'active' | 'consumed' | 'revoked';
+    token?: string | null;
+    childName?: string;
+    familyId?: string;
+    expiresAt?: string;
+    usedAt?: string | null;
+    revokedAt?: string | null;
+    deviceId?: string;
     lastLoginAt?: string | null;
     lastLoginDevice?: string | null;
   }
 ) {
   const timestamp = now();
-  const deviceId = state.device_id ?? LOCAL_DEVICE_ID;
-  let record = state.device_bindings.find((item) => item.child_id === childId && item.device_id === deviceId);
+  const child = state.children.find((item) => item.id === childId);
+  const deviceId = input.deviceId ?? state.device_id ?? LOCAL_DEVICE_ID;
+  let record = input.token
+    ? state.device_bindings.find((item) => item.token === input.token)
+    : state.device_bindings.find((item) => item.child_id === childId && item.device_id === deviceId);
   if (!record) {
     record = {
       id: id(),
-      family_id: state.family_id,
+      token: input.token ?? child?.child_token ?? null,
+      family_id: input.familyId ?? child?.family_id ?? state.family_id,
       child_id: childId,
+      child_name: input.childName ?? child?.display_name ?? '',
       device_id: deviceId,
+      expires_at: input.expiresAt ?? addHours(timestamp, 24),
+      used_at: input.usedAt ?? null,
+      revoked_at: input.revokedAt ?? null,
       last_login_at: input.lastLoginAt ?? null,
       last_login_device: input.lastLoginDevice ?? null,
       binding_status: input.bindingStatus,
@@ -426,6 +441,13 @@ function upsertDeviceBinding(
     state.device_bindings.push(record);
     return record;
   }
+  record.token = input.token ?? record.token ?? child?.child_token ?? null;
+  record.family_id = input.familyId ?? child?.family_id ?? record.family_id;
+  record.child_name = input.childName ?? child?.display_name ?? record.child_name;
+  record.expires_at = input.expiresAt ?? record.expires_at;
+  record.used_at = input.usedAt === undefined ? record.used_at : input.usedAt;
+  record.revoked_at = input.revokedAt === undefined ? record.revoked_at : input.revokedAt;
+  record.device_id = deviceId;
   record.last_login_at = input.lastLoginAt ?? record.last_login_at;
   record.last_login_device = input.lastLoginDevice ?? record.last_login_device;
   record.binding_status = input.bindingStatus;
@@ -434,12 +456,17 @@ function upsertDeviceBinding(
   return record;
 }
 
+function addHours(isoDate: string, hours: number) {
+  return new Date(new Date(isoDate).getTime() + hours * 60 * 60 * 1000).toISOString();
+}
+
 function revokeDeviceBindingsForChild(state: LocalDatabaseState, childId: UUID) {
   const timestamp = now();
   state.device_bindings.forEach((record) => {
     if (record.child_id !== childId) return;
     record.binding_status = 'unbound';
     record.qr_token_status = 'revoked';
+    record.revoked_at = timestamp;
     record.last_login_at = null;
     record.last_login_device = null;
     record.updated_at = timestamp;
@@ -704,7 +731,14 @@ export interface LocalDataRepository {
   switchChild(childId: UUID): LocalChild;
   listChildren(includeArchived?: boolean): LocalChild[];
   getChildByToken(token: string): LocalChild | null;
-  bindChildDeviceByToken(token: string, familyId?: UUID): LocalChild | Promise<LocalChild>;
+  bindChildDeviceByToken(token: string, familyId?: UUID, bindingRecord?: {
+    family_id: UUID;
+    child_id: UUID;
+    child_name: string;
+    expires_at: string;
+    used_at?: string | null;
+    revoked_at?: string | null;
+  }): LocalChild | Promise<LocalChild>;
   syncChildDeviceLogin(childId: UUID): LocalChild;
   regenerateChildToken(childId: UUID): LocalChild | Promise<LocalChild>;
   unbindChildDevice(childId: UUID): LocalChild;
@@ -872,7 +906,12 @@ export class LocalDataService implements LocalDataRepository {
         bindingStatus: 'unbound',
         qrTokenStatus: 'active',
         lastLoginAt: null,
-        lastLoginDevice: null
+        lastLoginDevice: null,
+        token: child.child_token,
+        childName: child.display_name,
+        expiresAt: addHours(timestamp, 24),
+        usedAt: null,
+        revokedAt: null
       });
       state.active_child_id ??= child.id;
       return child;
@@ -898,6 +937,12 @@ export class LocalDataService implements LocalDataRepository {
       if (input.notes !== undefined) child.notes = input.notes?.trim() || null;
       child.updated_at = now();
       upsertChildOnboardingToken(state, child);
+      state.device_bindings.forEach((record) => {
+        if (record.child_id === child.id && record.token === child.child_token) {
+          record.child_name = child.display_name;
+          record.updated_at = child.updated_at;
+        }
+      });
       return child;
     });
   }
@@ -944,38 +989,70 @@ export class LocalDataService implements LocalDataRepository {
     const normalized = token.trim();
     if (!normalized) return null;
     const state = this.db.read();
-    const child = findActiveChildByToken(state, normalized);
-    if (child) return child;
+    const binding = state.device_bindings.find((record) => record.token === normalized);
+    if (binding) {
+      if (binding.used_at || binding.revoked_at || binding.expires_at <= now()) return null;
+      return state.children.find((item) => item.id === binding.child_id && item.status === 'active') ?? null;
+    }
 
     const onboardingToken = findOnboardingTokenByToken(state, normalized);
     if (!onboardingToken) return null;
     return state.children.find((item) => item.status === 'active' && item.id === onboardingToken.childId && !item.child_token_consumed_at) ?? null;
   }
 
-  bindChildDeviceByToken(token: string, familyId?: UUID) {
+  bindChildDeviceByToken(token: string, familyId?: UUID, bindingRecord?: {
+    family_id: UUID;
+    child_id: UUID;
+    child_name: string;
+    expires_at: string;
+    used_at?: string | null;
+    revoked_at?: string | null;
+  }) {
     return this.db.transaction((state) => {
       const normalized = token.trim();
       if (!normalized) throw new LocalDataError('Child token is empty', 'CHILD_TOKEN_EMPTY');
-      let child = findActiveChildByToken(state, normalized);
-      if (!child) {
-        const onboardingToken = findOnboardingTokenByToken(state, normalized);
-        child = onboardingToken
-          ? state.children.find((item) => item.status === 'active' && item.id === onboardingToken.childId && !item.child_token_consumed_at) ?? null
-          : null;
-      }
-      if (!child) {
-        const payload = parseChildDeviceToken(normalized);
-        if (!payload) throw new LocalDataError('Child token not found', 'CHILD_TOKEN_NOT_FOUND');
-        child = state.children.find((item) => item.status === 'active' && item.id === payload.childId) ?? null;
-        if (child) {
-          if (child.child_token !== normalized || child.child_token_consumed_at) {
-            throw new LocalDataError('Child token has already been used', 'CHILD_TOKEN_EXPIRED');
-          }
-        } else {
-          child = createChildFromTokenPayload(state, payload, normalized, now(), familyId);
-        }
-      }
       const timestamp = now();
+      let binding = state.device_bindings.find((record) => record.token === normalized);
+      if (!binding && bindingRecord) {
+        upsertDeviceBinding(state, bindingRecord.child_id, {
+          bindingStatus: 'unbound',
+          qrTokenStatus: 'active',
+          token: normalized,
+          familyId: bindingRecord.family_id,
+          childName: bindingRecord.child_name,
+          expiresAt: bindingRecord.expires_at,
+          usedAt: bindingRecord.used_at ?? null,
+          revokedAt: bindingRecord.revoked_at ?? null,
+          lastLoginAt: null,
+          lastLoginDevice: null
+        });
+        binding = state.device_bindings.find((record) => record.token === normalized);
+      }
+      if (!binding) throw new LocalDataError('QR binding record not found', 'QR_BINDING_NOT_FOUND');
+      if (binding.revoked_at || binding.qr_token_status === 'revoked') throw new LocalDataError('QR 已使用', 'QR_USED');
+      if (binding.used_at || binding.qr_token_status === 'consumed') throw new LocalDataError('QR 已使用', 'QR_USED');
+      if (binding.expires_at && binding.expires_at <= timestamp) throw new LocalDataError('QR 已過期', 'QR_EXPIRED');
+      let child = state.children.find((item) => item.status === 'active' && item.id === binding.child_id) ?? null;
+      if (!child && bindingRecord) {
+        const payload = parseChildDeviceToken(normalized);
+        child = createChildFromTokenPayload(
+          state,
+          {
+            childId: bindingRecord.child_id,
+            displayName: bindingRecord.child_name,
+            birthDate: payload?.birthDate ?? null,
+            themeColor: payload?.themeColor ?? null,
+            createdAt: payload?.createdAt ?? timestamp
+          },
+          normalized,
+          timestamp,
+          bindingRecord.family_id
+        );
+      }
+      if (!child) throw new LocalDataError('找不到孩子', 'CHILD_NOT_FOUND');
+      if (child.family_id !== binding.family_id || (familyId && familyId !== binding.family_id)) {
+        throw new LocalDataError('家庭驗證失敗', 'FAMILY_VERIFICATION_FAILED');
+      }
       const lastLoginDevice = currentDeviceLabel();
       child.updated_at = timestamp;
       child.child_token_consumed_at = timestamp;
@@ -986,7 +1063,12 @@ export class LocalDataService implements LocalDataRepository {
       setCurrentChildIdentity(state, child, normalized, timestamp);
       upsertDeviceBinding(state, child.id, {
         bindingStatus: 'bound',
-        qrTokenStatus: 'active',
+        qrTokenStatus: 'consumed',
+        token: normalized,
+        childName: binding.child_name || child.display_name,
+        expiresAt: binding.expires_at,
+        usedAt: timestamp,
+        revokedAt: null,
         lastLoginAt: timestamp,
         lastLoginDevice
       });
@@ -1005,7 +1087,10 @@ export class LocalDataService implements LocalDataRepository {
       state.active_child_id = child.id;
       upsertDeviceBinding(state, child.id, {
         bindingStatus: 'bound',
-        qrTokenStatus: 'active',
+        qrTokenStatus: 'consumed',
+        token: child.child_token,
+        childName: child.display_name,
+        usedAt: child.child_token_consumed_at,
         lastLoginAt: timestamp,
         lastLoginDevice
       });
@@ -1026,6 +1111,11 @@ export class LocalDataService implements LocalDataRepository {
       upsertDeviceBinding(state, child.id, {
         bindingStatus: 'unbound',
         qrTokenStatus: 'active',
+        token: child.child_token,
+        childName: child.display_name,
+        expiresAt: addHours(timestamp, 24),
+        usedAt: null,
+        revokedAt: null,
         lastLoginAt: null,
         lastLoginDevice: null
       });
@@ -1045,6 +1135,9 @@ export class LocalDataService implements LocalDataRepository {
       upsertDeviceBinding(state, child.id, {
         bindingStatus: 'unbound',
         qrTokenStatus: 'revoked',
+        token: child.child_token,
+        childName: child.display_name,
+        revokedAt: now(),
         lastLoginAt: null,
         lastLoginDevice: null
       });

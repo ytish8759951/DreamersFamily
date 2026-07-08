@@ -384,9 +384,14 @@ export interface LocalNotification {
 
 export interface LocalDeviceBinding {
   id: UUID;
+  token: string | null;
   family_id: UUID;
   child_id: UUID;
+  child_name: string;
   device_id: UUID;
+  expires_at: ISODateTime;
+  used_at: ISODateTime | null;
+  revoked_at: ISODateTime | null;
   last_login_at: ISODateTime | null;
   last_login_device: string | null;
   binding_status: 'unbound' | 'bound';

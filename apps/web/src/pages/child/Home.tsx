@@ -116,7 +116,7 @@ function ChildHomeContent() {
     : null;
   const latestDeviceBinding = selectedChildId
     ? localState.device_bindings
-        .filter((record) => record.child_id === selectedChildId && record.binding_status === 'bound' && record.qr_token_status === 'active')
+        .filter((record) => record.child_id === selectedChildId && record.binding_status === 'bound' && Boolean(record.used_at))
         .sort((first, second) => second.updated_at.localeCompare(first.updated_at))[0] ?? null
     : null;
   const hasActiveDeviceBinding = dataMode === 'supabase'

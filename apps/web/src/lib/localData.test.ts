@@ -27,6 +27,17 @@ class TestStorage implements KeyValueStorage {
   }
 }
 
+function bindingRecordForChild(child: { id: string; family_id: string; display_name: string; child_token_updated_at: string }) {
+  return {
+    family_id: child.family_id,
+    child_id: child.id,
+    child_name: child.display_name,
+    expires_at: new Date(new Date(child.child_token_updated_at).getTime() + 24 * 60 * 60 * 1000).toISOString(),
+    used_at: null,
+    revoked_at: null
+  };
+}
+
 function installCookieJar() {
   const cookies = new Map<string, string>();
   vi.stubGlobal('window', {
@@ -135,7 +146,7 @@ describe('local MVP data flows', () => {
 
     const childDeviceData = new LocalDataService(new MockDatabase(new TestStorage(), 'child-device-db'));
     childDeviceData.resetLocalData();
-    const boundChild = childDeviceData.bindChildDeviceByToken(child.child_token);
+    const boundChild = childDeviceData.bindChildDeviceByToken(child.child_token, child.family_id, bindingRecordForChild(child));
 
     expect(boundChild.id).toBe(child.id);
     expect(boundChild.display_name).toBe('安安');
@@ -154,7 +165,7 @@ describe('local MVP data flows', () => {
       child_id: child.id,
       device_id: 'local-device',
       binding_status: 'bound',
-      qr_token_status: 'active'
+      qr_token_status: 'consumed'
     });
     expect(childDeviceData.listDeviceBindings(child.id)[0].last_login_at).toBeTruthy();
     expect(childDeviceData.listDeviceBindings(child.id)[0].last_login_device).toBeTruthy();
@@ -236,7 +247,7 @@ describe('local MVP data flows', () => {
 
     expect(emptyDeviceData.getState().children).toHaveLength(0);
 
-    const boundChild = emptyDeviceData.bindChildDeviceByToken(child.child_token);
+    const boundChild = emptyDeviceData.bindChildDeviceByToken(child.child_token, child.family_id, bindingRecordForChild(child));
 
     expect(boundChild).toMatchObject({
       id: child.id,
@@ -262,7 +273,14 @@ describe('local MVP data flows', () => {
     const childDeviceData = new LocalDataService(new MockDatabase(new TestStorage(), 'underscore-token-child-db'));
     childDeviceData.resetLocalData();
 
-    const boundChild = childDeviceData.bindChildDeviceByToken(token);
+    const boundChild = childDeviceData.bindChildDeviceByToken(token, 'local-family', {
+      family_id: 'local-family',
+      child_id: 'fae7dd4d-888e-4e47-84d7-e8812029011a',
+      child_name: '111',
+      expires_at: new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString(),
+      used_at: null,
+      revoked_at: null
+    });
 
     expect(boundChild).toMatchObject({
       id: 'fae7dd4d-888e-4e47-84d7-e8812029011a',
@@ -285,7 +303,7 @@ describe('local MVP data flows', () => {
     const childDeviceData = new LocalDataService(new MockDatabase(new TestStorage(), 'bound-child-device-db'));
     childDeviceData.resetLocalData();
 
-    childDeviceData.bindChildDeviceByToken(child.child_token);
+    childDeviceData.bindChildDeviceByToken(child.child_token, child.family_id, bindingRecordForChild(child));
     expect(() => childDeviceData.bindChildDeviceByToken(child.child_token)).toThrowError(LocalDataError);
     expect(childDeviceData.getChildByToken(child.child_token)).toBeNull();
   });

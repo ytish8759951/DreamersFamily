@@ -47,7 +47,7 @@ function childDeviceUrl(child: LocalChild) {
 
 function activeDeviceBindingForChild(records: LocalDeviceBinding[], childId: string) {
   return records
-    .filter((record) => record.child_id === childId && record.binding_status === 'bound' && record.qr_token_status === 'active')
+    .filter((record) => record.child_id === childId && record.binding_status === 'bound' && Boolean(record.used_at))
     .sort((first, second) => second.updated_at.localeCompare(first.updated_at))[0] ?? null;
 }
 
@@ -451,6 +451,7 @@ function QRCodeDialogContent({
   return (
     <div className="child-created-content">
       <p>請使用孩子的平板掃描下方 QR Code</p>
+      <p>綁定孩子：{child.display_name}</p>
       <LocalQRCode value={copyUrl} label={`${child.display_name} QR Code`} />
     </div>
   );
@@ -493,6 +494,7 @@ function ChildDeviceSettings({
         <code>{copyUrl}</code>
       </div>
       <div className="child-device-qr">
+        <p>綁定孩子：{childInput.display_name}</p>
         <LocalQRCode value={copyUrl} label={`${childInput.display_name} QR Code`} />
       </div>
       <div className="child-device-actions">
