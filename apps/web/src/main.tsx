@@ -12,6 +12,17 @@ function bootTrace(label: string, payload: Record<string, unknown> = {}) {
   console.log(label, payload);
 }
 
+function traceTimeout<T>(label: string, promise: Promise<T>): Promise<T> {
+  const timeout = window.setTimeout(() => {
+    bootTrace('Timeout waiting...', { promise: label });
+    console.warn('Timeout waiting...', label);
+  }, 5000);
+
+  return promise.finally(() => {
+    window.clearTimeout(timeout);
+  });
+}
+
 function showBootstrapFailed(error: unknown) {
   const root = document.getElementById('root');
   const message = error instanceof Error ? error.message : String(error);
@@ -60,8 +71,8 @@ window.addEventListener('unhandledrejection', (event) => {
 void (async () => {
   try {
     bootTrace('IMPORT APP');
-    const app = await import('./appEntry');
-    await app.startApp();
+    const app = await traceTimeout('import appEntry', import('./appEntry'));
+    await traceTimeout('startApp', app.startApp());
   } catch (error) {
     showBootstrapFailed(error);
   }

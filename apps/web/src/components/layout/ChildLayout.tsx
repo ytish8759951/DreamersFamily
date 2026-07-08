@@ -61,6 +61,9 @@ export function ChildLayout() {
 
 function ChildLayoutContent() {
   const location = useLocation();
+  console.log('ChildLayout', {
+    pathname: location.pathname
+  });
   const isHomePage = location.pathname === '/child/home';
   const isTaskPage = location.pathname === '/child/tasks';
   const isSharePage = location.pathname === '/child/share';

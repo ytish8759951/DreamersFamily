@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { Component, ReactNode } from 'react';
 import ReactDOM from 'react-dom/client';
 import { RouterProvider } from 'react-router-dom';
 import { router } from './routes';
@@ -19,6 +19,17 @@ function bootTrace(label: string, payload: Record<string, unknown> = {}) {
     return;
   }
   console.log(label, payload);
+}
+
+function traceTimeout<T>(label: string, promise: Promise<T>): Promise<T> {
+  const timeout = window.setTimeout(() => {
+    bootTrace('Timeout waiting...', { promise: label });
+    console.warn('Timeout waiting...', label);
+  }, 5000);
+
+  return promise.finally(() => {
+    window.clearTimeout(timeout);
+  });
 }
 
 bootTrace('IMPORT APP', {
@@ -73,11 +84,69 @@ function showRouterFailed(error: unknown) {
   root.append(main);
 }
 
+function ErrorOverlay({ error, componentStack = '' }: { error: Error; componentStack?: string }) {
+  return (
+    <main style={{ padding: 24, fontFamily: 'system-ui, sans-serif', lineHeight: 1.5 }}>
+      <h1>ErrorOverlay</h1>
+      <p>{error.message}</p>
+      <pre style={{ whiteSpace: 'pre-wrap', wordBreak: 'break-word', fontSize: 12 }}>
+        {error.stack}
+        {'\n'}
+        {componentStack}
+      </pre>
+    </main>
+  );
+}
+
+type AppErrorBoundaryState = {
+  error: Error | null;
+  componentStack: string;
+};
+
+class AppErrorBoundary extends Component<{ children: ReactNode }, AppErrorBoundaryState> {
+  state: AppErrorBoundaryState = { error: null, componentStack: '' };
+
+  static getDerivedStateFromError(error: Error): AppErrorBoundaryState {
+    return { error, componentStack: '' };
+  }
+
+  componentDidCatch(error: Error, info: { componentStack: string }) {
+    bootTrace('ErrorOverlay', {
+      message: error.message,
+      stack: error.stack ?? null,
+      componentStack: info.componentStack
+    });
+    console.error('ErrorOverlay', {
+      message: error.message,
+      stack: error.stack,
+      componentStack: info.componentStack
+    });
+    this.setState({ componentStack: info.componentStack });
+  }
+
+  render() {
+    if (this.state.error) {
+      return <ErrorOverlay error={this.state.error} componentStack={this.state.componentStack} />;
+    }
+
+    return this.props.children;
+  }
+}
+
+function RouterRenderTrace() {
+  bootTrace('Router render');
+  return null;
+}
+
 export async function startApp() {
   try {
     bootTrace('REACT START', {
       href: window.location.href,
       pathname: window.location.pathname
+    });
+    bootTrace('Suspense check', {
+      found: false,
+      note: 'No React Suspense boundary is used in the startup route tree.'
     });
 
     bootTrace('ROUTER START', {
@@ -85,7 +154,7 @@ export async function startApp() {
       pathname: window.location.pathname
     });
 
-    const shouldContinue = await prepareAppRuntime();
+    const shouldContinue = await traceTimeout('prepareAppRuntime', prepareAppRuntime());
     if (!shouldContinue) {
       showRouterFailed(new Error('prepareAppRuntime returned false'));
       return;
@@ -93,19 +162,24 @@ export async function startApp() {
 
     installMobileTouchInteractions();
 
-    await migrateLocalStorageMediaToRepository();
+    await traceTimeout('migrateLocalStorageMediaToRepository', migrateLocalStorageMediaToRepository());
 
     const rootElement = document.getElementById('root');
     if (!rootElement) throw new Error('Missing #root element');
 
     rootElement.dataset.reactMounted = '1';
+    bootTrace('Router render', { phase: 'before RouterProvider' });
     ReactDOM.createRoot(rootElement).render(
       <React.StrictMode>
-        <div>Build: {__BUILD_COMMIT__.slice(0, 8)}</div>
-        <RouterProvider router={router} />
+        <AppErrorBoundary>
+          <RouterRenderTrace />
+          <div>Build: {__BUILD_COMMIT__.slice(0, 8)}</div>
+          <RouterProvider router={router} />
+        </AppErrorBoundary>
       </React.StrictMode>
     );
     markReactMounted();
+    bootTrace('Router render', { phase: 'after RouterProvider render call' });
     bootTrace('React Root Mounted');
   } catch (error) {
     showRouterFailed(error);

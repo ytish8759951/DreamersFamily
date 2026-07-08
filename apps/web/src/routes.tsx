@@ -67,7 +67,7 @@ function RouteErrorFallback({ label }: { label: string }) {
 
   return (
     <main style={{ padding: 24, fontFamily: 'system-ui, sans-serif', lineHeight: 1.5 }}>
-      <h1>ROUTER FAILED</h1>
+      <h1>ErrorOverlay</h1>
       <p>{label}</p>
       <pre style={{ whiteSpace: 'pre-wrap', wordBreak: 'break-word', fontSize: 12 }}>
         {message}
@@ -76,6 +76,46 @@ function RouteErrorFallback({ label }: { label: string }) {
       </pre>
     </main>
   );
+}
+
+function RequireChildBinding() {
+  const location = useLocation();
+  const state = useLocalDataState();
+
+  console.log('Binding check start', {
+    pathname: location.pathname
+  });
+  console.log('Session loaded', {
+    activeChildId: state.active_child_id ?? null,
+    deviceChildId: state.device_child_id ?? null,
+    hasDeviceBinding: Boolean(state.deviceBinding)
+  });
+  console.log('Child loaded', {
+    currentChildIdentity: state.currentChildIdentity ?? null,
+    childCount: state.children.length
+  });
+  console.log('Binding success', {
+    pathname: location.pathname,
+    childId: state.currentChildIdentity?.childId ?? state.active_child_id ?? state.device_child_id ?? null
+  });
+
+  return <Outlet />;
+}
+
+function ChildHomeRouteTrace() {
+  const location = useLocation();
+
+  console.log('React Router rendered ChildHome route', {
+    pathname: location.pathname
+  });
+
+  useEffect(() => {
+    console.log('ChildHome route mounted', {
+      pathname: location.pathname
+    });
+  }, [location.pathname]);
+
+  return <ChildHome />;
 }
 
 function hasParentAccess(runtimeInfo: ReturnType<typeof useSupabaseRuntimeInfo>) {
@@ -218,11 +258,14 @@ export const router = createBrowserRouter([
     errorElement: <RouteErrorFallback label="/child route failed" />,
     children: [
       {
+        element: <RequireChildBinding />,
+        errorElement: <RouteErrorFallback label="RequireChildBinding route failed" />,
+        children: [{
         element: <ChildLayout />,
         errorElement: <RouteErrorFallback label="ChildLayout route failed" />,
         children: [
           { index: true, element: <Navigate to="/child/home" replace /> },
-          { path: 'home', element: <ChildHome /> },
+          { path: 'home', element: <ChildHomeRouteTrace /> },
           { path: 'tasks', element: <TodayTasks /> },
           { path: 'share', element: <ShareGrowth /> },
           { path: 'dreams', element: <MyDreams /> },
@@ -233,6 +276,7 @@ export const router = createBrowserRouter([
           { path: 'growth', element: <GrowthReview /> },
           { path: ':token', element: <ChildTokenEntry /> }
         ]
+      }]
       }
     ]
   }
