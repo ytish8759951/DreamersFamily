@@ -1,6 +1,6 @@
 ﻿import type { LucideIcon } from 'lucide-react';
 import { Camera, ChevronRight, Image, Mic, Play, Volume2 } from 'lucide-react';
-import { useEffect, useMemo, type ReactNode } from 'react';
+import { Component, useEffect, useMemo, type ErrorInfo, type ReactNode } from 'react';
 import { Link, useLocation } from 'react-router-dom';
 import { LocalShareMedia as LocalShareMediaView } from '../../components/LocalShareMedia';
 import { debugChildBinding, getRepositoryDebugInfo, getRouteDebugInfo } from '../../lib/childBindingDebug';
@@ -22,6 +22,44 @@ import { useLocalDataState } from '../../lib/useLocalData';
 
 type VoiceSource = { text: string; audioUrl?: string };
 
+type ChildHomeErrorBoundaryState = {
+  error: Error | null;
+  componentStack: string;
+};
+
+class ChildHomeErrorBoundary extends Component<{ children: ReactNode }, ChildHomeErrorBoundaryState> {
+  state: ChildHomeErrorBoundaryState = { error: null, componentStack: '' };
+
+  static getDerivedStateFromError(error: Error): ChildHomeErrorBoundaryState {
+    return { error, componentStack: '' };
+  }
+
+  componentDidCatch(error: Error, info: ErrorInfo) {
+    console.error('[child-home-runtime] ChildHome render error', {
+      message: error.message,
+      stack: error.stack,
+      componentStack: info.componentStack
+    });
+    this.setState({ error, componentStack: info.componentStack ?? '' });
+  }
+
+  render() {
+    const { error, componentStack } = this.state;
+    if (!error) return this.props.children;
+
+    return (
+      <main style={{ minHeight: '100vh', padding: 24, whiteSpace: 'pre-wrap', fontFamily: 'monospace', background: '#fff9f0', color: '#2f2e2b' }}>
+        <h1>ChildHome Render Error</h1>
+        <p>{error.name}: {error.message}</p>
+        <h2>stack</h2>
+        <pre>{error.stack ?? 'No error stack'}</pre>
+        <h2>componentStack</h2>
+        <pre>{componentStack || 'No component stack'}</pre>
+      </main>
+    );
+  }
+}
+
 function speakSlowly(text: string) {
   if (!('speechSynthesis' in window)) return;
   window.speechSynthesis.cancel();
@@ -37,7 +75,32 @@ function playVoice({ text, audioUrl }: VoiceSource) {
   new Audio(audioUrl).play().catch(() => speakSlowly(text));
 }
 
+function traceChildHomeStep<T>(step: string, compute: () => T): T {
+  try {
+    console.log('[child-home-runtime] step start', { step });
+    const result = compute();
+    console.log('[child-home-runtime] step success', { step, result });
+    return result;
+  } catch (error) {
+    console.error('[child-home-runtime] step error', {
+      step,
+      message: error instanceof Error ? error.message : String(error),
+      stack: error instanceof Error ? error.stack : undefined,
+      error
+    });
+    throw error;
+  }
+}
+
 export function ChildHome() {
+  return (
+    <ChildHomeErrorBoundary>
+      <ChildHomeContent />
+    </ChildHomeErrorBoundary>
+  );
+}
+
+function ChildHomeContent() {
   useDreamCoverMigration();
   const location = useLocation();
   const localState = useLocalDataState();
@@ -104,8 +167,13 @@ export function ChildHome() {
     if (!sessionChildId) return;
     try {
       deviceBindingRepository.syncChildDeviceLogin(sessionChildId);
-    } catch {
-      // The child route can be opened without a bound child session.
+    } catch (error) {
+      console.error('[child-home-runtime] syncChildDeviceLogin error', {
+        sessionChildId,
+        message: error instanceof Error ? error.message : String(error),
+        stack: error instanceof Error ? error.stack : undefined,
+        error
+      });
     }
   }, [deviceBinding, localState.currentChildIdentity?.childId]);
 
@@ -124,23 +192,23 @@ export function ChildHome() {
   }
 
   const childName = selectedChild?.display_name ?? currentChildIdentity?.displayName ?? '小朋友';
-  const childShares = selectedChild
+  const childShares = traceChildHomeStep('buildChildShares', () => selectedChild
     ? buildChildShares(localState).filter((share) => share.child_id === selectedChild.id).slice(0, 3)
-    : [];
-  const piggySavings = selectedChild
+    : []);
+  const piggySavings = traceChildHomeStep('piggyRepository.getPiggyBankSummary', () => selectedChild
     ? piggyRepository.getPiggyBankSummary(selectedChild.id).currentSavings
-    : 0;
-  const totalStars = selectedChild
+    : 0);
+  const totalStars = traceChildHomeStep('starRepository.getStarBalance', () => selectedChild
     ? starRepository.getStarBalance(selectedChild.id)
-    : 0;
-  const remainingScreenMinutes = selectedChild
+    : 0);
+  const remainingScreenMinutes = traceChildHomeStep('tabletRepository.getTodayScreenTimeByChild', () => selectedChild
     ? tabletRepository.getTodayScreenTimeByChild(selectedChild.id).remainingMinutes
-    : 0;
-  const latestGrowth = selectedChild
+    : 0);
+  const latestGrowth = traceChildHomeStep('growthRepository.getLatestGrowthRecordByChild', () => selectedChild
     ? growthRepository.getLatestGrowthRecordByChild(selectedChild.id)
-    : null;
-  const specialDaySummary = selectedChild ? getHomeSpecialDaySummary(localState, selectedChild.id) : null;
-  const visibleSpecialDays = specialDaySummary?.specialDays.slice(0, 3) ?? [];
+    : null);
+  const specialDaySummary = traceChildHomeStep('getHomeSpecialDaySummary', () => selectedChild ? getHomeSpecialDaySummary(localState, selectedChild.id) : null);
+  const visibleSpecialDays = traceChildHomeStep('visibleSpecialDays', () => specialDaySummary?.specialDays.slice(0, 3) ?? []);
 
   return (
     <div className="v1-page v1-home v2-home-page">

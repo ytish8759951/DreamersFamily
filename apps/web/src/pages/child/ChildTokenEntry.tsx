@@ -22,6 +22,32 @@ const childRoutes = new Set([
   'growth'
 ]);
 
+async function traceAsyncStep<T>(step: string, run: () => Promise<T>): Promise<T> {
+  console.log('[child-token-runtime] await start', { step, stack: new Error(`${step} start`).stack });
+  const timeout = window.setTimeout(() => {
+    console.error('[child-token-runtime] await still pending', {
+      step,
+      message: `${step} has not completed after 10000ms`,
+      stack: new Error(`${step} pending`).stack
+    });
+  }, 10000);
+  try {
+    const result = await run();
+    console.log('[child-token-runtime] await resolved', { step, result });
+    return result;
+  } catch (error) {
+    console.error('[child-token-runtime] await rejected', {
+      step,
+      message: error instanceof Error ? error.message : String(error),
+      stack: error instanceof Error ? error.stack : undefined,
+      error
+    });
+    throw error;
+  } finally {
+    window.clearTimeout(timeout);
+  }
+}
+
 export function ChildTokenEntry() {
   const location = useLocation();
   const token = decodeURIComponent(location.pathname.replace('/child/', ''));
@@ -43,14 +69,14 @@ export function ChildTokenEntry() {
       const tokenDebug = decodeChildTokenForDebug(token);
       debugChildBinding('A.url', getRouteDebugInfo(location.pathname));
       debugChildBinding('B.token', tokenDebug);
-      debugChildBinding('C.device', await getDeviceDebugInfo());
+      debugChildBinding('C.device', await traceAsyncStep('getDeviceDebugInfo', getDeviceDebugInfo));
       debugChildBinding('D.repository', {
         ...getRepositoryDebugInfo(),
         method: 'bindChildDeviceByToken',
         requestPayload: { childToken: token }
       });
       console.log('[child-token-entry] received child URL token', { childToken: token });
-      const child = await deviceBindingRepository.bindChildDeviceByToken(token);
+      const child = await traceAsyncStep('deviceBindingRepository.bindChildDeviceByToken', () => Promise.resolve(deviceBindingRepository.bindChildDeviceByToken(token)));
       debugChildBinding('D.repository.response', {
         method: 'bindChildDeviceByToken',
         success: true,
@@ -70,7 +96,22 @@ export function ChildTokenEntry() {
         method: 'syncChildDeviceLogin',
         requestPayload: { childId: child.id, familyId: child.family_id }
       });
-      deviceBindingRepository.syncChildDeviceLogin(child.id);
+      try {
+        console.log('[child-token-runtime] syncChildDeviceLogin start', {
+          childId: child.id,
+          stack: new Error('syncChildDeviceLogin start').stack
+        });
+        const syncedChild = deviceBindingRepository.syncChildDeviceLogin(child.id);
+        console.log('[child-token-runtime] syncChildDeviceLogin success', { syncedChild });
+      } catch (error) {
+        console.error('[child-token-runtime] syncChildDeviceLogin error', {
+          childId: child.id,
+          message: error instanceof Error ? error.message : String(error),
+          stack: error instanceof Error ? error.stack : undefined,
+          error
+        });
+        throw error;
+      }
       debugChildBinding('D.repository.response', {
         method: 'syncChildDeviceLogin',
         success: true,
