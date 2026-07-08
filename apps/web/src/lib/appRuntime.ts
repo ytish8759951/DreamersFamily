@@ -7,14 +7,39 @@ export const APP_CACHE_CLEAR_MARKER_KEY = 'little-dreamers-family:last-cache-cle
 export const APP_BUILD_ID_KEY = 'little-dreamers-family:build-id';
 const APP_BUILD_REFRESH_GUARD_KEY = 'little-dreamers-family:build-refresh-guard';
 const BUILD_META_URL = '/build-meta.json';
+const RUNTIME_TIMEOUT_MS = 5000;
 
 export async function prepareAppRuntime() {
+  runtimeTrace('prepareAppRuntime start');
+  runtimeTrace('initSupabase start', { note: 'not used in prepareAppRuntime' });
+  runtimeTrace('initSupabase finish', { note: 'not used in prepareAppRuntime' });
+  runtimeTrace('initRepository start', { note: 'not used in prepareAppRuntime' });
+  runtimeTrace('initRepository finish', { note: 'not used in prepareAppRuntime' });
+  runtimeTrace('openIndexedDB start', { note: 'not used in prepareAppRuntime' });
+  runtimeTrace('openIndexedDB finish', { note: 'not used in prepareAppRuntime' });
+  runtimeTrace('migrateLocalStorage start', { note: 'runs after prepareAppRuntime in appEntry' });
+  runtimeTrace('migrateLocalStorage finish', { note: 'runs after prepareAppRuntime in appEntry' });
+  runtimeTrace('loadCurrentChild start', { note: 'not used in prepareAppRuntime' });
+  runtimeTrace('loadCurrentChild finish', { note: 'not used in prepareAppRuntime' });
+
+  runtimeTrace('publishAppVersion start');
   publishAppVersion();
-  await disableServiceWorkersAndCaches();
-  const latestBuildId = await fetchLatestBuildId();
+  runtimeTrace('publishAppVersion finish');
+
+  runtimeTrace('disableServiceWorkersAndCaches start');
+  await withRuntimeTimeout('disableServiceWorkersAndCaches', disableServiceWorkersAndCaches());
+  runtimeTrace('disableServiceWorkersAndCaches finish');
+
+  runtimeTrace('fetchLatestBuildId start');
+  const latestBuildId = await withRuntimeTimeout('fetchLatestBuildId', fetchLatestBuildId());
+  runtimeTrace('fetchLatestBuildId finish', { latestBuildId });
+
+  runtimeTrace('readVersionMarker start');
   const storedBuildId = readVersionMarker();
+  runtimeTrace('readVersionMarker finish', { storedBuildId });
 
   if (latestBuildId && latestBuildId !== APP_BUILD_ID) {
+    runtimeTrace('stale build check found newer build', { latestBuildId, currentBuildId: APP_BUILD_ID });
     const refreshGuard = readSessionValue(APP_BUILD_REFRESH_GUARD_KEY);
     const nextGuard = `${APP_BUILD_ID}:${latestBuildId}`;
     if (refreshGuard !== nextGuard) {
@@ -37,11 +62,45 @@ export async function prepareAppRuntime() {
 
   const buildIdToPersist = latestBuildId ?? APP_BUILD_ID;
   if (storedBuildId !== buildIdToPersist) {
+    runtimeTrace('writeVersionMarker start', { buildIdToPersist });
     writeVersionMarker(buildIdToPersist);
+    runtimeTrace('writeVersionMarker finish', { buildIdToPersist });
   }
+  runtimeTrace('deleteSessionValue start', { key: APP_BUILD_REFRESH_GUARD_KEY });
   deleteSessionValue(APP_BUILD_REFRESH_GUARD_KEY);
+  runtimeTrace('deleteSessionValue finish', { key: APP_BUILD_REFRESH_GUARD_KEY });
+  runtimeTrace('syncAppShellMetadata start');
   syncAppShellMetadata();
+  runtimeTrace('syncAppShellMetadata finish');
+  runtimeTrace('prepareAppRuntime finish');
   return true;
+}
+
+function runtimeTrace(label: string, payload: Record<string, unknown> = {}) {
+  console.log(label, payload);
+  if (typeof window === 'undefined') return;
+  const trace = (window as Window & {
+    __DREAMERS_BOOT_TRACE__?: (label: string, payload?: Record<string, unknown>) => void;
+  }).__DREAMERS_BOOT_TRACE__;
+  if (typeof trace === 'function') trace(label, payload);
+}
+
+function withRuntimeTimeout<T>(label: string, promise: Promise<T>): Promise<T> {
+  let handle = 0;
+  const timeoutPromise = new Promise<T>((_resolve, reject) => {
+    handle = window.setTimeout(() => {
+      const error = new Error(`Timeout waiting... ${label}`);
+      runtimeTrace('Timeout waiting...', { promise: label });
+      reject(error);
+    }, RUNTIME_TIMEOUT_MS);
+  });
+
+  return Promise.race([
+    promise,
+    timeoutPromise
+  ]).finally(() => {
+    window.clearTimeout(handle);
+  });
 }
 
 function publishAppVersion() {
@@ -105,46 +164,88 @@ async function disableServiceWorkersAndCaches() {
 
   if ('serviceWorker' in navigator) {
     try {
-      const registrations = await navigator.serviceWorker.getRegistrations();
-      await Promise.all(registrations.map((registration) => registration.unregister()));
+      runtimeTrace('serviceWorker.getRegistrations start');
+      const registrations = await withRuntimeTimeout(
+        'navigator.serviceWorker.getRegistrations',
+        navigator.serviceWorker.getRegistrations()
+      );
+      runtimeTrace('serviceWorker.getRegistrations finish', { count: registrations.length });
+      runtimeTrace('serviceWorker.unregisterAll start', { count: registrations.length });
+      await withRuntimeTimeout(
+        'serviceWorker.unregisterAll',
+        Promise.all(registrations.map((registration) => registration.unregister()))
+      );
+      runtimeTrace('serviceWorker.unregisterAll finish', { count: registrations.length });
       console.info('[app-runtime] Unregistered service workers', { count: registrations.length });
     } catch (caught) {
       console.warn('[app-runtime] Failed to unregister service workers', caught);
+      runtimeTrace('serviceWorker cleanup failed', {
+        message: caught instanceof Error ? caught.message : String(caught),
+        stack: caught instanceof Error ? caught.stack ?? null : null
+      });
     }
+  } else {
+    runtimeTrace('serviceWorker unavailable');
   }
 
   if ('caches' in window) {
     try {
-      const cacheNames = await window.caches.keys();
-      await Promise.all(cacheNames.map((name) => window.caches.delete(name)));
+      runtimeTrace('caches.keys start');
+      const cacheNames = await withRuntimeTimeout('window.caches.keys', window.caches.keys());
+      runtimeTrace('caches.keys finish', { count: cacheNames.length, cacheNames });
+      runtimeTrace('caches.deleteAll start', { count: cacheNames.length, cacheNames });
+      await withRuntimeTimeout(
+        'caches.deleteAll',
+        Promise.all(cacheNames.map((name) => window.caches.delete(name)))
+      );
+      runtimeTrace('caches.deleteAll finish', { count: cacheNames.length, cacheNames });
       console.info('[app-runtime] Cleared browser caches while PWA is disabled', {
         bundleVersion: APP_BUILD_ID,
         cacheNames
       });
     } catch (caught) {
       console.warn('[app-runtime] Failed to clear browser caches', caught);
+      runtimeTrace('cache cleanup failed', {
+        message: caught instanceof Error ? caught.message : String(caught),
+        stack: caught instanceof Error ? caught.stack ?? null : null
+      });
     }
+  } else {
+    runtimeTrace('caches unavailable');
   }
 
+  runtimeTrace('writeStorage cache markers start');
   writeStorage(APP_CACHE_MARKER_KEY, APP_BUILD_ID);
   writeStorage(APP_CACHE_CLEAR_MARKER_KEY, APP_BUILD_ID);
+  runtimeTrace('writeStorage cache markers finish');
 }
 
 async function fetchLatestBuildId() {
   if (typeof window === 'undefined') return APP_BUILD_ID;
 
   try {
-    const response = await fetch(`${BUILD_META_URL}?t=${Date.now()}`, {
-      cache: 'no-store',
-      credentials: 'same-origin'
-    });
+    runtimeTrace('fetch build-meta start', { url: BUILD_META_URL });
+    const response = await withRuntimeTimeout(
+      'fetch build-meta',
+      fetch(`${BUILD_META_URL}?t=${Date.now()}`, {
+        cache: 'no-store',
+        credentials: 'same-origin'
+      })
+    );
+    runtimeTrace('fetch build-meta finish', { ok: response.ok, status: response.status });
     if (!response.ok) return APP_BUILD_ID;
-    const meta = (await response.json()) as Partial<{ buildId: string; commit: string }>;
+    runtimeTrace('parse build-meta start');
+    const meta = (await withRuntimeTimeout('parse build-meta json', response.json())) as Partial<{ buildId: string; commit: string }>;
+    runtimeTrace('parse build-meta finish', { meta });
     const buildId = typeof meta.buildId === 'string' && meta.buildId.trim() ? meta.buildId.trim() : null;
     const commit = typeof meta.commit === 'string' && meta.commit.trim() ? meta.commit.trim() : null;
     return buildId ?? commit ?? APP_BUILD_ID;
   } catch (error) {
     console.warn('[app-runtime] Failed to fetch latest build metadata', error);
+    runtimeTrace('fetchLatestBuildId failed', {
+      message: error instanceof Error ? error.message : String(error),
+      stack: error instanceof Error ? error.stack ?? null : null
+    });
     return APP_BUILD_ID;
   }
 }
