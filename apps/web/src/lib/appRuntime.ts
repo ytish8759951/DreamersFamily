@@ -1,6 +1,7 @@
 import { getCookieValue, getLocalStorage, setCookieValue } from './storage';
 
 export const APP_BUILD_ID = __BUILD_COMMIT__;
+export const APP_BUILD_TIME = __BUILD_TIME__;
 export const APP_CACHE_MARKER_KEY = 'little-dreamers-family:bundle-version';
 export const APP_CACHE_CLEAR_MARKER_KEY = 'little-dreamers-family:last-cache-clear';
 export const APP_BUILD_ID_KEY = 'little-dreamers-family:build-id';
@@ -8,6 +9,7 @@ const APP_BUILD_REFRESH_GUARD_KEY = 'little-dreamers-family:build-refresh-guard'
 const BUILD_META_URL = '/build-meta.json';
 
 export async function prepareAppRuntime() {
+  publishAppVersion();
   await disableServiceWorkersAndCaches();
   const latestBuildId = await fetchLatestBuildId();
   const storedBuildId = readVersionMarker();
@@ -40,6 +42,28 @@ export async function prepareAppRuntime() {
   deleteSessionValue(APP_BUILD_REFRESH_GUARD_KEY);
   syncAppShellMetadata();
   return true;
+}
+
+function publishAppVersion() {
+  if (typeof window === 'undefined') return;
+  const bundleHash = getCurrentBundleHash();
+  window.__APP_VERSION__ = {
+    commit: APP_BUILD_ID,
+    buildTime: APP_BUILD_TIME,
+    bundleHash
+  };
+  console.info('[app-runtime] APP_VERSION', window.__APP_VERSION__);
+}
+
+function getCurrentBundleHash() {
+  if (typeof document === 'undefined') return null;
+  const scripts = Array.from(document.querySelectorAll('script[src]')) as HTMLScriptElement[];
+  const bundle = scripts
+    .map((script) => script.src)
+    .find((src) => /\/assets\/index-[^/]+\.js(?:\?|$)/.test(src));
+  if (!bundle) return null;
+  const match = bundle.match(/\/assets\/index-([^/]+)\.js(?:\?|$)/);
+  return match?.[1] ?? null;
 }
 
 function reloadWithBuildBust(buildId: string) {

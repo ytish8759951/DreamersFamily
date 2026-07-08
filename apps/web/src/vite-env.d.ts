@@ -12,3 +12,12 @@ interface ImportMeta {
 }
 
 declare const __BUILD_COMMIT__: string;
+declare const __BUILD_TIME__: string;
+
+interface Window {
+  __APP_VERSION__?: {
+    commit: string;
+    buildTime: string;
+    bundleHash: string | null;
+  };
+}
