@@ -51,7 +51,7 @@ export function ChildHome() {
     ? localState.children.find((child) => child.id === selectedChildId && child.status === 'active')
     : null;
   const latestDeviceBinding = selectedChildId
-    ? localState.device_binding_records
+    ? localState.device_bindings
         .filter((record) => record.child_id === selectedChildId && record.binding_status === 'bound' && record.qr_token_status === 'active')
         .sort((first, second) => second.updated_at.localeCompare(first.updated_at))[0] ?? null
     : null;

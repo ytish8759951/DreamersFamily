@@ -44,14 +44,26 @@ function createId() {
 
 function getBrowserDeviceId() {
   if (typeof window === 'undefined') return LOCAL_DEVICE_ID;
+  const cookieDeviceId = getCookieValue(LOCAL_DEVICE_ID_KEY);
   try {
     const stored = window.localStorage.getItem(LOCAL_DEVICE_ID_KEY);
-    if (stored) return stored;
+    if (stored) {
+      if (!cookieDeviceId) setCookieValue(LOCAL_DEVICE_ID_KEY, stored, 60 * 60 * 24 * 365 * 2);
+      return stored;
+    }
+    if (cookieDeviceId) {
+      window.localStorage.setItem(LOCAL_DEVICE_ID_KEY, cookieDeviceId);
+      return cookieDeviceId;
+    }
     const next = createId();
     window.localStorage.setItem(LOCAL_DEVICE_ID_KEY, next);
+    setCookieValue(LOCAL_DEVICE_ID_KEY, next, 60 * 60 * 24 * 365 * 2);
     return next;
   } catch {
-    return LOCAL_DEVICE_ID;
+    if (cookieDeviceId) return cookieDeviceId;
+    const next = createId();
+    setCookieValue(LOCAL_DEVICE_ID_KEY, next, 60 * 60 * 24 * 365 * 2);
+    return next;
   }
 }
 
@@ -91,7 +103,7 @@ function createEmptyState(): LocalDatabaseState {
     screen_time_logs: [],
     growth_records: [],
     notifications: [],
-    device_binding_records: [],
+    device_bindings: [],
     piggy_incomes: [],
     piggy_bank_logs: [],
     piggy_products: [],
@@ -125,11 +137,6 @@ function normalizeState(state: LocalDatabaseState): LocalDatabaseState {
     const normalizedChild = {
       ...child,
       avatar_media_id: child.avatar_media_id ?? null,
-      binding_status: child.binding_status ?? (child.bound_device_id ? 'bound' : 'unbound'),
-      bound_device_id: child.bound_device_id ?? null,
-      bound_at: child.bound_at ?? null,
-      last_login_at: child.last_login_at ?? null,
-      last_login_device: child.last_login_device ?? null,
       child_token_consumed_at: child.child_token_consumed_at ?? null
     };
     return {
@@ -195,7 +202,7 @@ function normalizeState(state: LocalDatabaseState): LocalDatabaseState {
       growth_photo_media_ids: record.growth_photo_media_ids ?? []
     })),
     notifications: state.notifications ?? [],
-    device_binding_records: state.device_binding_records ?? [],
+    device_bindings: state.device_bindings ?? [],
     piggy_incomes: state.piggy_incomes ?? [],
     piggy_bank_logs: state.piggy_bank_logs ?? [],
     piggy_products: (state.piggy_products ?? []).map((product) => ({
@@ -440,11 +447,6 @@ function restoreChild(child: LocalParentBootstrapChild, state: LocalDatabaseStat
     child_token: child.child_token,
     child_token_updated_at: child.child_token_updated_at,
     child_token_consumed_at: child.child_token_consumed_at ?? null,
-    binding_status: 'unbound',
-    bound_device_id: null,
-    bound_at: null,
-    last_login_at: null,
-    last_login_device: null,
     created_by: state.current_user_id,
     created_at: child.created_at,
     updated_at: child.updated_at,
@@ -512,11 +514,6 @@ function createBootstrapChild(identity: LocalChildIdentity, boundDeviceId: strin
     child_token: identity.childToken,
     child_token_updated_at: identity.boundAt ?? timestamp,
     child_token_consumed_at: identity.boundAt ?? timestamp,
-    binding_status: 'bound',
-    bound_device_id: boundDeviceId,
-    bound_at: identity.boundAt ?? timestamp,
-    last_login_at: identity.boundAt ?? timestamp,
-    last_login_device: '孩子平板',
     created_by: LOCAL_PARENT_USER_ID,
     created_at: identity.boundAt ?? timestamp,
     updated_at: timestamp,

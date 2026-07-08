@@ -1,19 +1,17 @@
-import { localData, type LocalDataRepository } from './localData';
+import { type LocalDataRepository } from './localData';
 import {
   getSupabaseRuntimeInfo,
-  isSupabaseModeRequested,
   subscribeSupabaseRuntimeInfo,
   SupabaseDataRepository,
   type SupabaseRuntimeInfo
 } from './supabaseData';
 
-export type DataMode = 'local' | 'supabase';
+export type DataMode = 'supabase';
 
-export const dataMode: DataMode = isSupabaseModeRequested() ? 'supabase' : 'local';
-export const dataModeLabel = dataMode === 'supabase' ? 'Supabase' : 'localStorage';
-export const dataModeBadgeLabel = dataMode === 'supabase' ? 'SUPABASE MODE' : 'LOCAL MODE';
-export const dataRepository: LocalDataRepository =
-  dataMode === 'supabase' ? new SupabaseDataRepository() : localData;
+export const dataMode: DataMode = 'supabase';
+export const dataModeLabel = 'Supabase';
+export const dataModeBadgeLabel = 'SUPABASE MODE';
+export const dataRepository: LocalDataRepository = new SupabaseDataRepository();
 
 export type { SupabaseRuntimeInfo };
 export { getSupabaseRuntimeInfo, subscribeSupabaseRuntimeInfo };

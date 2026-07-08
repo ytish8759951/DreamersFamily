@@ -167,11 +167,6 @@ function createChildFromTokenPayload(
     child_token: token,
     child_token_updated_at: timestamp,
     child_token_consumed_at: null,
-    binding_status: 'unbound',
-    bound_device_id: null,
-    bound_at: null,
-    last_login_at: null,
-    last_login_device: null,
     created_by: state.current_user_id,
     created_at: payload.createdAt,
     updated_at: timestamp,
@@ -402,7 +397,7 @@ function pushNotification(
   });
 }
 
-function upsertDeviceBindingRecord(
+function upsertDeviceBinding(
   state: LocalDatabaseState,
   childId: UUID,
   input: {
@@ -414,7 +409,7 @@ function upsertDeviceBindingRecord(
 ) {
   const timestamp = now();
   const deviceId = state.device_id ?? LOCAL_DEVICE_ID;
-  let record = state.device_binding_records.find((item) => item.child_id === childId && item.device_id === deviceId);
+  let record = state.device_bindings.find((item) => item.child_id === childId && item.device_id === deviceId);
   if (!record) {
     record = {
       id: id(),
@@ -428,7 +423,7 @@ function upsertDeviceBindingRecord(
       created_at: timestamp,
       updated_at: timestamp
     };
-    state.device_binding_records.push(record);
+    state.device_bindings.push(record);
     return record;
   }
   record.last_login_at = input.lastLoginAt ?? record.last_login_at;
@@ -439,9 +434,9 @@ function upsertDeviceBindingRecord(
   return record;
 }
 
-function revokeDeviceBindingRecordsForChild(state: LocalDatabaseState, childId: UUID) {
+function revokeDeviceBindingsForChild(state: LocalDatabaseState, childId: UUID) {
   const timestamp = now();
-  state.device_binding_records.forEach((record) => {
+  state.device_bindings.forEach((record) => {
     if (record.child_id !== childId) return;
     record.binding_status = 'unbound';
     record.qr_token_status = 'revoked';
@@ -713,7 +708,7 @@ export interface LocalDataRepository {
   syncChildDeviceLogin(childId: UUID): LocalChild;
   regenerateChildToken(childId: UUID): LocalChild | Promise<LocalChild>;
   unbindChildDevice(childId: UUID): LocalChild;
-  listDeviceBindingRecords(childId?: UUID): LocalDatabaseState['device_binding_records'];
+  listDeviceBindings(childId?: UUID): LocalDatabaseState['device_bindings'];
   createTask(input: CreateTaskInput): LocalTask;
   completeTask(taskId: UUID, completionNote?: string | null): LocalTask;
   approveTask(taskId: UUID): LocalTask;
@@ -866,11 +861,6 @@ export class LocalDataService implements LocalDataRepository {
         }),
         child_token_updated_at: timestamp,
         child_token_consumed_at: null,
-        binding_status: 'unbound',
-        bound_device_id: null,
-        bound_at: null,
-        last_login_at: null,
-        last_login_device: null,
         created_by: state.current_user_id,
         created_at: timestamp,
         updated_at: timestamp,
@@ -878,7 +868,7 @@ export class LocalDataService implements LocalDataRepository {
       };
       state.children.push(child);
       upsertChildOnboardingToken(state, child);
-      upsertDeviceBindingRecord(state, child.id, {
+      upsertDeviceBinding(state, child.id, {
         bindingStatus: 'unbound',
         qrTokenStatus: 'active',
         lastLoginAt: null,
@@ -994,7 +984,7 @@ export class LocalDataService implements LocalDataRepository {
       state.device_child_id = child.id;
       state.active_child_id = child.id;
       setCurrentChildIdentity(state, child, normalized, timestamp);
-      upsertDeviceBindingRecord(state, child.id, {
+      upsertDeviceBinding(state, child.id, {
         bindingStatus: 'bound',
         qrTokenStatus: 'active',
         lastLoginAt: timestamp,
@@ -1013,7 +1003,7 @@ export class LocalDataService implements LocalDataRepository {
       state.deviceBinding = child.id;
       state.device_child_id = child.id;
       state.active_child_id = child.id;
-      upsertDeviceBindingRecord(state, child.id, {
+      upsertDeviceBinding(state, child.id, {
         bindingStatus: 'bound',
         qrTokenStatus: 'active',
         lastLoginAt: timestamp,
@@ -1027,13 +1017,13 @@ export class LocalDataService implements LocalDataRepository {
     return this.db.transaction((state) => {
       const child = requireChild(state, childId);
       const timestamp = now();
-      revokeDeviceBindingRecordsForChild(state, child.id);
+      revokeDeviceBindingsForChild(state, child.id);
       child.child_token = createChildDeviceTokenForChild(child);
       child.child_token_updated_at = timestamp;
       child.child_token_consumed_at = null;
       child.updated_at = timestamp;
       upsertChildOnboardingToken(state, child);
-      upsertDeviceBindingRecord(state, child.id, {
+      upsertDeviceBinding(state, child.id, {
         bindingStatus: 'unbound',
         qrTokenStatus: 'active',
         lastLoginAt: null,
@@ -1052,7 +1042,7 @@ export class LocalDataService implements LocalDataRepository {
       return this.db.transaction((state) => {
       const child = requireChild(state, childId);
       child.updated_at = now();
-      upsertDeviceBindingRecord(state, child.id, {
+      upsertDeviceBinding(state, child.id, {
         bindingStatus: 'unbound',
         qrTokenStatus: 'revoked',
         lastLoginAt: null,
@@ -1067,10 +1057,10 @@ export class LocalDataService implements LocalDataRepository {
     });
   }
 
-  listDeviceBindingRecords(childId?: UUID) {
+  listDeviceBindings(childId?: UUID) {
     return this.db
       .read()
-      .device_binding_records.filter((record) => !childId || record.child_id === childId)
+      .device_bindings.filter((record) => !childId || record.child_id === childId)
       .sort((a, b) => b.updated_at.localeCompare(a.updated_at));
   }
 
@@ -1856,7 +1846,7 @@ export class LocalDataService implements LocalDataRepository {
       state.screen_time_logs = [];
       state.growth_records = [];
       state.notifications = [];
-      state.device_binding_records = [];
+      state.device_bindings = [];
       state.piggy_incomes = [];
       state.piggy_bank_logs = [];
       state.piggy_products = [];
@@ -2890,7 +2880,7 @@ export const {
   syncChildDeviceLogin,
   regenerateChildToken,
   unbindChildDevice,
-  listDeviceBindingRecords,
+  listDeviceBindings,
   createTask,
   completeTask,
   approveTask,
@@ -2956,7 +2946,7 @@ export const {
   syncChildDeviceLogin: localData.syncChildDeviceLogin.bind(localData),
   regenerateChildToken: localData.regenerateChildToken.bind(localData),
   unbindChildDevice: localData.unbindChildDevice.bind(localData),
-  listDeviceBindingRecords: localData.listDeviceBindingRecords.bind(localData),
+  listDeviceBindings: localData.listDeviceBindings.bind(localData),
   createTask: localData.createTask.bind(localData),
   completeTask: localData.completeTask.bind(localData),
   approveTask: localData.approveTask.bind(localData),

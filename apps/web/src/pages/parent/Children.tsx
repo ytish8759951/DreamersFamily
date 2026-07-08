@@ -16,7 +16,7 @@ import {
 import { childrenRepository } from '../../lib/childrenRepository';
 import { deviceBindingRepository } from '../../lib/deviceBindingRepository';
 import { starRepository } from '../../lib/starRepository';
-import type { LocalChild, LocalDeviceBindingRecord } from '../../lib/localTypes';
+import type { LocalChild, LocalDeviceBinding } from '../../lib/localTypes';
 import { useLocalDataState } from '../../lib/useLocalData';
 
 type FormMode = 'create' | 'edit';
@@ -45,7 +45,7 @@ function childDeviceUrl(child: LocalChild) {
   return `${origin}/child/${child.child_token}`;
 }
 
-function activeDeviceBindingForChild(records: LocalDeviceBindingRecord[], childId: string) {
+function activeDeviceBindingForChild(records: LocalDeviceBinding[], childId: string) {
   return records
     .filter((record) => record.child_id === childId && record.binding_status === 'bound' && record.qr_token_status === 'active')
     .sort((first, second) => second.updated_at.localeCompare(first.updated_at))[0] ?? null;
@@ -252,7 +252,7 @@ export function Children() {
             {activeChildren.map((child, index) => {
               const isActive = child.id === state.active_child_id;
               const tone = child.theme_color || tones[index % tones.length];
-              const deviceBinding = activeDeviceBindingForChild(state.device_binding_records, child.id);
+              const deviceBinding = activeDeviceBindingForChild(state.device_bindings, child.id);
               const isDeviceBound = Boolean(deviceBinding);
               return (
                 <article className={`child-manager-item${isActive ? ' is-active' : ''}`} key={child.id}>
@@ -467,7 +467,7 @@ function ChildDeviceSettings({
   onUnbind
 }: {
   child: LocalChild;
-  deviceBinding: LocalDeviceBindingRecord | null;
+  deviceBinding: LocalDeviceBinding | null;
   copied: boolean;
   error: string;
   regenerating: boolean;

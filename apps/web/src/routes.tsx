@@ -164,12 +164,9 @@ export const router = createBrowserRouter([
       { path: 'honor-wall', element: <ChildHonorWall /> },
       { path: 'special-days', element: <ChildSpecialDays /> },
       { path: 'screen-time', element: <ChildScreenTime /> },
-      { path: 'growth', element: <GrowthReview /> }
+      { path: 'growth', element: <GrowthReview /> },
+      { path: ':token', element: <ChildTokenEntry /> }
     ]
-  },
-  {
-    path: '/child/:token',
-    element: <ChildTokenEntry />
   }
 ]);
 

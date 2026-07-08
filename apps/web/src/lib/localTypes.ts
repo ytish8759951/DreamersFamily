@@ -48,11 +48,6 @@ export interface LocalChild {
   child_token: string;
   child_token_updated_at: ISODateTime;
   child_token_consumed_at: ISODateTime | null;
-  binding_status: 'unbound' | 'bound';
-  bound_device_id: UUID | null;
-  bound_at: ISODateTime | null;
-  last_login_at: ISODateTime | null;
-  last_login_device: string | null;
   created_by: UUID;
   created_at: ISODateTime;
   updated_at: ISODateTime;
@@ -387,7 +382,7 @@ export interface LocalNotification {
   created_at: ISODateTime;
 }
 
-export interface LocalDeviceBindingRecord {
+export interface LocalDeviceBinding {
   id: UUID;
   family_id: UUID;
   child_id: UUID;
@@ -532,7 +527,7 @@ export interface LocalDatabaseState {
   screen_time_logs: LocalScreenTimeLog[];
   growth_records: LocalGrowthRecord[];
   notifications: LocalNotification[];
-  device_binding_records: LocalDeviceBindingRecord[];
+  device_bindings: LocalDeviceBinding[];
   piggy_incomes: LocalPiggyIncome[];
   piggy_bank_logs: LocalPiggyBankLog[];
   piggy_products: LocalPiggyProduct[];

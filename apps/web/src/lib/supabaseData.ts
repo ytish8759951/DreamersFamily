@@ -27,7 +27,7 @@ import type {
   AnnualParentNote,
   LocalChild,
   LocalDatabaseState,
-  LocalDeviceBindingRecord,
+  LocalDeviceBinding,
   LocalDream,
   LocalDreamFund,
   LocalFamilySettings,
@@ -137,11 +137,6 @@ interface SupabaseChildRow {
   child_token: string;
   child_token_updated_at: string;
   child_token_consumed_at: string | null;
-  binding_status: LocalChild['binding_status'];
-  bound_device_id: UUID | null;
-  bound_at: string | null;
-  last_login_at: string | null;
-  last_login_device: string | null;
   created_by: UUID;
   created_at: string;
   updated_at: string;
@@ -155,8 +150,8 @@ interface SupabaseDeviceBindingRow {
   device_id: UUID;
   last_login_at: string | null;
   last_login_device: string | null;
-  binding_status: LocalDeviceBindingRecord['binding_status'];
-  qr_token_status: LocalDeviceBindingRecord['qr_token_status'];
+  binding_status: LocalDeviceBinding['binding_status'];
+  qr_token_status: LocalDeviceBinding['qr_token_status'];
   created_at: string;
   updated_at: string;
 }
@@ -1259,7 +1254,7 @@ export class SupabaseDataRepository implements LocalDataRepository {
     void this.upsertChildToSupabase(child).catch((error) => {
       console.warn('[supabase-repository] child create sync failed', error);
     });
-    void this.upsertDeviceBindingRecordToSupabase(child.id, 'unbound', 'active').catch((error) => {
+    void this.upsertDeviceBindingToSupabase(child.id, 'unbound', 'active').catch((error) => {
       console.warn('[supabase-repository] device binding create sync failed', error);
     });
     this.queuePush();
@@ -1361,7 +1356,7 @@ export class SupabaseDataRepository implements LocalDataRepository {
 
   private persistChildDeviceBindingInBackground(
     child: LocalChild,
-    qrTokenStatus: LocalDeviceBindingRecord['qr_token_status'],
+    qrTokenStatus: LocalDeviceBinding['qr_token_status'],
     debugSource?: 'syncChildDeviceLogin' | 'bindChildDeviceByToken'
   ) {
     void this.persistChildDeviceBinding(child, qrTokenStatus, debugSource).catch((error) => {
@@ -1375,14 +1370,14 @@ export class SupabaseDataRepository implements LocalDataRepository {
 
   private async persistChildDeviceBinding(
     child: LocalChild,
-    qrTokenStatus: LocalDeviceBindingRecord['qr_token_status'],
+    qrTokenStatus: LocalDeviceBinding['qr_token_status'],
     debugSource?: 'syncChildDeviceLogin' | 'bindChildDeviceByToken'
   ) {
     const binding = this.cache
-      .listDeviceBindingRecords(child.id)
+      .listDeviceBindings(child.id)
       .filter((record) => record.binding_status === 'bound' && record.qr_token_status === 'active')
       .sort((first, second) => second.updated_at.localeCompare(first.updated_at))[0] ?? null;
-    await this.upsertDeviceBindingRecordToSupabase(child.id, 'bound', qrTokenStatus, {
+    await this.upsertDeviceBindingToSupabase(child.id, 'bound', qrTokenStatus, {
       lastLoginAt: binding?.last_login_at ?? null,
       lastLoginDevice: binding?.last_login_device ?? null
     }, debugSource);
@@ -1408,7 +1403,7 @@ export class SupabaseDataRepository implements LocalDataRepository {
       await this.upsertRevokedDeviceBindingsForChildToSupabase(child.id, 'regenerateChildToken');
       await Promise.all([
         this.upsertChildToSupabase(child, 'regenerateChildToken'),
-        this.upsertDeviceBindingRecordToSupabase(child.id, 'unbound', 'active', {}, 'regenerateChildToken')
+        this.upsertDeviceBindingToSupabase(child.id, 'unbound', 'active', {}, 'regenerateChildToken')
       ]);
       this.queuePush();
       this.emit();
@@ -1427,8 +1422,8 @@ export class SupabaseDataRepository implements LocalDataRepository {
 
   private buildDeviceBindingRecord(
     childId: UUID,
-    bindingStatus: LocalDeviceBindingRecord['binding_status'],
-    qrTokenStatus: LocalDeviceBindingRecord['qr_token_status'],
+    bindingStatus: LocalDeviceBinding['binding_status'],
+    qrTokenStatus: LocalDeviceBinding['qr_token_status'],
     input: { lastLoginAt?: string | null; lastLoginDevice?: string | null } = {}
   ): SupabaseDeviceBindingRow | null {
     const state = this.cache.getState();
@@ -1476,7 +1471,7 @@ export class SupabaseDataRepository implements LocalDataRepository {
 
   unbindChildDevice(childId: UUID): LocalChild {
     const child = this.cache.unbindChildDevice(childId);
-    void this.upsertDeviceBindingRecordToSupabase(child.id, 'unbound', 'revoked', {
+    void this.upsertDeviceBindingToSupabase(child.id, 'unbound', 'revoked', {
       lastLoginAt: null,
       lastLoginDevice: null
     }).catch((error) => {
@@ -1486,9 +1481,9 @@ export class SupabaseDataRepository implements LocalDataRepository {
     return child;
   }
 
-  listDeviceBindingRecords(childId?: UUID): LocalDeviceBindingRecord[] {
+  listDeviceBindings(childId?: UUID): LocalDeviceBinding[] {
     this.hydrateFromSupabase();
-    return this.cache.listDeviceBindingRecords(childId);
+    return this.cache.listDeviceBindings(childId);
   }
 
   createTask = this.delegateWrite('createTask');
@@ -1660,7 +1655,7 @@ export class SupabaseDataRepository implements LocalDataRepository {
     const remoteChildren = ((children ?? []) as SupabaseChildRow[]).map(fromSupabaseChild);
     const baseState = scopeStateToCurrentFamily(parentState ?? state);
     const remoteDeviceBindings = ((bindings ?? []) as SupabaseDeviceBindingRow[]).map(fromSupabaseDeviceBinding);
-    const mergedDeviceBindings = mergeDeviceBindings(baseState.device_binding_records, remoteDeviceBindings);
+    const mergedDeviceBindings = mergeDeviceBindings(baseState.device_bindings, remoteDeviceBindings);
     const mergedChildren = mergeChildren(baseState.children, remoteChildren).filter(
       (child) => child.family_id === SUPABASE_FAMILY_ID
     );
@@ -1793,7 +1788,7 @@ export class SupabaseDataRepository implements LocalDataRepository {
           childToken: child.child_token,
           createdAt: child.child_token_updated_at
         })),
-      device_binding_records: mergedDeviceBindings,
+      device_bindings: mergedDeviceBindings,
       active_child_id: baseState.active_child_id ?? mergedChildren.find((child) => child.status === 'active')?.id ?? null,
       updated_at: updatedAt
     });
@@ -1866,7 +1861,7 @@ export class SupabaseDataRepository implements LocalDataRepository {
       if (error) throw error;
     }
 
-    const bindings = state.device_binding_records
+    const bindings = state.device_bindings
       .filter((binding) => state.children.some((child) => child.id === binding.child_id))
       .map((binding) => toSupabaseDeviceBinding(binding));
     if (bindings.length) {
@@ -2142,10 +2137,10 @@ export class SupabaseDataRepository implements LocalDataRepository {
     }
   }
 
-  private async upsertDeviceBindingRecordToSupabase(
+  private async upsertDeviceBindingToSupabase(
     childId: UUID,
-    bindingStatus: LocalDeviceBindingRecord['binding_status'],
-    qrTokenStatus: LocalDeviceBindingRecord['qr_token_status'],
+    bindingStatus: LocalDeviceBinding['binding_status'],
+    qrTokenStatus: LocalDeviceBinding['qr_token_status'],
     input: { lastLoginAt?: string | null; lastLoginDevice?: string | null } = {},
     debugSource?: 'syncChildDeviceLogin' | 'regenerateChildToken' | 'bindChildDeviceByToken'
   ) {
@@ -2323,7 +2318,7 @@ function scopeStateToCurrentFamily(state: LocalDatabaseState): LocalDatabaseStat
     screen_time_logs: keepFamilyChild(state.screen_time_logs),
     growth_records: keepFamilyChild(state.growth_records),
     notifications: keepFamilyChild(state.notifications),
-    device_binding_records: keepFamilyChild(state.device_binding_records),
+    device_bindings: keepFamilyChild(state.device_bindings),
     piggy_incomes: keepFamilyChild(state.piggy_incomes),
     piggy_bank_logs: keepFamilyChild(state.piggy_bank_logs),
     piggy_products: keepFamilyChild(state.piggy_products),
@@ -2384,7 +2379,7 @@ function rewriteFamilyIds(value: unknown) {
   Object.values(record).forEach(rewriteFamilyIds);
 }
 
-function toSupabaseDeviceBinding(binding: LocalDeviceBindingRecord): SupabaseDeviceBindingRow {
+function toSupabaseDeviceBinding(binding: LocalDeviceBinding): SupabaseDeviceBindingRow {
   const deviceId = toSupabaseUuid(binding.device_id, SUPABASE_DEVICE_FALLBACK_ID);
   return {
     id: `${binding.child_id}:${deviceId}`,
@@ -3173,11 +3168,6 @@ function toSupabaseChild(child: LocalChild, familyId = SUPABASE_FAMILY_ID): Supa
     child_token: child.child_token || createChildDeviceTokenForChild(child),
     child_token_updated_at: child.child_token_updated_at,
     child_token_consumed_at: child.child_token_consumed_at,
-    binding_status: 'unbound',
-    bound_device_id: null,
-    bound_at: null,
-    last_login_at: null,
-    last_login_device: null,
     created_by: SUPABASE_PARENT_ID,
     created_at: child.created_at,
     updated_at: child.updated_at,
@@ -3209,11 +3199,6 @@ function fromSupabaseChild(row: SupabaseChildRow): LocalChild {
     }),
     child_token_updated_at: row.child_token_updated_at,
     child_token_consumed_at: row.child_token_consumed_at,
-    binding_status: row.binding_status,
-    bound_device_id: row.bound_device_id,
-    bound_at: row.bound_at,
-    last_login_at: row.last_login_at,
-    last_login_device: row.last_login_device,
     created_by: row.created_by,
     created_at: row.created_at,
     updated_at: row.updated_at,
@@ -3221,7 +3206,7 @@ function fromSupabaseChild(row: SupabaseChildRow): LocalChild {
   };
 }
 
-function fromSupabaseDeviceBinding(row: SupabaseDeviceBindingRow): LocalDeviceBindingRecord {
+function fromSupabaseDeviceBinding(row: SupabaseDeviceBindingRow): LocalDeviceBinding {
   return {
     id: row.id,
     family_id: row.family_id,
@@ -3246,10 +3231,10 @@ function mergeChildren(localChildren: LocalChild[], remoteChildren: LocalChild[]
 }
 
 function mergeDeviceBindings(
-  localBindings: LocalDeviceBindingRecord[],
-  remoteBindings: LocalDeviceBindingRecord[]
+  localBindings: LocalDeviceBinding[],
+  remoteBindings: LocalDeviceBinding[]
 ) {
-  const byScope = new Map<string, LocalDeviceBindingRecord>();
+  const byScope = new Map<string, LocalDeviceBinding>();
   [...localBindings, ...remoteBindings].forEach((binding) => {
     const key = `${binding.child_id}:${binding.device_id}`;
     const existing = byScope.get(key);

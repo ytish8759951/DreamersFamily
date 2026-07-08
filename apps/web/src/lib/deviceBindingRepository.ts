@@ -6,5 +6,5 @@ export const deviceBindingRepository = {
   syncChildDeviceLogin: dataRepository.syncChildDeviceLogin.bind(dataRepository),
   regenerateChildToken: dataRepository.regenerateChildToken.bind(dataRepository),
   unbindChildDevice: dataRepository.unbindChildDevice.bind(dataRepository),
-  listDeviceBindingRecords: dataRepository.listDeviceBindingRecords.bind(dataRepository)
+  listDeviceBindings: dataRepository.listDeviceBindings.bind(dataRepository)
 };

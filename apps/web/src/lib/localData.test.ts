@@ -116,7 +116,7 @@ describe('local MVP data flows', () => {
 
     expect(child.child_token).toMatch(/^df1_[a-f0-9]{32}_/);
     expect(data.getChildByToken(child.child_token)?.id).toBe(child.id);
-    expect(data.listDeviceBindingRecords(child.id)[0]).toMatchObject({
+    expect(data.listDeviceBindings(child.id)[0]).toMatchObject({
       child_id: child.id,
       device_id: 'local-device',
       last_login_at: null,
@@ -150,14 +150,14 @@ describe('local MVP data flows', () => {
     });
     expect(childDeviceData.getState().children[0].child_token_consumed_at).toBeTruthy();
     expect(childDeviceData.getChildByToken(child.child_token)).toBeNull();
-    expect(childDeviceData.listDeviceBindingRecords(child.id)[0]).toMatchObject({
+    expect(childDeviceData.listDeviceBindings(child.id)[0]).toMatchObject({
       child_id: child.id,
       device_id: 'local-device',
       binding_status: 'bound',
       qr_token_status: 'active'
     });
-    expect(childDeviceData.listDeviceBindingRecords(child.id)[0].last_login_at).toBeTruthy();
-    expect(childDeviceData.listDeviceBindingRecords(child.id)[0].last_login_device).toBeTruthy();
+    expect(childDeviceData.listDeviceBindings(child.id)[0].last_login_at).toBeTruthy();
+    expect(childDeviceData.listDeviceBindings(child.id)[0].last_login_device).toBeTruthy();
     expect(() => childDeviceData.bindChildDeviceByToken(child.child_token)).toThrowError(LocalDataError);
   });
 
