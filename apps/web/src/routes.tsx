@@ -1,4 +1,5 @@
-import { createBrowserRouter, Navigate, Outlet } from 'react-router-dom';
+import { useEffect } from 'react';
+import { createBrowserRouter, Navigate, Outlet, useLocation, useRouteError } from 'react-router-dom';
 import { ChildLayout } from './components/layout/ChildLayout';
 import { ParentLayout } from './components/layout/ParentLayout';
 import { Children } from './pages/parent/Children';
@@ -31,6 +32,51 @@ import { getLoggedInFamilyLandingPath } from './lib/familyLanding';
 import { useLocalDataState } from './lib/useLocalData';
 import { useSupabaseRuntimeInfo } from './lib/useSupabaseRuntimeInfo';
 import { restoreDocumentInteractionState } from './lib/touchInteractions';
+
+console.log('ROUTER MODULE START', {
+  href: typeof window !== 'undefined' ? window.location.href : null,
+  pathname: typeof window !== 'undefined' ? window.location.pathname : null
+});
+
+function RouteMatchTrace({ name }: { name: string }) {
+  const location = useLocation();
+
+  useEffect(() => {
+    console.log('ROUTE MATCH', {
+      name,
+      pathname: location.pathname,
+      search: location.search,
+      hash: location.hash
+    });
+  }, [location.hash, location.pathname, location.search, name]);
+
+  return <Outlet />;
+}
+
+function RouteErrorFallback({ label }: { label: string }) {
+  const error = useRouteError();
+  const message = error instanceof Error ? error.message : String(error);
+  const stack = error instanceof Error ? error.stack ?? '' : '';
+
+  console.error('ROUTE RENDER FAILED', {
+    label,
+    message,
+    stack,
+    error
+  });
+
+  return (
+    <main style={{ padding: 24, fontFamily: 'system-ui, sans-serif', lineHeight: 1.5 }}>
+      <h1>ROUTER FAILED</h1>
+      <p>{label}</p>
+      <pre style={{ whiteSpace: 'pre-wrap', wordBreak: 'break-word', fontSize: 12 }}>
+        {message}
+        {'\n'}
+        {stack}
+      </pre>
+    </main>
+  );
+}
 
 function hasParentAccess(runtimeInfo: ReturnType<typeof useSupabaseRuntimeInfo>) {
   return Boolean(runtimeInfo.familyId || runtimeInfo.parentId);
@@ -109,14 +155,23 @@ function RequireCreateFamilyAccess() {
 }
 
 export const router = createBrowserRouter([
-  { path: '/', element: <RootRedirect /> },
-  { path: '/login', element: <AuthPage /> },
-  { path: '/join', element: <JoinFamilyPage /> },
-  { path: '/join-parent/:token', element: <JoinParentDevicePage /> },
-  { path: '/create-family', element: <RequireCreateFamilyAccess /> },
+  { path: '/', element: <RootRedirect />, errorElement: <RouteErrorFallback label="Root route failed" /> },
+  { path: '/login', element: <AuthPage />, errorElement: <RouteErrorFallback label="/login route failed" /> },
+  { path: '/join', element: <JoinFamilyPage />, errorElement: <RouteErrorFallback label="/join route failed" /> },
+  {
+    path: '/join-parent/:token',
+    element: <JoinParentDevicePage />,
+    errorElement: <RouteErrorFallback label="/join-parent/:token route failed" />
+  },
+  {
+    path: '/create-family',
+    element: <RequireCreateFamilyAccess />,
+    errorElement: <RouteErrorFallback label="/create-family route failed" />
+  },
   {
     path: '/create-child',
     element: <RequireFamilyAccess />,
+    errorElement: <RouteErrorFallback label="/create-child route failed" />,
     children: [
       {
         element: <ParentLayout />,
@@ -124,10 +179,15 @@ export const router = createBrowserRouter([
       }
     ]
   },
-  { path: '/preview/design-system', element: <DesignSystemPreview /> },
+  {
+    path: '/preview/design-system',
+    element: <DesignSystemPreview />,
+    errorElement: <RouteErrorFallback label="/preview/design-system route failed" />
+  },
   {
     path: '/parent',
     element: <RequireFamilyAccess />,
+    errorElement: <RouteErrorFallback label="/parent route failed" />,
     children: [
       { index: true, element: <ParentIndexRedirect /> },
       {
@@ -154,19 +214,26 @@ export const router = createBrowserRouter([
   },
   {
     path: '/child',
-    element: <ChildLayout />,
+    element: <RouteMatchTrace name="/child" />,
+    errorElement: <RouteErrorFallback label="/child route failed" />,
     children: [
-      { index: true, element: <Navigate to="/child/home" replace /> },
-      { path: 'home', element: <ChildHome /> },
-      { path: 'tasks', element: <TodayTasks /> },
-      { path: 'share', element: <ShareGrowth /> },
-      { path: 'dreams', element: <MyDreams /> },
-      { path: 'mailbox', element: <LoveMailbox /> },
-      { path: 'honor-wall', element: <ChildHonorWall /> },
-      { path: 'special-days', element: <ChildSpecialDays /> },
-      { path: 'screen-time', element: <ChildScreenTime /> },
-      { path: 'growth', element: <GrowthReview /> },
-      { path: ':token', element: <ChildTokenEntry /> }
+      {
+        element: <ChildLayout />,
+        errorElement: <RouteErrorFallback label="ChildLayout route failed" />,
+        children: [
+          { index: true, element: <Navigate to="/child/home" replace /> },
+          { path: 'home', element: <ChildHome /> },
+          { path: 'tasks', element: <TodayTasks /> },
+          { path: 'share', element: <ShareGrowth /> },
+          { path: 'dreams', element: <MyDreams /> },
+          { path: 'mailbox', element: <LoveMailbox /> },
+          { path: 'honor-wall', element: <ChildHonorWall /> },
+          { path: 'special-days', element: <ChildSpecialDays /> },
+          { path: 'screen-time', element: <ChildScreenTime /> },
+          { path: 'growth', element: <GrowthReview /> },
+          { path: ':token', element: <ChildTokenEntry /> }
+        ]
+      }
     ]
   }
 ]);

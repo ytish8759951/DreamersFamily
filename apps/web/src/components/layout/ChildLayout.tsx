@@ -1,5 +1,5 @@
 import { Camera, Home, ListChecks, Mail, PiggyBank } from 'lucide-react';
-import { useLayoutEffect } from 'react';
+import { Component, ReactNode, useEffect, useLayoutEffect } from 'react';
 import { NavLink, Outlet, useLocation } from 'react-router-dom';
 import { syncAppShellMetadata } from '../../lib/appRuntime';
 
@@ -11,7 +11,55 @@ const navItems = [
   { label: '信箱', href: '/child/mailbox', icon: Mail }
 ];
 
+type ChildLayoutErrorBoundaryState = {
+  error: Error | null;
+  componentStack: string;
+};
+
+class ChildLayoutErrorBoundary extends Component<{ children: ReactNode }, ChildLayoutErrorBoundaryState> {
+  state: ChildLayoutErrorBoundaryState = { error: null, componentStack: '' };
+
+  static getDerivedStateFromError(error: Error): ChildLayoutErrorBoundaryState {
+    return { error, componentStack: '' };
+  }
+
+  componentDidCatch(error: Error, info: { componentStack: string }) {
+    console.error('ChildLayout render exception', {
+      message: error.message,
+      stack: error.stack,
+      componentStack: info.componentStack
+    });
+    this.setState({ componentStack: info.componentStack });
+  }
+
+  render() {
+    if (this.state.error) {
+      return (
+        <main style={{ padding: 24, fontFamily: 'system-ui, sans-serif', lineHeight: 1.5 }}>
+          <h1>ChildLayout Render Error</h1>
+          <p>{this.state.error.message}</p>
+          <pre style={{ whiteSpace: 'pre-wrap', wordBreak: 'break-word', fontSize: 12 }}>
+            {this.state.error.stack}
+            {'\n'}
+            {this.state.componentStack}
+          </pre>
+        </main>
+      );
+    }
+
+    return this.props.children;
+  }
+}
+
 export function ChildLayout() {
+  return (
+    <ChildLayoutErrorBoundary>
+      <ChildLayoutContent />
+    </ChildLayoutErrorBoundary>
+  );
+}
+
+function ChildLayoutContent() {
   const location = useLocation();
   const isHomePage = location.pathname === '/child/home';
   const isTaskPage = location.pathname === '/child/tasks';
@@ -24,6 +72,13 @@ export function ChildLayout() {
 
   useLayoutEffect(() => {
     syncAppShellMetadata(location.pathname);
+  }, [location.pathname]);
+
+  useEffect(() => {
+    console.log('ChildLayout mounted', {
+      pathname: location.pathname,
+      href: typeof window !== 'undefined' ? window.location.href : null
+    });
   }, [location.pathname]);
 
   return (

@@ -162,6 +162,14 @@ export function ChildTokenEntry() {
   const childHomeTarget = '/child/home';
 
   useEffect(() => {
+    console.log('ChildTokenEntry mounted', {
+      pathname: location.pathname,
+      token,
+      href: typeof window !== 'undefined' ? window.location.href : null
+    });
+  }, [location.pathname, token]);
+
+  useEffect(() => {
     if (reservedChildRoute) return;
 
     let cancelled = false;
