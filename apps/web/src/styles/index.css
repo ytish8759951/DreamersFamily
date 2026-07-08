@@ -23964,6 +23964,53 @@ body.modal-open {
   gap: 2px;
 }
 
+/* Android PWA tap safety: keep decorative layers out of hit testing on child home. */
+.ds-child-shell {
+  touch-action: pan-y;
+}
+
+.ds-child-shell .ds-child-main {
+  z-index: 10;
+}
+
+.ds-child-shell .ds-bottom-nav {
+  z-index: 1000;
+  -webkit-tap-highlight-color: transparent;
+  touch-action: manipulation;
+}
+
+.ds-child-shell .ds-bottom-nav,
+.ds-child-shell .ds-bottom-nav * {
+  pointer-events: auto;
+}
+
+.ds-child-shell .ds-bottom-nav a {
+  position: relative;
+  z-index: 1;
+  cursor: pointer;
+  user-select: none;
+  -webkit-user-select: none;
+}
+
+.v2-home-page .v1-home-hero,
+.v2-home-page .v1-home-link-panel,
+.v2-home-page .v1-stat-link,
+.v2-home-page .child-home-special-days {
+  touch-action: manipulation;
+  -webkit-tap-highlight-color: transparent;
+}
+
+.v2-home-page .v1-home-hero::before,
+.v2-home-page .v1-home-hero::after,
+.v2-home-page .v1-panel::before,
+.v2-home-page .v1-panel::after,
+.v2-home-page .v1-stat::before,
+.v2-home-page .v1-stat::after,
+.v2-home-page .child-home-special-days::before,
+.v2-home-page .child-home-special-days::after {
+  pointer-events: none;
+}
+
 @media (max-width: 640px) {
   .ds-child-shell .ds-child-main {
     padding-bottom: calc(8rem + env(safe-area-inset-bottom, 0px));
