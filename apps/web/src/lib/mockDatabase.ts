@@ -43,26 +43,55 @@ function createId() {
 }
 
 function getBrowserDeviceId() {
-  if (typeof window === 'undefined') return LOCAL_DEVICE_ID;
+  if (typeof window === 'undefined') {
+    console.log('[child-binding-debug] C.deviceId', {
+      source: 'server',
+      deviceId: LOCAL_DEVICE_ID
+    });
+    return LOCAL_DEVICE_ID;
+  }
   const cookieDeviceId = getCookieValue(LOCAL_DEVICE_ID_KEY);
   try {
     const stored = window.localStorage.getItem(LOCAL_DEVICE_ID_KEY);
     if (stored) {
       if (!cookieDeviceId) setCookieValue(LOCAL_DEVICE_ID_KEY, stored, 60 * 60 * 24 * 365 * 2);
+      console.log('[child-binding-debug] C.deviceId', {
+        source: 'localStorage',
+        deviceId: stored,
+        cookieDeviceId: cookieDeviceId ?? null
+      });
       return stored;
     }
     if (cookieDeviceId) {
       window.localStorage.setItem(LOCAL_DEVICE_ID_KEY, cookieDeviceId);
+      console.log('[child-binding-debug] C.deviceId', {
+        source: 'cookie',
+        deviceId: cookieDeviceId
+      });
       return cookieDeviceId;
     }
     const next = createId();
     window.localStorage.setItem(LOCAL_DEVICE_ID_KEY, next);
     setCookieValue(LOCAL_DEVICE_ID_KEY, next, 60 * 60 * 24 * 365 * 2);
+    console.log('[child-binding-debug] C.deviceId', {
+      source: 'created-localStorage-cookie',
+      deviceId: next
+    });
     return next;
   } catch {
-    if (cookieDeviceId) return cookieDeviceId;
+    if (cookieDeviceId) {
+      console.log('[child-binding-debug] C.deviceId', {
+        source: 'cookie-after-localStorage-error',
+        deviceId: cookieDeviceId
+      });
+      return cookieDeviceId;
+    }
     const next = createId();
     setCookieValue(LOCAL_DEVICE_ID_KEY, next, 60 * 60 * 24 * 365 * 2);
+    console.log('[child-binding-debug] C.deviceId', {
+      source: 'created-cookie-after-localStorage-error',
+      deviceId: next
+    });
     return next;
   }
 }

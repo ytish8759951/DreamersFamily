@@ -1300,25 +1300,48 @@ export class SupabaseDataRepository implements LocalDataRepository {
   async bindChildDeviceByToken(token: string): Promise<LocalChild> {
     const normalized = token.trim();
     if (!normalized) throw new LocalDataError('Child token is empty', 'CHILD_TOKEN_EMPTY');
+    const decodedToken = parseChildDeviceToken(normalized);
+    console.log('[child-binding-debug] B.token.repository', {
+      childToken: normalized,
+      tokenDecodeResult: decodedToken,
+      childId: decodedToken?.childId ?? null,
+      familyId: null
+    });
     console.log('[child-token-entry] bindChildDeviceByToken start', { childToken: normalized });
     const cachedChild = this.cache.getChildByToken(normalized);
     if (cachedChild) {
       const child = this.cache.bindChildDeviceByToken(normalized);
       console.log('[child-token-entry] bindChildDeviceByToken matched cached child', {
         childId: child.id,
-        childToken: normalized
+        childToken: normalized,
+        familyId: child.family_id
+      });
+      console.log('[child-binding-debug] D.repository.schedulePersistence', {
+        repositoryName: this.constructor.name,
+        method: 'persistChildDeviceBindingInBackground',
+        source: 'bindChildDeviceByToken',
+        childId: child.id,
+        familyId: child.family_id
       });
       this.persistChildDeviceBindingInBackground(child, 'active', 'bindChildDeviceByToken');
       return child;
     }
 
-    const payload = parseChildDeviceToken(normalized);
+    const payload = decodedToken;
     if (!payload) throw new LocalDataError('Child token not found', 'CHILD_TOKEN_NOT_FOUND');
     const familyId = await this.resolveChildFamilyId(payload.childId);
     const child = this.cache.bindChildDeviceByToken(normalized, familyId);
     console.log('[child-token-entry] bindChildDeviceByToken parsed token child', {
       childId: child.id,
-      childToken: normalized
+      childToken: normalized,
+      familyId: child.family_id
+    });
+    console.log('[child-binding-debug] D.repository.schedulePersistence', {
+      repositoryName: this.constructor.name,
+      method: 'persistChildDeviceBindingInBackground',
+      source: 'bindChildDeviceByToken',
+      childId: child.id,
+      familyId: child.family_id
     });
     this.persistChildDeviceBindingInBackground(child, 'active', 'bindChildDeviceByToken');
     return child;
@@ -1326,13 +1349,34 @@ export class SupabaseDataRepository implements LocalDataRepository {
 
   private async resolveChildFamilyId(childId: UUID): Promise<UUID> {
     const cachedChild = this.cache.getState().children.find((child) => child.id === childId);
-    if (cachedChild?.family_id && UUID_PATTERN.test(cachedChild.family_id)) return cachedChild.family_id;
+    if (cachedChild?.family_id && UUID_PATTERN.test(cachedChild.family_id)) {
+      console.log('[child-binding-debug] B.familyId.cached', {
+        childId,
+        familyId: cachedChild.family_id,
+        source: 'cache.children'
+      });
+      return cachedChild.family_id;
+    }
     if (!this.client) throw new LocalDataError('Supabase client is unavailable', 'SUPABASE_UNAVAILABLE');
+    const request = {
+      table: 'children',
+      select: 'family_id',
+      eq: { id: childId },
+      maybeSingle: true
+    };
+    console.log('[child-binding-debug] E.supabase.resolveFamilyId.request', request);
     const { data, error } = await this.client
       .from('children')
       .select('family_id')
       .eq('id', childId)
       .maybeSingle();
+    console.log('[child-binding-debug] E.supabase.resolveFamilyId.response', {
+      request,
+      response: data,
+      error,
+      childId,
+      familyId: data?.family_id ?? null
+    });
     if (error) throw error;
     const familyId = data?.family_id;
     if (!familyId || !UUID_PATTERN.test(familyId)) {
@@ -1430,11 +1474,23 @@ export class SupabaseDataRepository implements LocalDataRepository {
     const child = state.children.find((item) => item.id === childId);
     if (!child) return null;
     const timestamp = new Date().toISOString();
-    const deviceId = toSupabaseUuid(state.device_id ?? LOCAL_DEVICE_ID, SUPABASE_DEVICE_FALLBACK_ID);
+    const rawDeviceId = state.device_id ?? LOCAL_DEVICE_ID;
+    const deviceId = toSupabaseUuid(rawDeviceId, SUPABASE_DEVICE_FALLBACK_ID);
     const familyId = child.family_id;
     if (!UUID_PATTERN.test(familyId)) {
       throw new LocalDataError('Child family id must be a UUID before syncing device binding', 'CHILD_FAMILY_ID_INVALID');
     }
+    console.log('[child-binding-debug] C.device.payload', {
+      childId,
+      rawDeviceId,
+      supabaseDeviceId: deviceId,
+      usedFallbackDeviceId: rawDeviceId !== deviceId,
+      familyId,
+      bindingStatus,
+      qrTokenStatus,
+      lastLoginAt: input.lastLoginAt ?? null,
+      lastLoginDevice: input.lastLoginDevice ?? null
+    });
     return {
       id: `${childId}:${deviceId}`,
       family_id: familyId,
@@ -1467,6 +1523,35 @@ export class SupabaseDataRepository implements LocalDataRepository {
       console.log('[parent-children] regenerateChildToken revoke Supabase error', result.error ?? null);
     }
     if (result.error) throw result.error;
+  }
+
+  private async selectDeviceBindingsForDebug(childId: UUID, phase: 'before-login' | 'after-login', source?: string) {
+    if (!this.client) return null;
+    const request = {
+      table: 'device_bindings',
+      select: 'child_id,family_id,device_id,binding_status,qr_token_status,last_login_at,last_login_device,created_at,updated_at',
+      eq: { child_id: childId },
+      order: { column: 'updated_at', ascending: false }
+    };
+    console.log('[child-binding-debug] F.device_bindings.request', {
+      phase,
+      source,
+      request
+    });
+    const result = await this.client
+      .from('device_bindings')
+      .select(request.select)
+      .eq('child_id', childId)
+      .order('updated_at', { ascending: false });
+    console.log('[child-binding-debug] F.device_bindings.response', {
+      phase,
+      source,
+      request,
+      rows: result.data ?? [],
+      rowCount: result.count ?? result.data?.length ?? 0,
+      error: result.error ?? null
+    });
+    return result;
   }
 
   unbindChildDevice(childId: UUID): LocalChild {
@@ -2148,6 +2233,7 @@ export class SupabaseDataRepository implements LocalDataRepository {
     const child = this.cache.getState().children.find((item) => item.id === childId);
     const record = this.buildDeviceBindingRecord(childId, bindingStatus, qrTokenStatus, input);
     if (!child || !record) return;
+    const beforeBindings = await this.selectDeviceBindingsForDebug(childId, 'before-login', debugSource);
     if (debugSource === 'syncChildDeviceLogin' || debugSource === 'bindChildDeviceByToken') {
       console.log('[child-device-binding] deviceBinding payload', {
         source: debugSource,
@@ -2165,12 +2251,35 @@ export class SupabaseDataRepository implements LocalDataRepository {
       qr_token_status: record.qr_token_status,
       updated_at: record.updated_at
     };
+    const updateRequest = {
+      table: 'device_bindings',
+      operation: 'update',
+      payload: updatePayload,
+      where: {
+        child_id: record.child_id,
+        device_id: record.device_id
+      },
+      select: 'id'
+    };
+    console.log('[child-binding-debug] E.supabase.update.request', {
+      source: debugSource,
+      childId,
+      request: updateRequest
+    });
     const updateResult = await this.client
       .from('device_bindings')
       .update(updatePayload)
       .eq('child_id', record.child_id)
       .eq('device_id', record.device_id)
       .select('id');
+    console.log('[child-binding-debug] E.supabase.update.response', {
+      source: debugSource,
+      childId,
+      request: updateRequest,
+      response: updateResult.data ?? [],
+      affectedRows: updateResult.count ?? updateResult.data?.length ?? 0,
+      error: updateResult.error ?? null
+    });
     if (debugSource === 'syncChildDeviceLogin' || debugSource === 'bindChildDeviceByToken') {
       console.log('[child-device-binding] Supabase update result', {
         source: debugSource,
@@ -2197,6 +2306,21 @@ export class SupabaseDataRepository implements LocalDataRepository {
     }
     const updateRowCount = updateResult.count ?? updateResult.data?.length ?? 0;
     if (updateRowCount > 0) {
+      const afterBindings = await this.selectDeviceBindingsForDebug(childId, 'after-login', debugSource);
+      console.log('[child-binding-debug] F.device_bindings.diff', {
+        source: debugSource,
+        childId,
+        before: beforeBindings?.data ?? [],
+        after: afterBindings?.data ?? [],
+        comparedFields: [
+          'binding_status',
+          'qr_token_status',
+          'last_login_at',
+          'last_login_device',
+          'device_id',
+          'family_id'
+        ]
+      });
       console.log('[child-device-binding] final affected row count', {
         source: debugSource,
         childId,
@@ -2215,10 +2339,29 @@ export class SupabaseDataRepository implements LocalDataRepository {
         device_id: record.device_id
       }
     });
+    const insertRequest = {
+      table: 'device_bindings',
+      operation: 'insert',
+      payload: record,
+      select: 'id'
+    };
+    console.log('[child-binding-debug] E.supabase.insert.request', {
+      source: debugSource,
+      childId,
+      request: insertRequest
+    });
     const insertResult = await this.client
       .from('device_bindings')
       .insert(record)
       .select('id');
+    console.log('[child-binding-debug] E.supabase.insert.response', {
+      source: debugSource,
+      childId,
+      request: insertRequest,
+      response: insertResult.data ?? [],
+      affectedRows: insertResult.count ?? insertResult.data?.length ?? 0,
+      error: insertResult.error ?? null
+    });
     if (debugSource === 'syncChildDeviceLogin' || debugSource === 'bindChildDeviceByToken') {
       console.log('[child-device-binding] Supabase insert result', {
         source: debugSource,
@@ -2244,6 +2387,21 @@ export class SupabaseDataRepository implements LocalDataRepository {
       });
       throw insertResult.error;
     }
+    const afterBindings = await this.selectDeviceBindingsForDebug(childId, 'after-login', debugSource);
+    console.log('[child-binding-debug] F.device_bindings.diff', {
+      source: debugSource,
+      childId,
+      before: beforeBindings?.data ?? [],
+      after: afterBindings?.data ?? [],
+      comparedFields: [
+        'binding_status',
+        'qr_token_status',
+        'last_login_at',
+        'last_login_device',
+        'device_id',
+        'family_id'
+      ]
+    });
     console.log('[child-device-binding] final affected row count', {
       source: debugSource,
       childId,

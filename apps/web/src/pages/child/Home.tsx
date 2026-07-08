@@ -3,6 +3,7 @@ import { Camera, ChevronRight, Image, Mic, Play, Volume2 } from 'lucide-react';
 import { useEffect, useMemo, type ReactNode } from 'react';
 import { Link, useLocation } from 'react-router-dom';
 import { LocalShareMedia as LocalShareMediaView } from '../../components/LocalShareMedia';
+import { debugChildBinding, getRepositoryDebugInfo, getRouteDebugInfo } from '../../lib/childBindingDebug';
 import { dataMode } from '../../lib/dataRepository';
 import { deviceBindingRepository } from '../../lib/deviceBindingRepository';
 import { useDreamCoverMigration } from '../../lib/dreamCoverMigration';
@@ -58,6 +59,45 @@ export function ChildHome() {
   const hasActiveDeviceBinding = dataMode === 'supabase'
     ? Boolean(latestDeviceBinding)
     : hasChildDeviceSession;
+
+  useEffect(() => {
+    debugChildBinding('G.ui.render', {
+      ...getRouteDebugInfo(location.pathname),
+      ...getRepositoryDebugInfo(),
+      renderSource: 'useLocalDataState -> dataRepository snapshot',
+      selectedChildId,
+      selectedChild: selectedChild
+        ? {
+            id: selectedChild.id,
+            family_id: selectedChild.family_id,
+            display_name: selectedChild.display_name,
+            status: selectedChild.status
+          }
+        : null,
+      deviceBindingRowsForChild: selectedChildId
+        ? localState.device_bindings.filter((record) => record.child_id === selectedChildId)
+        : [],
+      latestDeviceBinding,
+      hasActiveDeviceBinding,
+      usesDeviceBindings: true,
+      usesChildrenBindingFields: false,
+      usesLocalStorageAsRenderSource: false,
+      usesChildrenTableForBindingStatus: false,
+      stateDeviceId: localState.device_id ?? null,
+      currentChildIdentity: localState.currentChildIdentity,
+      deviceBindingSession: localState.deviceBinding
+    });
+  }, [
+    hasActiveDeviceBinding,
+    latestDeviceBinding,
+    localState.currentChildIdentity,
+    localState.deviceBinding,
+    localState.device_bindings,
+    localState.device_id,
+    location.pathname,
+    selectedChild,
+    selectedChildId
+  ]);
 
   useEffect(() => {
     const sessionChildId = localState.currentChildIdentity?.childId ?? deviceBinding;

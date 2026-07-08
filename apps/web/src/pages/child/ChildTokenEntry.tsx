@@ -1,5 +1,12 @@
 import { useEffect, useState } from 'react';
 import { Navigate, useLocation, useNavigate } from 'react-router-dom';
+import {
+  debugChildBinding,
+  decodeChildTokenForDebug,
+  getDeviceDebugInfo,
+  getRepositoryDebugInfo,
+  getRouteDebugInfo
+} from '../../lib/childBindingDebug';
 import { deviceBindingRepository } from '../../lib/deviceBindingRepository';
 import { useLocalDataState } from '../../lib/useLocalData';
 
@@ -33,20 +40,54 @@ export function ChildTokenEntry() {
 
     void (async () => {
     try {
+      const tokenDebug = decodeChildTokenForDebug(token);
+      debugChildBinding('A.url', getRouteDebugInfo(location.pathname));
+      debugChildBinding('B.token', tokenDebug);
+      debugChildBinding('C.device', await getDeviceDebugInfo());
+      debugChildBinding('D.repository', {
+        ...getRepositoryDebugInfo(),
+        method: 'bindChildDeviceByToken',
+        requestPayload: { childToken: token }
+      });
       console.log('[child-token-entry] received child URL token', { childToken: token });
       const child = await deviceBindingRepository.bindChildDeviceByToken(token);
+      debugChildBinding('D.repository.response', {
+        method: 'bindChildDeviceByToken',
+        success: true,
+        receivedPayload: {
+          childId: child.id,
+          familyId: child.family_id,
+          childToken: child.child_token
+        }
+      });
       console.log('[child-token-entry] bindChildDeviceByToken returned', {
         childId: child.id,
         childToken: token,
         enteringSyncChildDeviceLogin: true
       });
+      debugChildBinding('D.repository', {
+        ...getRepositoryDebugInfo(),
+        method: 'syncChildDeviceLogin',
+        requestPayload: { childId: child.id, familyId: child.family_id }
+      });
       deviceBindingRepository.syncChildDeviceLogin(child.id);
+      debugChildBinding('D.repository.response', {
+        method: 'syncChildDeviceLogin',
+        success: true,
+        receivedPayload: { childId: child.id, familyId: child.family_id }
+      });
       console.log('[child-token-entry] syncChildDeviceLogin invoked', {
         childId: child.id,
         childToken: token
       });
       navigate('/child/home', { replace: true });
     } catch (error) {
+      debugChildBinding('D.repository.error', {
+        method: 'bindChildDeviceByToken',
+        success: false,
+        errorMessage: error instanceof Error ? error.message : String(error),
+        error
+      });
       console.warn('[child-token-entry] child URL token binding failed', {
         childToken: token,
         error
