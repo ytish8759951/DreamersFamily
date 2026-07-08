@@ -30,6 +30,7 @@ import { dataMode } from './lib/dataRepository';
 import { getLoggedInFamilyLandingPath } from './lib/familyLanding';
 import { useLocalDataState } from './lib/useLocalData';
 import { useSupabaseRuntimeInfo } from './lib/useSupabaseRuntimeInfo';
+import { restoreDocumentInteractionState } from './lib/touchInteractions';
 
 function hasParentAccess(runtimeInfo: ReturnType<typeof useSupabaseRuntimeInfo>) {
   return Boolean(runtimeInfo.familyId || runtimeInfo.parentId);
@@ -172,6 +173,7 @@ export const router = createBrowserRouter([
 
 if (typeof window !== 'undefined') {
   router.subscribe((state) => {
+    restoreDocumentInteractionState();
     console.log('[auth trace] final route', {
       route: `${state.location.pathname}${state.location.search}${state.location.hash}`,
       navigationState: state.navigation.state

@@ -5,6 +5,7 @@ import { router } from './routes';
 import { prepareAppRuntime } from './lib/appRuntime';
 import { migrateLocalStorageMediaToRepository } from './lib/mediaMigration';
 import { markReactMounted, recordPromiseError, recordWindowError } from './lib/runtimeDebug';
+import { installMobileTouchInteractions } from './lib/touchInteractions';
 import './styles/index.css';
 
 window.onerror = (_message, _source, _lineno, _colno, error) => {
@@ -23,6 +24,8 @@ window.onunhandledrejection = (event) => {
 void (async () => {
   const shouldContinue = await prepareAppRuntime();
   if (!shouldContinue) return;
+
+  installMobileTouchInteractions();
 
   await migrateLocalStorageMediaToRepository();
 
