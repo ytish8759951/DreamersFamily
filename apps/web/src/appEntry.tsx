@@ -5,6 +5,7 @@ import { router } from './routes';
 import { prepareAppRuntime } from './lib/appRuntime';
 import { migrateLocalStorageMediaToRepository } from './lib/mediaMigration';
 import { markReactMounted, recordPromiseError, recordWindowError } from './lib/runtimeDebug';
+import { startupTrace, traceStartupPromise } from './lib/startupTrace';
 import { installMobileTouchInteractions } from './lib/touchInteractions';
 import './styles/index.css';
 
@@ -19,17 +20,6 @@ function bootTrace(label: string, payload: Record<string, unknown> = {}) {
     return;
   }
   console.log(label, payload);
-}
-
-function traceTimeout<T>(label: string, promise: Promise<T>): Promise<T> {
-  const timeout = window.setTimeout(() => {
-    bootTrace('Timeout waiting...', { promise: label });
-    console.warn('Timeout waiting...', label);
-  }, 5000);
-
-  return promise.finally(() => {
-    window.clearTimeout(timeout);
-  });
 }
 
 bootTrace('IMPORT APP', {
@@ -140,6 +130,10 @@ function RouterRenderTrace() {
 
 export async function startApp() {
   try {
+    startupTrace('startApp start', {
+      href: window.location.href,
+      pathname: window.location.pathname
+    });
     bootTrace('REACT START', {
       href: window.location.href,
       pathname: window.location.pathname
@@ -154,21 +148,29 @@ export async function startApp() {
       pathname: window.location.pathname
     });
 
-    const shouldContinue = await traceTimeout('prepareAppRuntime', prepareAppRuntime());
+    const shouldContinue = await traceStartupPromise('startApp prepareAppRuntime', () => prepareAppRuntime());
     if (!shouldContinue) {
       showRouterFailed(new Error('prepareAppRuntime returned false'));
       return;
     }
 
+    startupTrace('installMobileTouchInteractions start');
     installMobileTouchInteractions();
+    startupTrace('installMobileTouchInteractions finish');
 
-    await traceTimeout('migrateLocalStorageMediaToRepository', migrateLocalStorageMediaToRepository());
+    await traceStartupPromise(
+      'startApp migrateLocalStorageMediaToRepository',
+      () => migrateLocalStorageMediaToRepository()
+    );
 
+    startupTrace('rootElement lookup start');
     const rootElement = document.getElementById('root');
     if (!rootElement) throw new Error('Missing #root element');
+    startupTrace('rootElement lookup finish');
 
     rootElement.dataset.reactMounted = '1';
     bootTrace('Router render', { phase: 'before RouterProvider' });
+    startupTrace('RouterProvider render start');
     ReactDOM.createRoot(rootElement).render(
       <React.StrictMode>
         <AppErrorBoundary>
@@ -178,10 +180,16 @@ export async function startApp() {
         </AppErrorBoundary>
       </React.StrictMode>
     );
+    startupTrace('RouterProvider render finish');
     markReactMounted();
     bootTrace('Router render', { phase: 'after RouterProvider render call' });
     bootTrace('React Root Mounted');
+    startupTrace('startApp finish');
   } catch (error) {
+    startupTrace('startApp error', {
+      message: error instanceof Error ? error.message : String(error),
+      stack: error instanceof Error ? error.stack ?? null : null
+    });
     showRouterFailed(error);
   }
 }

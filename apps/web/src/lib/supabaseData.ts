@@ -1,4 +1,5 @@
 import { createClient, type RealtimeChannel, type SupabaseClient } from '@supabase/supabase-js';
+import { startupTrace, traceStartupPromise } from './startupTrace';
 import {
   createChildDeviceToken,
   createChildDeviceTokenForChild,
@@ -540,18 +541,37 @@ function getSupabaseBrowserStorage(): KeyValueStorage {
 }
 
 export function createSupabaseClient(config = getSupabaseConfig()): SupabaseClient | null {
-  if (!config) return null;
-  return createClient(config.url, config.anonKey, {
-    auth: {
-      persistSession: true,
-      autoRefreshToken: true,
-      detectSessionInUrl: true,
-      storage: new SupabaseAuthStorage()
-    }
+  startupTrace('createClient start', {
+    hasConfig: Boolean(config),
+    url: config?.url ?? null
   });
+  try {
+    if (!config) {
+      startupTrace('createClient finish', { client: null, reason: 'missing config' });
+      return null;
+    }
+    const client = createClient(config.url, config.anonKey, {
+      auth: {
+        persistSession: true,
+        autoRefreshToken: true,
+        detectSessionInUrl: true,
+        storage: new SupabaseAuthStorage()
+      }
+    });
+    startupTrace('createClient finish', { client: 'created' });
+    return client;
+  } catch (error) {
+    startupTrace('createClient error', {
+      message: error instanceof Error ? error.message : String(error),
+      stack: error instanceof Error ? error.stack ?? null : null
+    });
+    throw error;
+  }
 }
 
+startupTrace('SupabaseRepository.create start');
 export const supabaseClient = createSupabaseClient();
+startupTrace('SupabaseRepository.create finish', { hasClient: Boolean(supabaseClient) });
 
 interface SupabaseFamilyMemberRow {
   family_id: UUID;
@@ -656,20 +676,36 @@ async function refreshAuthSessionAfterScopeChange() {
 }
 
 async function waitForAuthSession(client: SupabaseClient, timeoutMs = 5000) {
+  startupTrace('Auth.getSession wait start', { timeoutMs });
   const deadline = Date.now() + timeoutMs;
+  let attempt = 0;
   while (Date.now() < deadline) {
-    const { data, error } = await client.auth.getSession();
+    attempt += 1;
+    const { data, error } = await traceStartupPromise(
+      `Auth.getSession attempt ${attempt}`,
+      () => client.auth.getSession(),
+      { attempt }
+    );
     if (error) throw error;
-    if (data.session?.user) return data.session;
-    await new Promise((resolve) => setTimeout(resolve, 150));
+    if (data.session?.user) {
+      startupTrace('Auth.getSession wait finish', { attempt, userId: data.session.user.id });
+      return data.session;
+    }
+    await traceStartupPromise(
+      `Auth.getSession retry delay ${attempt}`,
+      () => new Promise((resolve) => setTimeout(resolve, 150)),
+      { attempt }
+    );
   }
+  startupTrace('Auth.getSession wait finish', { session: null, attempts: attempt });
   return null;
 }
 
 async function resolveAndPublishProductionAuthScope() {
   if (!supabaseClient) throw new Error('Supabase is not configured.');
-  await waitForAuthSession(supabaseClient);
-  const scope = await resolveProductionAuthScope(supabaseClient);
+  startupTrace('resolveAndPublishProductionAuthScope start');
+  await traceStartupPromise('waitForAuthSession', () => waitForAuthSession(supabaseClient));
+  const scope = await traceStartupPromise('resolveProductionAuthScope', () => resolveProductionAuthScope(supabaseClient));
   if (!scope) {
     setRuntimeInfo({
       userId: null,
@@ -678,6 +714,7 @@ async function resolveAndPublishProductionAuthScope() {
       parentRole: null,
       authStatus: 'signed_out'
     });
+    startupTrace('resolveAndPublishProductionAuthScope finish', { scope: null });
     return getSupabaseRuntimeInfo();
   }
   setRuntimeInfo({
@@ -686,6 +723,11 @@ async function resolveAndPublishProductionAuthScope() {
     familyId: scope.familyId,
     parentRole: scope.role,
     authStatus: scope.familyId || scope.parentId ? 'ready' : 'needs_family'
+  });
+  startupTrace('resolveAndPublishProductionAuthScope finish', {
+    userId: scope.userId,
+    parentId: scope.parentId,
+    familyId: scope.familyId
   });
   return getSupabaseRuntimeInfo();
 }
@@ -1133,6 +1175,7 @@ export class SupabaseDataRepository implements LocalDataRepository {
   private hasFamilyScope = false;
 
   constructor(client: SupabaseClient | null = supabaseClient) {
+    startupTrace('SupabaseDataRepository constructor start', { hasClient: Boolean(client) });
     this.client = client;
     if (!client) this.cache = new LocalDataService(new MockDatabase(new VolatileSupabaseStorage(), SUPABASE_CACHE_KEY));
     if (!client) {
@@ -1153,11 +1196,16 @@ export class SupabaseDataRepository implements LocalDataRepository {
         this.hydrateFromSupabase();
       });
     }
+    startupTrace('SupabaseDataRepository constructor finish', { hasClient: Boolean(client) });
   }
 
   private async initializeAuthScope() {
-    if (!this.client) return;
-    await this.refreshAuthScope();
+    startupTrace('SupabaseDataRepository.initializeAuthScope start', { hasClient: Boolean(this.client) });
+    if (!this.client) {
+      startupTrace('SupabaseDataRepository.initializeAuthScope finish', { reason: 'no client' });
+      return;
+    }
+    await traceStartupPromise('SupabaseDataRepository.refreshAuthScope initial', () => this.refreshAuthScope());
     this.client.auth.onAuthStateChange((event, session) => {
       console.log('[auth trace] auth callback', {
         event,
@@ -1165,12 +1213,18 @@ export class SupabaseDataRepository implements LocalDataRepository {
       });
       void this.refreshAuthScope();
     });
+    startupTrace('SupabaseDataRepository.initializeAuthScope finish');
   }
 
   private async refreshAuthScope() {
-    if (!this.client) return;
+    const client = this.client;
+    if (!client) return;
+    startupTrace('SupabaseDataRepository.refreshAuthScope start');
     try {
-      const scope = await resolveProductionAuthScope(this.client);
+      const scope = await traceStartupPromise(
+        'SupabaseDataRepository.resolveProductionAuthScope',
+        () => resolveProductionAuthScope(client)
+      );
       if (!scope) {
         this.hasFamilyScope = false;
         setRuntimeInfo({
@@ -1180,6 +1234,7 @@ export class SupabaseDataRepository implements LocalDataRepository {
           parentRole: null,
           authStatus: 'signed_out'
         });
+        startupTrace('SupabaseDataRepository.refreshAuthScope finish', { scope: null });
         return;
       }
       this.hasFamilyScope = Boolean(scope.familyId);
@@ -1195,8 +1250,17 @@ export class SupabaseDataRepository implements LocalDataRepository {
         this.hydrateFromSupabase();
       }
       this.emit();
+      startupTrace('SupabaseDataRepository.refreshAuthScope finish', {
+        userId: scope.userId,
+        parentId: scope.parentId,
+        familyId: scope.familyId
+      });
     } catch (error) {
       console.warn('[supabase-repository] auth scope failed', error);
+      startupTrace('SupabaseDataRepository.refreshAuthScope error', {
+        message: error instanceof Error ? error.message : String(error),
+        stack: error instanceof Error ? error.stack ?? null : null
+      });
       this.hasFamilyScope = false;
       setRuntimeInfo({
         userId: null,

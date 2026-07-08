@@ -1,6 +1,7 @@
 import { dataRepository } from './dataRepository';
 import { mediaRepository, type MediaOwnerType, type UnifiedMediaType } from './mediaRepository';
 import type { LocalDatabaseState, UUID } from './localTypes';
+import { startupTrace, traceStartupPromise } from './startupTrace';
 
 type MutableState = LocalDatabaseState & Record<string, unknown>;
 
@@ -10,8 +11,19 @@ export type MediaMigrationResult = {
 };
 
 export async function migrateLocalStorageMediaToRepository(): Promise<MediaMigrationResult> {
+  startupTrace('migrateLocalStorageMediaToRepository start');
   const state = dataRepository.getState() as MutableState;
-  if (!state || state.schema_version !== 1) return { migratedCount: 0, migratedMediaIds: [] };
+  startupTrace('migrateLocalStorage state loaded', {
+    hasState: Boolean(state),
+    schemaVersion: state?.schema_version ?? null
+  });
+  if (!state || state.schema_version !== 1) {
+    startupTrace('migrateLocalStorageMediaToRepository finish', {
+      migratedCount: 0,
+      reason: 'no schema v1 state'
+    });
+    return { migratedCount: 0, migratedMediaIds: [] };
+  }
 
   const migratedMediaIds: string[] = [];
   const migrateDataUrl = async (input: {
@@ -23,21 +35,37 @@ export async function migrateLocalStorageMediaToRepository(): Promise<MediaMigra
     fileName?: string;
   }) => {
     if (!isDataUrl(input.dataUrl)) return input.mediaId ?? null;
-    const blob = dataUrlToBlob(input.dataUrl);
-    const mediaId = input.mediaId || createLocalId();
-    await mediaRepository.saveMedia({
-      id: mediaId,
+    startupTrace('migrateLocalStorage media item start', {
       ownerType: input.ownerType,
       ownerId: input.ownerId,
       mediaType: input.mediaType,
-      mimeType: blob.type,
-      fileName: input.fileName,
-      blob
+      mediaId: input.mediaId ?? null
     });
+    const blob = dataUrlToBlob(input.dataUrl);
+    const mediaId = input.mediaId || createLocalId();
+    await traceStartupPromise(
+      `mediaRepository.saveMedia:${input.ownerType}:${input.ownerId}:${mediaId}`,
+      () => mediaRepository.saveMedia({
+        id: mediaId,
+        ownerType: input.ownerType,
+        ownerId: input.ownerId,
+        mediaType: input.mediaType,
+        mimeType: blob.type,
+        fileName: input.fileName,
+        blob
+      })
+    );
     migratedMediaIds.push(mediaId);
+    startupTrace('migrateLocalStorage media item finish', {
+      ownerType: input.ownerType,
+      ownerId: input.ownerId,
+      mediaType: input.mediaType,
+      mediaId
+    });
     return mediaId;
   };
 
+  startupTrace('migrateLocalStorage share_media start', { count: state.share_media?.length ?? 0 });
   for (const media of state.share_media ?? []) {
     const dataUrl = media.local_data_url;
     const mediaId = await migrateDataUrl({
@@ -56,7 +84,9 @@ export async function migrateLocalStorageMediaToRepository(): Promise<MediaMigra
       media.file_size_bytes = media.file_size_bytes || dataUrlByteSize(dataUrl);
     }
   }
+  startupTrace('migrateLocalStorage share_media finish');
 
+  startupTrace('migrateLocalStorage encouragement_cards start', { count: state.encouragement_cards?.length ?? 0 });
   for (const message of state.encouragement_cards ?? []) {
     const mediaType = mailboxMediaType(message.card_type, message.media_mime_type);
     const mediaId = await migrateDataUrl({
@@ -75,7 +105,9 @@ export async function migrateLocalStorageMediaToRepository(): Promise<MediaMigra
       message.local_data_url = null;
     }
   }
+  startupTrace('migrateLocalStorage encouragement_cards finish');
 
+  startupTrace('migrateLocalStorage special_days start', { count: state.special_days?.length ?? 0 });
   for (const day of state.special_days ?? []) {
     const mediaId = await migrateDataUrl({
       dataUrl: day.image_data_url,
@@ -90,7 +122,9 @@ export async function migrateLocalStorageMediaToRepository(): Promise<MediaMigra
       day.image_data_url = null;
     }
   }
+  startupTrace('migrateLocalStorage special_days finish');
 
+  startupTrace('migrateLocalStorage children start', { count: state.children?.length ?? 0 });
   for (const child of state.children ?? []) {
     const mediaId = await migrateDataUrl({
       dataUrl: child.avatar_path,
@@ -105,7 +139,9 @@ export async function migrateLocalStorageMediaToRepository(): Promise<MediaMigra
       child.avatar_path = null;
     }
   }
+  startupTrace('migrateLocalStorage children finish');
 
+  startupTrace('migrateLocalStorage dreams start', { count: state.dreams?.length ?? 0 });
   for (const dream of state.dreams ?? []) {
     const legacyCover = dream.cover_path || dream.coverUrl || dream.imageUrl;
     const mediaId = await migrateDataUrl({
@@ -124,8 +160,10 @@ export async function migrateLocalStorageMediaToRepository(): Promise<MediaMigra
       dream.imageUrl = null;
     }
   }
+  startupTrace('migrateLocalStorage dreams finish');
 
   const settings = state.family_settings;
+  startupTrace('migrateLocalStorage family_settings start', { hasSettings: Boolean(settings) });
   if (settings) {
     const familyAvatarId = await migrateDataUrl({
       dataUrl: settings.family_avatar_data_url,
@@ -153,8 +191,17 @@ export async function migrateLocalStorageMediaToRepository(): Promise<MediaMigra
       settings.parent_avatar_data_url = null;
     }
   }
+  startupTrace('migrateLocalStorage family_settings finish');
 
-  if (migratedMediaIds.length) dataRepository.importData(JSON.stringify(state));
+  if (migratedMediaIds.length) {
+    startupTrace('migrateLocalStorage importData start', { migratedCount: migratedMediaIds.length });
+    dataRepository.importData(JSON.stringify(state));
+    startupTrace('migrateLocalStorage importData finish', { migratedCount: migratedMediaIds.length });
+  }
+  startupTrace('migrateLocalStorageMediaToRepository finish', {
+    migratedCount: migratedMediaIds.length,
+    migratedMediaIds
+  });
   return { migratedCount: migratedMediaIds.length, migratedMediaIds };
 }
 

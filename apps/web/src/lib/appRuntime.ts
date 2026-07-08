@@ -1,4 +1,5 @@
 import { getCookieValue, getLocalStorage, setCookieValue } from './storage';
+import { startupTrace, traceStartupPromise, traceStartupPromiseAll } from './startupTrace';
 
 export const APP_BUILD_ID = __BUILD_COMMIT__;
 export const APP_BUILD_TIME = __BUILD_TIME__;
@@ -7,7 +8,6 @@ export const APP_CACHE_CLEAR_MARKER_KEY = 'little-dreamers-family:last-cache-cle
 export const APP_BUILD_ID_KEY = 'little-dreamers-family:build-id';
 const APP_BUILD_REFRESH_GUARD_KEY = 'little-dreamers-family:build-refresh-guard';
 const BUILD_META_URL = '/build-meta.json';
-const RUNTIME_TIMEOUT_MS = 5000;
 
 export async function prepareAppRuntime() {
   runtimeTrace('prepareAppRuntime start');
@@ -27,11 +27,11 @@ export async function prepareAppRuntime() {
   runtimeTrace('publishAppVersion finish');
 
   runtimeTrace('disableServiceWorkersAndCaches start');
-  await withRuntimeTimeout('disableServiceWorkersAndCaches', disableServiceWorkersAndCaches());
+  await traceStartupPromise('prepareAppRuntime disableServiceWorkersAndCaches', () => disableServiceWorkersAndCaches());
   runtimeTrace('disableServiceWorkersAndCaches finish');
 
   runtimeTrace('fetchLatestBuildId start');
-  const latestBuildId = await withRuntimeTimeout('fetchLatestBuildId', fetchLatestBuildId());
+  const latestBuildId = await traceStartupPromise('prepareAppRuntime fetchLatestBuildId', () => fetchLatestBuildId());
   runtimeTrace('fetchLatestBuildId finish', { latestBuildId });
 
   runtimeTrace('readVersionMarker start');
@@ -76,32 +76,7 @@ export async function prepareAppRuntime() {
   return true;
 }
 
-function runtimeTrace(label: string, payload: Record<string, unknown> = {}) {
-  console.log(label, payload);
-  if (typeof window === 'undefined') return;
-  const trace = (window as Window & {
-    __DREAMERS_BOOT_TRACE__?: (label: string, payload?: Record<string, unknown>) => void;
-  }).__DREAMERS_BOOT_TRACE__;
-  if (typeof trace === 'function') trace(label, payload);
-}
-
-function withRuntimeTimeout<T>(label: string, promise: Promise<T>): Promise<T> {
-  let handle = 0;
-  const timeoutPromise = new Promise<T>((_resolve, reject) => {
-    handle = window.setTimeout(() => {
-      const error = new Error(`Timeout waiting... ${label}`);
-      runtimeTrace('Timeout waiting...', { promise: label });
-      reject(error);
-    }, RUNTIME_TIMEOUT_MS);
-  });
-
-  return Promise.race([
-    promise,
-    timeoutPromise
-  ]).finally(() => {
-    window.clearTimeout(handle);
-  });
-}
+const runtimeTrace = startupTrace;
 
 function publishAppVersion() {
   if (typeof window === 'undefined') return;
@@ -165,15 +140,18 @@ async function disableServiceWorkersAndCaches() {
   if ('serviceWorker' in navigator) {
     try {
       runtimeTrace('serviceWorker.getRegistrations start');
-      const registrations = await withRuntimeTimeout(
+      const registrations = await traceStartupPromise(
         'navigator.serviceWorker.getRegistrations',
-        navigator.serviceWorker.getRegistrations()
+        () => navigator.serviceWorker.getRegistrations()
       );
       runtimeTrace('serviceWorker.getRegistrations finish', { count: registrations.length });
       runtimeTrace('serviceWorker.unregisterAll start', { count: registrations.length });
-      await withRuntimeTimeout(
+      await traceStartupPromiseAll(
         'serviceWorker.unregisterAll',
-        Promise.all(registrations.map((registration) => registration.unregister()))
+        registrations.map((registration, index) => ({
+          label: `registration-${index}:${registration.scope}`,
+          promise: registration.unregister()
+        }))
       );
       runtimeTrace('serviceWorker.unregisterAll finish', { count: registrations.length });
       console.info('[app-runtime] Unregistered service workers', { count: registrations.length });
@@ -191,12 +169,15 @@ async function disableServiceWorkersAndCaches() {
   if ('caches' in window) {
     try {
       runtimeTrace('caches.keys start');
-      const cacheNames = await withRuntimeTimeout('window.caches.keys', window.caches.keys());
+      const cacheNames = await traceStartupPromise('window.caches.keys', () => window.caches.keys());
       runtimeTrace('caches.keys finish', { count: cacheNames.length, cacheNames });
       runtimeTrace('caches.deleteAll start', { count: cacheNames.length, cacheNames });
-      await withRuntimeTimeout(
+      await traceStartupPromiseAll(
         'caches.deleteAll',
-        Promise.all(cacheNames.map((name) => window.caches.delete(name)))
+        cacheNames.map((name) => ({
+          label: name,
+          promise: window.caches.delete(name)
+        }))
       );
       runtimeTrace('caches.deleteAll finish', { count: cacheNames.length, cacheNames });
       console.info('[app-runtime] Cleared browser caches while PWA is disabled', {
@@ -225,9 +206,9 @@ async function fetchLatestBuildId() {
 
   try {
     runtimeTrace('fetch build-meta start', { url: BUILD_META_URL });
-    const response = await withRuntimeTimeout(
+    const response = await traceStartupPromise(
       'fetch build-meta',
-      fetch(`${BUILD_META_URL}?t=${Date.now()}`, {
+      () => fetch(`${BUILD_META_URL}?t=${Date.now()}`, {
         cache: 'no-store',
         credentials: 'same-origin'
       })
@@ -235,7 +216,7 @@ async function fetchLatestBuildId() {
     runtimeTrace('fetch build-meta finish', { ok: response.ok, status: response.status });
     if (!response.ok) return APP_BUILD_ID;
     runtimeTrace('parse build-meta start');
-    const meta = (await withRuntimeTimeout('parse build-meta json', response.json())) as Partial<{ buildId: string; commit: string }>;
+    const meta = (await traceStartupPromise('parse build-meta json', () => response.json())) as Partial<{ buildId: string; commit: string }>;
     runtimeTrace('parse build-meta finish', { meta });
     const buildId = typeof meta.buildId === 'string' && meta.buildId.trim() ? meta.buildId.trim() : null;
     const commit = typeof meta.commit === 'string' && meta.commit.trim() ? meta.commit.trim() : null;

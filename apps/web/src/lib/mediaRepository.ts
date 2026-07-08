@@ -1,5 +1,6 @@
 import { dataMode, dataRepository } from './dataRepository';
 import { supabaseClient } from './supabaseData';
+import { startupTrace, traceStartupPromise, traceStartupPromiseAll } from './startupTrace';
 
 const DB_NAME = 'little-dreamers-family-media';
 const DB_VERSION = 4;
@@ -98,17 +99,42 @@ export const mediaRepository = {
 };
 
 async function openMediaDb() {
-  return new Promise<IDBDatabase>((resolve, reject) => {
+  return traceStartupPromise('openMediaDb', () => new Promise<IDBDatabase>((resolve, reject) => {
+    startupTrace('indexedDB.open start', { databaseName: DB_NAME, version: DB_VERSION });
     if (typeof indexedDB === 'undefined') {
       reject(new Error('IndexedDB is not available'));
       return;
     }
 
     const request = indexedDB.open(DB_NAME, DB_VERSION);
-    request.onupgradeneeded = () => upgradeMediaDb(request);
-    request.onsuccess = () => resolve(request.result);
-    request.onerror = () => reject(request.error ?? new Error('Failed to open media IndexedDB'));
-  });
+    request.onblocked = () => {
+      startupTrace('indexedDB.open blocked', { databaseName: DB_NAME, version: DB_VERSION });
+    };
+    request.onupgradeneeded = (event) => {
+      startupTrace('indexedDB.open upgrade start', {
+        databaseName: DB_NAME,
+        version: DB_VERSION,
+        oldVersion: event.oldVersion
+      });
+      upgradeMediaDb(request);
+      startupTrace('indexedDB.open upgrade finish', {
+        databaseName: DB_NAME,
+        version: DB_VERSION
+      });
+    };
+    request.onsuccess = () => {
+      startupTrace('indexedDB.open finish', { databaseName: DB_NAME, version: DB_VERSION });
+      resolve(request.result);
+    };
+    request.onerror = () => {
+      startupTrace('indexedDB.open error', {
+        databaseName: DB_NAME,
+        version: DB_VERSION,
+        message: request.error?.message ?? 'Failed to open media IndexedDB'
+      });
+      reject(request.error ?? new Error('Failed to open media IndexedDB'));
+    };
+  }));
 }
 
 function upgradeMediaDb(request: IDBOpenDBRequest) {
@@ -172,13 +198,34 @@ function normalizeLegacyRecord(record: LegacyMediaRecord, ownerType: MediaOwnerT
 }
 
 export async function saveMedia(input: SaveMediaInput) {
-  const record = await normalizeSaveInput(input);
+  startupTrace('mediaRepository.saveMedia start', {
+    ownerType: input.ownerType,
+    ownerId: input.ownerId,
+    mediaType: input.mediaType,
+    id: input.id ?? null
+  });
+  const record = await traceStartupPromise('mediaRepository.normalizeSaveInput', () => normalizeSaveInput(input), {
+    ownerType: input.ownerType,
+    ownerId: input.ownerId,
+    mediaType: input.mediaType
+  });
   if (shouldUseSupabaseStorage(record.ownerType)) {
-    return saveSupabaseStorageMedia(record);
+    const saved = await traceStartupPromise('mediaRepository.saveSupabaseStorageMedia', () => saveSupabaseStorageMedia(record), {
+      ownerType: record.ownerType,
+      ownerId: record.ownerId,
+      id: record.id
+    });
+    startupTrace('mediaRepository.saveMedia finish', { id: saved.id, remote: true });
+    return saved;
   }
-  const db = await openMediaDb();
-  await writeTransaction(db, (store) => store.put(record));
+  const db = await traceStartupPromise('mediaRepository.openMediaDb for saveMedia', () => openMediaDb(), {
+    id: record.id
+  });
+  await traceStartupPromise('mediaRepository.writeTransaction saveMedia', () => writeTransaction(db, (store) => store.put(record)), {
+    id: record.id
+  });
   db.close();
+  startupTrace('mediaRepository.saveMedia finish', { id: record.id, remote: false });
   return record;
 }
 
@@ -344,9 +391,12 @@ export async function createThumbnail(blob: Blob, mediaType: UnifiedMediaType = 
 
 export async function listStoreSummaries(): Promise<LocalMediaStoreSummary[]> {
   const db = await openMediaDb();
-  const summaries = await Promise.all(
-    Array.from(db.objectStoreNames).map(
-      (storeName) =>
+  const storeNames = Array.from(db.objectStoreNames);
+  const summaries = await traceStartupPromiseAll(
+    'mediaRepository.listStoreSummaries stores',
+    storeNames.map((storeName) => ({
+      label: storeName,
+      promise:
         new Promise<LocalMediaStoreSummary>((resolve, reject) => {
           const transaction = db.transaction(storeName, 'readonly');
           const request = transaction.objectStore(storeName).getAll();
@@ -362,26 +412,42 @@ export async function listStoreSummaries(): Promise<LocalMediaStoreSummary[]> {
           };
           request.onerror = () => reject(request.error ?? new Error('Failed to list media store'));
         })
-    )
+    }))
   );
   db.close();
   return summaries;
 }
 
 function writeTransaction(db: IDBDatabase, write: (store: IDBObjectStore) => void) {
-  return new Promise<void>((resolve, reject) => {
+  return traceStartupPromise('mediaRepository.writeTransaction', () => new Promise<void>((resolve, reject) => {
+    startupTrace('mediaRepository.writeTransaction inner start');
     const transaction = db.transaction(MEDIA_STORE_NAME, 'readwrite');
     write(transaction.objectStore(MEDIA_STORE_NAME));
-    transaction.oncomplete = () => resolve();
-    transaction.onerror = () => reject(transaction.error ?? new Error('Failed to write media'));
-  });
+    transaction.oncomplete = () => {
+      startupTrace('mediaRepository.writeTransaction inner finish');
+      resolve();
+    };
+    transaction.onerror = () => {
+      startupTrace('mediaRepository.writeTransaction inner error', {
+        message: transaction.error?.message ?? 'Failed to write media'
+      });
+      reject(transaction.error ?? new Error('Failed to write media'));
+    };
+  }));
 }
 
 async function normalizeSaveInput(input: SaveMediaInput): Promise<UnifiedMediaRecord> {
   const mediaType = input.mediaType;
-  const blob = await prepareMediaBlob(input);
+  const blob = await traceStartupPromise('mediaRepository.prepareMediaBlob', () => prepareMediaBlob(input), {
+    ownerType: input.ownerType,
+    ownerId: input.ownerId,
+    mediaType
+  });
   validateMediaLimit(mediaType, blob, input.duration ?? null);
-  const thumbnail = input.thumbnailBlob ?? (await generateThumbnailBlob(blob, mediaType));
+  const thumbnail = input.thumbnailBlob ?? (await traceStartupPromise('mediaRepository.generateThumbnailBlob', () => generateThumbnailBlob(blob, mediaType), {
+    mediaType,
+    blobSize: blob.size
+  }));
   return {
     id: input.id ?? createLocalId(),
     ownerType: input.ownerType,
@@ -542,7 +608,11 @@ async function prepareMediaBlob(input: SaveMediaInput) {
   if (input.skipImageCompression || (input.mediaType !== 'photo' && input.mediaType !== 'image')) return input.blob;
   if (typeof createImageBitmap === 'undefined' || typeof document === 'undefined') return input.blob;
   try {
-    const compressed = await resizeImageBlob(input.blob, IMAGE_MAX_SIDE, 0.82);
+    const compressed = await traceStartupPromise('mediaRepository.resizeImageBlob prepare', () => resizeImageBlob(input.blob, IMAGE_MAX_SIDE, 0.82), {
+      ownerType: input.ownerType,
+      ownerId: input.ownerId,
+      mediaType: input.mediaType
+    });
     if (!compressed || compressed.size > input.blob.size) return input.blob;
     return compressed;
   } catch {
@@ -554,14 +624,21 @@ async function generateThumbnailBlob(blob: Blob, mediaType: UnifiedMediaType) {
   if (mediaType !== 'photo' && mediaType !== 'image') return null;
   if (typeof createImageBitmap === 'undefined' || typeof document === 'undefined') return null;
   try {
-    return await resizeImageBlob(blob, THUMBNAIL_MAX_SIDE, 0.72);
+    return await traceStartupPromise('mediaRepository.resizeImageBlob thumbnail', () => resizeImageBlob(blob, THUMBNAIL_MAX_SIDE, 0.72), {
+      mediaType,
+      blobSize: blob.size
+    });
   } catch {
     return null;
   }
 }
 
 async function resizeImageBlob(blob: Blob, maxSide: number, quality: number) {
-  const bitmap = await createImageBitmap(blob);
+  const bitmap = await traceStartupPromise('createImageBitmap', () => createImageBitmap(blob), {
+    blobSize: blob.size,
+    blobType: blob.type,
+    maxSide
+  });
   const scale = Math.min(1, maxSide / Math.max(bitmap.width, bitmap.height));
   const width = Math.max(1, Math.round(bitmap.width * scale));
   const height = Math.max(1, Math.round(bitmap.height * scale));
@@ -575,7 +652,11 @@ async function resizeImageBlob(blob: Blob, maxSide: number, quality: number) {
   }
   context.drawImage(bitmap, 0, 0, width, height);
   bitmap.close();
-  return new Promise<Blob | null>((resolve) => canvas.toBlob(resolve, 'image/webp', quality));
+  return traceStartupPromise('canvas.toBlob', () => new Promise<Blob | null>((resolve) => canvas.toBlob(resolve, 'image/webp', quality)), {
+    width,
+    height,
+    quality
+  });
 }
 
 function defaultMimeType(mediaType: UnifiedMediaType) {

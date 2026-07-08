@@ -1,3 +1,5 @@
+import { startupTrace, traceStartupPromise } from './lib/startupTrace';
+
 type BootTraceWindow = Window & {
   __DREAMERS_BOOT_TRACE__?: (label: string, payload?: Record<string, unknown>) => void;
   __DREAMERS_MAIN_STARTED__?: boolean;
@@ -10,17 +12,6 @@ function bootTrace(label: string, payload: Record<string, unknown> = {}) {
     return;
   }
   console.log(label, payload);
-}
-
-function traceTimeout<T>(label: string, promise: Promise<T>): Promise<T> {
-  const timeout = window.setTimeout(() => {
-    bootTrace('Timeout waiting...', { promise: label });
-    console.warn('Timeout waiting...', label);
-  }, 5000);
-
-  return promise.finally(() => {
-    window.clearTimeout(timeout);
-  });
 }
 
 function showBootstrapFailed(error: unknown) {
@@ -49,6 +40,10 @@ bootTrace('MAIN START', {
   pathname: window.location.pathname,
   userAgent: navigator.userAgent
 });
+startupTrace('main.ts start', {
+  href: window.location.href,
+  pathname: window.location.pathname
+});
 (window as BootTraceWindow).__DREAMERS_MAIN_STARTED__ = true;
 
 window.addEventListener('error', (event) => {
@@ -71,9 +66,14 @@ window.addEventListener('unhandledrejection', (event) => {
 void (async () => {
   try {
     bootTrace('IMPORT APP');
-    const app = await traceTimeout('import appEntry', import('./appEntry'));
-    await traceTimeout('startApp', app.startApp());
+    const app = await traceStartupPromise('main.ts import appEntry', () => import('./appEntry'));
+    await traceStartupPromise('main.ts startApp', () => app.startApp());
+    startupTrace('main.ts finish');
   } catch (error) {
+    startupTrace('main.ts error', {
+      message: error instanceof Error ? error.message : String(error),
+      stack: error instanceof Error ? error.stack ?? null : null
+    });
     showBootstrapFailed(error);
   }
 })();
