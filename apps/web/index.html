@@ -9,10 +9,103 @@
     <meta name="apple-mobile-web-app-status-bar-style" content="default" />
     <meta name="apple-mobile-web-app-title" content="Dreamers Family" />
     <title>Dreamers Family</title>
+    <script>
+      (() => {
+        const bootEvents = [];
+        let bodyReady = false;
+        const getScripts = () => Array.from(document.scripts).map((script) => ({
+          src: script.src || 'inline',
+          type: script.type || 'classic',
+          async: script.async,
+          defer: script.defer
+        }));
+        const renderBootEvent = (label, payload) => {
+          const root = document.getElementById('root');
+          if (!root || root.dataset.reactMounted === '1') return;
+          let panel = document.getElementById('bootstrap-diagnostics');
+          if (!panel) {
+            panel = document.createElement('pre');
+            panel.id = 'bootstrap-diagnostics';
+            panel.style.cssText = 'padding:16px;margin:0;font:12px/1.5 ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;white-space:pre-wrap;word-break:break-word;color:#1f2933;background:#fff7ed;';
+            root.appendChild(panel);
+          }
+          panel.textContent = bootEvents.map((event) => `${event.at} ${event.label} ${JSON.stringify(event.payload)}`).join('\n');
+        };
+
+        window.__DREAMERS_BOOT_TRACE__ = (label, payload) => {
+          const event = {
+            label,
+            payload: payload || {},
+            at: new Date().toISOString()
+          };
+          bootEvents.push(event);
+          console.log(label, payload || {});
+          if (bodyReady) renderBootEvent(label, payload);
+        };
+
+        window.__DREAMERS_BOOT_RENDER__ = () => {
+          bodyReady = true;
+          renderBootEvent('BOOT DOM READY', { scripts: getScripts() });
+        };
+
+        window.__DREAMERS_BOOT_TRACE__('BOOT START', {
+          href: window.location.href,
+          pathname: window.location.pathname,
+          userAgent: navigator.userAgent
+        });
+
+        window.addEventListener('error', (event) => {
+          window.__DREAMERS_BOOT_TRACE__('BOOT ERROR', {
+            message: event.message,
+            filename: event.filename,
+            line: event.lineno,
+            column: event.colno,
+            target: event.target && event.target !== window ? {
+              tagName: event.target.tagName,
+              src: event.target.src || null,
+              href: event.target.href || null
+            } : null
+          });
+        }, true);
+
+        window.addEventListener('unhandledrejection', (event) => {
+          window.__DREAMERS_BOOT_TRACE__('BOOT PROMISE ERROR', {
+            message: event.reason instanceof Error ? event.reason.message : String(event.reason || 'Unknown promise error')
+          });
+        });
+
+        window.setTimeout(() => {
+          if (window.__DREAMERS_MAIN_STARTED__) return;
+          window.__DREAMERS_BOOT_TRACE__('MAIN NOT STARTED AFTER 3000MS', {
+            scripts: getScripts(),
+            resources: performance.getEntriesByType('resource')
+              .filter((entry) => entry.name.includes('.js') || entry.name.includes('registerSW') || entry.name.includes('sw.js'))
+              .map((entry) => ({
+                name: entry.name,
+                duration: Math.round(entry.duration),
+                transferSize: entry.transferSize || null
+              }))
+          });
+        }, 3000);
+      })();
+    </script>
   </head>
   <body>
     <div id="root"></div>
-    <script src="/registerSW.js"></script>
-    <script type="module" src="/src/main.tsx"></script>
+    <script>
+      window.__DREAMERS_BOOT_RENDER__ && window.__DREAMERS_BOOT_RENDER__();
+    </script>
+    <script
+      src="/registerSW.js"
+      defer
+      onload="window.__DREAMERS_BOOT_TRACE__ && window.__DREAMERS_BOOT_TRACE__('registerSW loaded')"
+      onerror="window.__DREAMERS_BOOT_TRACE__ && window.__DREAMERS_BOOT_TRACE__('registerSW failed', { src: this.src })"
+    ></script>
+    <script
+      type="module"
+      src="/src/main.tsx"
+      onload="window.__DREAMERS_BOOT_TRACE__ && window.__DREAMERS_BOOT_TRACE__('main module loaded')"
+      onerror="window.__DREAMERS_BOOT_TRACE__ && window.__DREAMERS_BOOT_TRACE__('main module failed', { src: this.src })"
+    ></script>
   </body>
 </html>

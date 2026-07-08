@@ -4,6 +4,12 @@
 /index.html
   Cache-Control: no-cache, no-store, must-revalidate
 
+/child/*
+  Cache-Control: no-cache, no-store, must-revalidate
+
+/parent/*
+  Cache-Control: no-cache, no-store, must-revalidate
+
 /build-meta.json
   Cache-Control: no-cache, no-store, must-revalidate
 
