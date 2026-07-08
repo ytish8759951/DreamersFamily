@@ -223,7 +223,7 @@ function SectionHeading({
   return (
     <div className="v1-section-heading">
       <h2>{Icon ? <Icon size={22} /> : null}{title}{accent ? <span>{accent}</span> : null}</h2>
-      {action && actionHref ? <Link to={actionHref}>{action} <ChevronRight size={17} /></Link> : null}
+      {action && actionHref ? <span className="v1-section-action">{action} <ChevronRight size={17} /></span> : null}
     </div>
   );
 }

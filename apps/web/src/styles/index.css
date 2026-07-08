@@ -23905,3 +23905,71 @@ body.modal-open {
   color: #6f5520;
   font-weight: 800;
 }
+
+/* Child V2 interaction restore. Keep this late so it wins over older duplicated V2 rules. */
+.ds-child-shell {
+  position: relative;
+  min-height: 100vh;
+  min-height: 100dvh;
+  isolation: isolate;
+  overflow-x: hidden;
+  pointer-events: auto;
+}
+
+.ds-child-shell .ds-child-main {
+  position: relative;
+  z-index: 1;
+  overflow: visible;
+  pointer-events: auto;
+  padding-bottom: calc(9rem + env(safe-area-inset-bottom, 0px));
+}
+
+.ds-child-shell .ds-bottom-nav {
+  z-index: 120;
+  bottom: max(1rem, env(safe-area-inset-bottom, 0px));
+  pointer-events: auto;
+}
+
+.ds-child-shell .ds-bottom-nav a,
+.ds-child-shell button,
+.ds-child-shell a {
+  pointer-events: auto;
+  touch-action: manipulation;
+}
+
+.v2-home-page {
+  overflow: visible;
+}
+
+.v2-home-page .v1-home-hero,
+.v2-home-page .v1-home-link-panel,
+.v2-home-page .v1-stat-link,
+.v2-home-page .child-home-special-days {
+  position: relative;
+  z-index: 1;
+  pointer-events: auto;
+}
+
+.v2-home-page .child-home-special-days {
+  display: block;
+  color: inherit;
+  text-decoration: none;
+}
+
+.v1-section-action {
+  display: inline-flex;
+  align-items: center;
+  color: #0b4a8f;
+  font-weight: 700;
+  gap: 2px;
+}
+
+@media (max-width: 640px) {
+  .ds-child-shell .ds-child-main {
+    padding-bottom: calc(8rem + env(safe-area-inset-bottom, 0px));
+  }
+
+  .ds-child-shell .ds-bottom-nav {
+    bottom: max(0.5rem, env(safe-area-inset-bottom, 0px));
+  }
+}
