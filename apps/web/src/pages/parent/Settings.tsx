@@ -413,39 +413,141 @@ export function Settings() {
 
 const cleanupCountLabels: Record<string, string> = {
   families: '家庭',
+  family_members: '家庭成員',
   family_memberships: '家庭成員',
   children: '孩子',
-  child_login_challenges: '登入挑戰',
-  child_onboarding_tokens: '舊 QR token',
+  child_login_challenges: '孩子登入邀請',
+  child_onboarding_tokens: '舊版孩子 QR 邀請',
+  child_sessions: '孩子登入狀態',
   device_bindings: '裝置綁定',
-  child_sessions: '孩子 session',
-  child_device_heartbeats: '裝置 heartbeat',
+  child_device_heartbeats: '裝置在線紀錄',
+  task_records: '任務完成紀錄',
   tasks: '任務',
-  stars: '星星紀錄',
-  dreams: '撲滿夢想',
+  stars: '星星與獎勵',
+  badges: '徽章',
+  child_badges: '孩子徽章',
+  dreams: '撲滿目標',
   dream_funds: '撲滿流水',
+  piggy_bank_records: '撲滿紀錄',
+  store_items: '商品／兌換項目',
+  purchases: '兌換紀錄',
   growth_records: '成長紀錄',
-  shares: '分享',
-  share_media: '分享媒體',
+  shares: '分享內容',
+  share_media: '分享附件',
+  encouragement_cards: '鼓勵卡片',
   mailbox_messages: '信箱訊息',
+  special_days: '特殊日',
   notifications: '通知',
-  screen_time_logs: '平板時間紀錄'
+  tablet_time: '平板時間紀錄',
+  screen_time_logs: '平板時間紀錄',
+  screen_time_requests: '平板時間申請',
+  screen_time_schedules: '平板時間設定'
 };
 
-function CleanupCounts({ counts }: { counts: TestDataCleanupCounts }) {
-  const entries = Object.entries(counts).filter(([, value]) => Number(value) > 0);
-  if (!entries.length) {
-    return <p className="settings-operation-summary">目前家庭沒有可清除的測試內容。</p>;
+const cleanupCountGroups: Array<{ title: string; keys: string[] }> = [
+  {
+    title: '家庭與孩子',
+    keys: ['families', 'family_members', 'family_memberships', 'children']
+  },
+  {
+    title: '裝置與登入',
+    keys: ['device_bindings', 'child_login_challenges', 'child_onboarding_tokens', 'child_sessions', 'child_device_heartbeats']
+  },
+  {
+    title: '任務與獎勵',
+    keys: ['tasks', 'task_records', 'stars', 'badges', 'child_badges']
+  },
+  {
+    title: '撲滿與成長',
+    keys: ['dreams', 'dream_funds', 'piggy_bank_records', 'store_items', 'purchases', 'growth_records', 'tablet_time', 'screen_time_logs', 'screen_time_requests', 'screen_time_schedules']
+  },
+  {
+    title: '分享與信箱',
+    keys: ['shares', 'share_media', 'encouragement_cards', 'mailbox_messages', 'special_days', 'notifications']
   }
+];
+
+const fallbackCleanupWords: Record<string, string> = {
+  family: '家庭',
+  families: '家庭',
+  members: '成員',
+  children: '孩子',
+  child: '孩子',
+  login: '登入',
+  challenges: '邀請',
+  challenge: '邀請',
+  device: '裝置',
+  devices: '裝置',
+  bindings: '綁定',
+  binding: '綁定',
+  heartbeat: '在線紀錄',
+  heartbeats: '在線紀錄',
+  presence: '在線狀態',
+  task: '任務',
+  tasks: '任務',
+  records: '紀錄',
+  record: '紀錄',
+  store: '商品',
+  items: '項目',
+  item: '項目',
+  piggy: '撲滿',
+  bank: '帳本',
+  stars: '星星',
+  rewards: '獎勵',
+  growth: '成長',
+  shares: '分享',
+  share: '分享',
+  media: '附件',
+  inbox: '信箱',
+  mailbox: '信箱',
+  messages: '訊息',
+  message: '訊息',
+  notifications: '通知',
+  notification: '通知',
+  screen: '平板',
+  time: '時間',
+  tablet: '平板',
+  sessions: '登入狀態',
+  session: '登入狀態',
+  purchases: '兌換紀錄',
+  purchase: '兌換紀錄'
+};
+
+function getCleanupCountLabel(key: string) {
+  if (cleanupCountLabels[key]) return cleanupCountLabels[key];
+  const translated = key
+    .split('_')
+    .filter(Boolean)
+    .map((word) => fallbackCleanupWords[word.toLowerCase()] ?? word.replace(/^\w/, (value) => value.toUpperCase()))
+    .join(' ');
+  return `其他資料：${translated || '未分類項目'}`;
+}
+
+function CleanupCounts({ counts }: { counts: TestDataCleanupCounts }) {
+  const knownKeys = new Set(cleanupCountGroups.flatMap((group) => group.keys));
+  const unknownKeys = Object.keys(counts).filter((key) => !knownKeys.has(key));
+  const groups = unknownKeys.length
+    ? [...cleanupCountGroups, { title: '其他資料', keys: unknownKeys }]
+    : cleanupCountGroups;
   return (
-    <dl className="settings-cleanup-counts">
-      {entries.map(([key, value]) => (
-        <div key={key}>
-          <dt>{cleanupCountLabels[key] ?? key}</dt>
-          <dd>{value}</dd>
-        </div>
+    <div className="settings-cleanup-count-groups">
+      {groups.map((group) => (
+        <section key={group.title} className="settings-cleanup-count-group">
+          <h3>{group.title}</h3>
+          <dl className="settings-cleanup-counts">
+            {group.keys.map((key) => {
+              const value = Number(counts[key] ?? 0);
+              return (
+                <div key={key} className={value === 0 ? 'is-empty' : undefined}>
+                  <dt>{getCleanupCountLabel(key)}</dt>
+                  <dd>{value}</dd>
+                </div>
+              );
+            })}
+          </dl>
+        </section>
       ))}
-    </dl>
+    </div>
   );
 }
 
@@ -457,7 +559,7 @@ function formatCleanupResult(result: TestDataCleanupResult) {
 function formatDemoResult(result: DemoDataResult) {
   const summary = Object.entries(result.counts)
     .filter(([, value]) => Number(value) > 0)
-    .map(([key, value]) => `${cleanupCountLabels[key] ?? key} ${value}`)
+    .map(([key, value]) => `${getCleanupCountLabel(key)} ${value}`)
     .join('、');
   return summary ? `示範資料異動：${summary}` : '示範資料已存在，沒有重複建立。';
 }

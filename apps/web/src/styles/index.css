@@ -20762,6 +20762,22 @@ body.modal-open {
   color: #a65c58;
 }
 
+.settings-cleanup-count-groups {
+  display: grid;
+  gap: 12px;
+}
+
+.settings-cleanup-count-group {
+  display: grid;
+  gap: 8px;
+}
+
+.settings-cleanup-count-group h3 {
+  margin: 0;
+  color: #5b3a1d;
+  font-size: 14px;
+}
+
 .settings-cleanup-counts {
   display: grid;
   grid-template-columns: repeat(3, minmax(0, 1fr));
@@ -20773,6 +20789,10 @@ body.modal-open {
   border-radius: 13px;
   background: #fbf7ef;
   padding: 10px;
+}
+
+.settings-cleanup-counts div.is-empty {
+  opacity: .5;
 }
 
 .settings-cleanup-counts dt {
