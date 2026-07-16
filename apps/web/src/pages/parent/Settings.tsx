@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState, type ChangeEvent, type FormEvent } from 'react';
+import { useEffect, useMemo, useState, type ChangeEvent } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { Copy, Database, Download, LogOut, Settings as SettingsIcon, Trash2, Upload, UserRound, X } from 'lucide-react';
 import QRCode from 'react-qr-code';
@@ -36,12 +36,59 @@ function restoreCleanupModalInteractionState() {
   });
   document.body.classList.remove('modal-open');
   if (document.body.style.overflow === 'hidden') document.body.style.overflow = '';
+  document.querySelectorAll('[data-radix-dialog-overlay], .modal-backdrop, .local-form-backdrop').forEach((overlay) => {
+    if (!document.getElementById('root')?.contains(overlay)) overlay.remove();
+  });
   restoreDocumentInteractionState();
   window.requestAnimationFrame(() => {
     document.querySelectorAll('.settings-modal-backdrop').forEach((backdrop) => {
-      if (!document.getElementById('root')?.contains(backdrop)) backdrop.remove();
+      backdrop.remove();
     });
   });
+}
+
+function getSettingsInteractionDiagnostics() {
+  if (typeof document === 'undefined' || typeof window === 'undefined') return {};
+  const centerElement = document.elementFromPoint(window.innerWidth / 2, window.innerHeight / 2);
+  const describeElement = (element: Element | null) => {
+    if (!element) return null;
+    return {
+      tagName: element.tagName,
+      id: element.id || null,
+      className: typeof element.className === 'string' ? element.className : String(element.className || ''),
+      role: element.getAttribute('role')
+    };
+  };
+  const fixedOverlays = Array.from(document.body.querySelectorAll<HTMLElement>('*'))
+    .filter((element) => {
+      const style = window.getComputedStyle(element);
+      const rect = element.getBoundingClientRect();
+      return (
+        style.position === 'fixed' &&
+        style.display !== 'none' &&
+        style.visibility !== 'hidden' &&
+        style.pointerEvents !== 'none' &&
+        rect.width >= window.innerWidth * 0.8 &&
+        rect.height >= window.innerHeight * 0.8
+      );
+    })
+    .map((element) => ({
+      tagName: element.tagName,
+      id: element.id || null,
+      className: typeof element.className === 'string' ? element.className : String(element.className || ''),
+      zIndex: window.getComputedStyle(element).zIndex
+    }));
+
+  return {
+    centerElement: describeElement(centerElement),
+    settingsBackdropCount: document.querySelectorAll('.settings-modal-backdrop').length,
+    inertCount: document.querySelectorAll('[inert]').length,
+    bodyPointerEvents: window.getComputedStyle(document.body).pointerEvents,
+    documentPointerEvents: window.getComputedStyle(document.documentElement).pointerEvents,
+    bodyClassName: document.body.className,
+    bodyOverflow: document.body.style.overflow,
+    fixedOverlays
+  };
 }
 
 function withCleanupTimeout<T>(operation: Promise<T>) {
@@ -104,6 +151,12 @@ export function Settings() {
   }, [cleanupOpen]);
 
   useEffect(() => {
+    restoreCleanupModalInteractionState();
+    startupTrace('SETTINGS INTERACTION DIAGNOSTICS', getSettingsInteractionDiagnostics());
+    return restoreCleanupModalInteractionState;
+  }, []);
+
+  useEffect(() => {
     startupTrace('SETTINGS START', {
       familyId: runtimeInfo.familyId,
       parentRole: runtimeInfo.parentRole
@@ -136,8 +189,7 @@ export function Settings() {
     setForm((current) => ({ ...current, [key]: value }));
   };
 
-  const save = (event: FormEvent) => {
-    event.preventDefault();
+  const saveSettings = () => {
     setMessage('');
     try {
       settingsRepository.updateSettings({
@@ -286,14 +338,14 @@ export function Settings() {
   };
 
   return (
-    <form className="settings-page" onSubmit={save}>
+    <div className="settings-page">
       <header className="settings-hero">
         <div>
           <span><SettingsIcon size={30} /></span>
           <h1>設定</h1>
           <p>管理家庭資料、分享權限與資料匯入匯出。</p>
         </div>
-        <button type="submit">儲存設定</button>
+        <button type="button" onClick={saveSettings}>儲存設定</button>
       </header>
 
       {message ? <p className="settings-message">{message}</p> : null}
@@ -446,7 +498,7 @@ export function Settings() {
           <p className="settings-invite-empty">尚未產生邀請。Owner 可產生邀請碼、連結與 QR Code。</p>
         )}
       </section>
-    </form>
+    </div>
   );
 }
 

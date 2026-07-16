@@ -53,4 +53,18 @@ describe('test data cleanup safety', () => {
     expect(source).toContain('CLEANUP_OPERATION_TIMEOUT_MS');
     expect(touchInteractions).toContain("'.settings-modal-backdrop'");
   });
+
+  it('keeps the settings page interactive before the cleanup dialog is opened', () => {
+    const source = readRepoFile('apps/web/src/pages/parent/Settings.tsx');
+
+    expect(source).toContain('const [cleanupOpen, setCleanupOpen] = useState(false)');
+    expect(source).toContain('{cleanupOpen ? (');
+    expect(source).toContain('<div className="settings-page">');
+    expect(source).not.toContain('<form className="settings-page"');
+    expect(source).toContain('type="button" onClick={saveSettings}');
+    expect(source).toContain('SETTINGS INTERACTION DIAGNOSTICS');
+    expect(source).toContain('getSettingsInteractionDiagnostics');
+    expect(source).toContain('settingsBackdropCount');
+    expect(source).toContain('fixedOverlays');
+  });
 });
