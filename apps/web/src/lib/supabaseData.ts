@@ -9,7 +9,7 @@ import {
 import { requireBackendVerifiedChildBindingRow } from './childBindingRpcValidation';
 import { childBindingTrace, hashForTrace, recordBindChildDeviceCall } from './childBindingTrace';
 import { bootstrapChildDeviceSession } from './childHydration';
-import { getChildSession, isChildSessionValid } from './childSessionRepository';
+import { clearChildSession, getChildSession, isChildSessionValid } from './childSessionRepository';
 import {
   LOCAL_DEVICE_ID,
   MockDatabase
@@ -32,7 +32,10 @@ import {
   type ChildLoginChallengeResult,
   type ChildLoginChallengePreview,
   type CompleteChildLoginChallengeResult,
-  type ChildSessionValidationResult
+  type ChildSessionValidationResult,
+  type TestDataCleanupPreview,
+  type TestDataCleanupResult,
+  type DemoDataResult
 } from './localData';
 import type {
   AnnualParentNote,
@@ -2228,6 +2231,76 @@ export class SupabaseDataRepository implements LocalDataRepository {
   importData = this.delegateWrite('importData');
   resetAllData = this.delegateWrite('resetAllData');
   resetDemoData = this.delegateWrite('resetDemoData');
+
+  async previewTestDataCleanup(familyId?: UUID | null): Promise<TestDataCleanupPreview> {
+    if (!this.client) return this.cache.previewTestDataCleanup(familyId);
+    const { data, error } = await this.client.rpc('preview_test_data_cleanup', {
+      p_family_id: familyId ?? SUPABASE_FAMILY_ID
+    });
+    if (error) throw error;
+    const row = firstRpcRow(data as { family_id: UUID; counts: Record<string, number> }[] | { family_id: UUID; counts: Record<string, number> } | null);
+    if (!row?.family_id || !row.counts) throw new LocalDataError('Cleanup preview response is invalid', 'CLEANUP_PREVIEW_INVALID');
+    return { familyId: row.family_id, counts: row.counts };
+  }
+
+  async executeTestDataCleanup(input: { familyId?: UUID | null; removeFamily?: boolean } = {}): Promise<TestDataCleanupResult> {
+    if (!this.client) {
+      const result = this.cache.executeTestDataCleanup(input);
+      clearChildSession();
+      return result;
+    }
+    const { data, error } = await this.client.rpc('execute_test_data_cleanup', {
+      p_family_id: input.familyId ?? SUPABASE_FAMILY_ID,
+      p_remove_family: Boolean(input.removeFamily)
+    });
+    if (error) throw error;
+    const row = firstRpcRow(data as {
+      family_id: UUID;
+      removed_family: boolean;
+      deleted_counts: Record<string, number>;
+      preserved: Record<string, string>;
+    }[] | {
+      family_id: UUID;
+      removed_family: boolean;
+      deleted_counts: Record<string, number>;
+      preserved: Record<string, string>;
+    } | null);
+    if (!row?.family_id || !row.deleted_counts) throw new LocalDataError('Cleanup result response is invalid', 'CLEANUP_RESULT_INVALID');
+    clearChildSession();
+    this.cache.executeTestDataCleanup({ familyId: row.family_id, removeFamily: row.removed_family });
+    this.hydrateFromSupabase();
+    return {
+      familyId: row.family_id,
+      removedFamily: row.removed_family,
+      deletedCounts: row.deleted_counts,
+      preserved: row.preserved ?? {}
+    };
+  }
+
+  async createDemoData(familyId?: UUID | null): Promise<DemoDataResult> {
+    if (!this.client) return this.cache.createDemoData(familyId);
+    const { data, error } = await this.client.rpc('create_demo_family_data', {
+      p_family_id: familyId ?? SUPABASE_FAMILY_ID
+    });
+    if (error) throw error;
+    const row = firstRpcRow(data as { family_id: UUID; created_counts: Record<string, number> }[] | { family_id: UUID; created_counts: Record<string, number> } | null);
+    if (!row?.family_id || !row.created_counts) throw new LocalDataError('Demo data response is invalid', 'DEMO_DATA_RESPONSE_INVALID');
+    this.hydrateFromSupabase();
+    return { familyId: row.family_id, counts: row.created_counts };
+  }
+
+  async removeDemoData(familyId?: UUID | null): Promise<DemoDataResult> {
+    if (!this.client) return this.cache.removeDemoData(familyId);
+    const { data, error } = await this.client.rpc('remove_demo_family_data', {
+      p_family_id: familyId ?? SUPABASE_FAMILY_ID
+    });
+    if (error) throw error;
+    const row = firstRpcRow(data as { family_id: UUID; deleted_counts: Record<string, number> }[] | { family_id: UUID; deleted_counts: Record<string, number> } | null);
+    if (!row?.family_id || !row.deleted_counts) throw new LocalDataError('Demo removal response is invalid', 'DEMO_DATA_RESPONSE_INVALID');
+    this.hydrateFromSupabase();
+    return { familyId: row.family_id, counts: row.deleted_counts };
+  }
+
   updateScreenTime = this.delegateWrite('updateScreenTime');
   createScreenTimeRequest = this.delegateWrite('createScreenTimeRequest');
   reviewScreenTimeRequest = this.delegateWrite('reviewScreenTimeRequest');

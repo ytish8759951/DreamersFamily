@@ -20701,6 +20701,116 @@ body.modal-open {
   color: #a65c58;
 }
 
+.settings-data-actions .is-secondary-danger {
+  background: #fff2da;
+  color: #9a6a2f;
+}
+
+.settings-data-actions button:disabled,
+.settings-data-actions label:has(input:disabled),
+.settings-cleanup-dialog button:disabled {
+  cursor: not-allowed;
+  opacity: .58;
+}
+
+.settings-operation-summary {
+  margin: 0;
+  border-radius: 14px;
+  background: #edf5de;
+  padding: 11px 12px;
+  color: #65784a;
+  font-size: 13px;
+  font-weight: 850;
+}
+
+.settings-modal-backdrop {
+  position: fixed;
+  z-index: 70;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  background: rgba(35, 28, 22, .36);
+  padding: 18px;
+}
+
+.settings-cleanup-dialog {
+  width: min(720px, calc(100vw - 28px));
+  max-height: calc(100vh - 40px);
+  overflow: auto;
+}
+
+.settings-cleanup-body {
+  display: grid;
+  gap: 12px;
+}
+
+.settings-cleanup-warning,
+.settings-cleanup-error {
+  margin: 0;
+  border-radius: 14px;
+  padding: 12px;
+  font-weight: 850;
+}
+
+.settings-cleanup-warning {
+  background: #fff2da;
+  color: #7d5628;
+}
+
+.settings-cleanup-error {
+  background: #ffe8e6;
+  color: #a65c58;
+}
+
+.settings-cleanup-counts {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 8px;
+  margin: 0;
+}
+
+.settings-cleanup-counts div {
+  border-radius: 13px;
+  background: #fbf7ef;
+  padding: 10px;
+}
+
+.settings-cleanup-counts dt {
+  color: #776b5f;
+  font-size: 12px;
+  font-weight: 800;
+}
+
+.settings-cleanup-counts dd {
+  margin: 4px 0 0;
+  color: #3f352c;
+  font-size: 18px;
+  font-weight: 950;
+}
+
+.settings-cleanup-options {
+  display: grid;
+  gap: 8px;
+}
+
+.settings-confirm-input {
+  display: grid;
+  gap: 7px;
+  color: #6f6256;
+  font-size: 12px;
+  font-weight: 900;
+}
+
+.settings-confirm-input input {
+  width: 100%;
+  border: 1px solid #eee3d4;
+  border-radius: 13px;
+  background: #fbf7ef;
+  padding: 10px 12px;
+  color: #3f352c;
+  font: inherit;
+}
+
 .settings-subtitle {
   margin: 0;
   color: #5b3a1d;
@@ -20795,6 +20905,7 @@ body.modal-open {
 @media (max-width: 900px) {
   .settings-grid,
   .settings-data-panel dl,
+  .settings-cleanup-counts,
   .settings-invite-card {
     grid-template-columns: 1fr;
   }

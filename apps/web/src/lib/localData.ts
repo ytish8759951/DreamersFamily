@@ -477,6 +477,12 @@ function upsertDeviceBinding(
   return record;
 }
 
+function addDaysForDate(date: string, days: number) {
+  const value = new Date(`${date}T00:00:00.000Z`);
+  value.setUTCDate(value.getUTCDate() + days);
+  return value.toISOString().slice(0, 10);
+}
+
 function addHours(isoDate: string, hours: number) {
   return new Date(new Date(isoDate).getTime() + hours * 60 * 60 * 1000).toISOString();
 }
@@ -495,6 +501,70 @@ export function childLoginUrlFromChallengeToken(token: string) {
     ? window.location.origin
     : productionOrigin;
   return `${origin}/child/login/${token}`;
+}
+
+function countTestData(state: LocalDatabaseState): TestDataCleanupCounts {
+  return {
+    families: 1,
+    family_members: state.parent_id || state.current_user_id ? 1 : 0,
+    children: state.children.length,
+    child_login_challenges: state.child_login_challenges?.length ?? 0,
+    device_bindings: state.device_bindings.length,
+    tasks: state.tasks.length,
+    task_records: 0,
+    stars: state.stars.length,
+    piggy_bank_records: state.piggy_incomes.length + state.piggy_bank_logs.length,
+    store_items: state.piggy_products.length,
+    purchases: state.piggy_purchases.length,
+    dreams: state.dreams.length,
+    dream_funds: state.dream_funds.length,
+    shares: state.shares.length,
+    share_media: state.share_media.length,
+    encouragement_cards: state.encouragement_cards.length,
+    special_days: state.special_days.length,
+    growth_records: state.growth_records.length,
+    tablet_time: state.screen_time_logs.length + state.screen_time_requests.length + state.screen_time_schedules.length,
+    badges: state.badges.length,
+    child_badges: state.child_badges.length,
+    notifications: state.notifications.length
+  };
+}
+
+function clearFamilyContent(state: LocalDatabaseState) {
+  const counts = countTestData(state);
+  state.children = [];
+  state.child_onboarding_tokens = [];
+  state.child_login_challenges = [];
+  state.deviceBinding = null;
+  state.device_child_id = null;
+  state.currentChildIdentity = null;
+  state.active_child_id = null;
+  state.pendingBindingChildId = null;
+  state.tasks = [];
+  state.stars = [];
+  state.dreams = [];
+  state.dream_funds = [];
+  state.shares = [];
+  state.share_media = [];
+  state.encouragement_cards = [];
+  state.badges = [];
+  state.child_badges = [];
+  state.special_days = [];
+  state.screen_time_schedules = [];
+  state.screen_time_requests = [];
+  state.screen_time_logs = [];
+  state.growth_records = [];
+  state.notifications = [];
+  state.device_bindings = [];
+  state.piggy_incomes = [];
+  state.piggy_bank_logs = [];
+  state.piggy_products = [];
+  state.piggy_shelf_orders = [];
+  state.piggyProductDisplaySettings = [];
+  state.piggy_purchases = [];
+  state.annual_parent_notes = [];
+  state.updated_at = now();
+  return counts;
 }
 
 function revokeDeviceBindingsForChild(state: LocalDatabaseState, childId: UUID) {
@@ -795,6 +865,25 @@ export interface ChildSessionValidationResult {
   valid: boolean;
 }
 
+export type TestDataCleanupCounts = Record<string, number>;
+
+export interface TestDataCleanupPreview {
+  familyId: UUID;
+  counts: TestDataCleanupCounts;
+}
+
+export interface TestDataCleanupResult {
+  familyId: UUID;
+  removedFamily: boolean;
+  deletedCounts: TestDataCleanupCounts;
+  preserved: Record<string, string>;
+}
+
+export interface DemoDataResult {
+  familyId: UUID;
+  counts: TestDataCleanupCounts;
+}
+
 export interface UpdatePiggyProductInput {
   name?: string;
   price?: number;
@@ -868,6 +957,10 @@ export interface LocalDataRepository {
   importData(raw: string): LocalDatabaseState;
   resetAllData(): LocalDatabaseState;
   resetDemoData(): LocalDatabaseState;
+  previewTestDataCleanup(familyId?: UUID | null): TestDataCleanupPreview | Promise<TestDataCleanupPreview>;
+  executeTestDataCleanup(input?: { familyId?: UUID | null; removeFamily?: boolean }): TestDataCleanupResult | Promise<TestDataCleanupResult>;
+  createDemoData(familyId?: UUID | null): DemoDataResult | Promise<DemoDataResult>;
+  removeDemoData(familyId?: UUID | null): DemoDataResult | Promise<DemoDataResult>;
   updateScreenTime(input: UpdateScreenTimeInput): LocalScreenTimeLog;
   createScreenTimeRequest(input: CreateScreenTimeRequestInput): LocalScreenTimeRequest;
   reviewScreenTimeRequest(requestId: UUID, input: ReviewScreenTimeRequestInput): LocalScreenTimeRequest;
@@ -2411,40 +2504,181 @@ export class LocalDataService implements LocalDataRepository {
   resetDemoData() {
     return this.db.transaction((state) => {
       const familySettings = state.family_settings;
-      state.children = [];
-      state.child_onboarding_tokens = [];
-      state.deviceBinding = null;
-      state.device_child_id = null;
-      state.currentChildIdentity = null;
-      state.active_child_id = null;
-      state.pendingBindingChildId = null;
-      state.tasks = [];
-      state.stars = [];
-      state.dreams = [];
-      state.dream_funds = [];
-      state.shares = [];
-      state.share_media = [];
-      state.encouragement_cards = [];
-      state.badges = [];
-      state.child_badges = [];
-      state.special_days = [];
-      state.screen_time_schedules = [];
-      state.screen_time_requests = [];
-      state.screen_time_logs = [];
-      state.growth_records = [];
-      state.notifications = [];
-      state.device_bindings = [];
-      state.piggy_incomes = [];
-      state.piggy_bank_logs = [];
-      state.piggy_products = [];
-      state.piggy_shelf_orders = [];
-      state.piggyProductDisplaySettings = [];
-      state.piggy_purchases = [];
-      state.annual_parent_notes = [];
+      clearFamilyContent(state);
       state.memory_packs = [];
       state.family_settings = familySettings;
       return state;
     });
+  }
+
+  previewTestDataCleanup(familyId?: UUID | null): TestDataCleanupPreview {
+    const state = this.db.read();
+    return {
+      familyId: familyId ?? state.family_id,
+      counts: countTestData(state)
+    };
+  }
+
+  executeTestDataCleanup(input: { familyId?: UUID | null; removeFamily?: boolean } = {}): TestDataCleanupResult {
+    return this.db.transaction((state) => {
+      const familySettings = state.family_settings;
+      const counts = clearFamilyContent(state);
+      state.memory_packs = [];
+      if (!input.removeFamily) state.family_settings = familySettings;
+      return {
+        familyId: input.familyId ?? state.family_id,
+        removedFamily: Boolean(input.removeFamily),
+        deletedCounts: {
+          ...counts,
+          families: input.removeFamily ? 1 : 0,
+          family_members: input.removeFamily ? counts.family_members : 0
+        },
+        preserved: {
+          auth_users: 'preserved',
+          schema: 'preserved',
+          migrations: 'preserved',
+          rls: 'preserved',
+          rpc: 'preserved',
+          family: input.removeFamily ? 'removed' : 'preserved'
+        }
+      };
+    });
+  }
+
+  createDemoData(familyId?: UUID | null): DemoDataResult {
+    return this.db.transaction((state) => {
+      const existing = state.children.find((child) => child.notes === 'DEMO_DATA');
+      const counts: TestDataCleanupCounts = { children: 0, tasks: 0, stars: 0, growth_records: 0 };
+      const child = existing ?? this.createDemoChildInState(state);
+      if (!existing) counts.children = 1;
+      if (!state.tasks.some((task) => task.child_id === child.id && task.description === 'DEMO_DATA')) {
+        state.tasks.push({
+          id: id(),
+          family_id: state.family_id,
+          child_id: child.id,
+          title: 'DEMO 任務：整理書包',
+          description: 'DEMO_DATA',
+          task_image_media_id: null,
+          thumbnail_media_id: null,
+          category: 'daily',
+          task_date: today(),
+          due_at: null,
+          recurrence_rule: null,
+          status: 'pending',
+          reward_stars: 3,
+          reward_screen_minutes: 0,
+          completion_note: null,
+          completed_at: null,
+          reviewed_by: null,
+          reviewed_at: null,
+          rejection_reason: null,
+          created_by: state.current_user_id,
+          created_at: now(),
+          updated_at: now(),
+          archived_at: null
+        });
+        counts.tasks = 1;
+      }
+      if (!state.stars.some((star) => star.child_id === child.id && star.reason === 'DEMO_DATA')) {
+        state.stars.push({
+          id: id(),
+          family_id: state.family_id,
+          child_id: child.id,
+          type: 'earned',
+          amount: 5,
+          transaction_type: 'manual_adjustment',
+          reason: 'DEMO_DATA',
+          sourceType: null,
+          sourceId: null,
+          task_id: null,
+          share_id: null,
+          dream_id: null,
+          reversal_of_id: null,
+          idempotency_key: null,
+          created_by: state.current_user_id,
+          created_at: now()
+        });
+        counts.stars = 1;
+      }
+      if (!state.growth_records.some((record) => record.child_id === child.id && record.note === 'DEMO_DATA')) {
+        state.growth_records.push({
+          id: id(),
+          family_id: state.family_id,
+          child_id: child.id,
+          date: today(),
+          height_cm: 120,
+          weight_kg: 22,
+          growth_photo_media_ids: [],
+          reading_count: 3,
+          note: 'DEMO_DATA',
+          created_at: now(),
+          updated_at: now()
+        });
+        counts.growth_records = 1;
+      }
+      return { familyId: familyId ?? state.family_id, counts };
+    });
+  }
+
+  removeDemoData(familyId?: UUID | null): DemoDataResult {
+    return this.db.transaction((state) => {
+      const demoChildIds = new Set(state.children.filter((child) => child.notes === 'DEMO_DATA').map((child) => child.id));
+      const before = {
+        children: state.children.length,
+        tasks: state.tasks.length,
+        stars: state.stars.length,
+        growth_records: state.growth_records.length
+      };
+      state.growth_records = state.growth_records.filter((record) => record.note !== 'DEMO_DATA');
+      state.stars = state.stars.filter((star) => star.reason !== 'DEMO_DATA');
+      state.tasks = state.tasks.filter((task) => task.description !== 'DEMO_DATA');
+      state.children = state.children.filter((child) => child.notes !== 'DEMO_DATA');
+      state.device_bindings = state.device_bindings.filter((binding) => !demoChildIds.has(binding.child_id));
+      return {
+        familyId: familyId ?? state.family_id,
+        counts: {
+          growth_records: before.growth_records - state.growth_records.length,
+          stars: before.stars - state.stars.length,
+          tasks: before.tasks - state.tasks.length,
+          children: before.children - state.children.length
+        }
+      };
+    });
+  }
+
+  private createDemoChildInState(state: LocalDatabaseState): LocalChild {
+    const timestamp = now();
+    const childId = id();
+    const child: LocalChild = {
+      id: childId,
+      family_id: state.family_id,
+      display_name: 'Demo 孩子',
+      legal_name: null,
+      birth_date: addDaysForDate(today(), -365 * 6),
+      birthday: addDaysForDate(today(), -365 * 6),
+      gender: null,
+      avatar_path: null,
+      avatar_media_id: null,
+      theme_color: 'blue',
+      timezone: 'Asia/Taipei',
+      status: 'active',
+      notes: 'DEMO_DATA',
+      child_token: createChildDeviceToken({
+        childId,
+        displayName: 'Demo 孩子',
+        birthDate: null,
+        themeColor: 'blue',
+        createdAt: timestamp
+      }),
+      child_token_updated_at: timestamp,
+      child_token_consumed_at: null,
+      created_by: state.current_user_id,
+      created_at: timestamp,
+      updated_at: timestamp,
+      archived_at: null
+    };
+    state.children.push(child);
+    return child;
   }
 
   updateScreenTime(input: UpdateScreenTimeInput) {

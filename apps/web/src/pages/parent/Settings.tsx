@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState, type ChangeEvent, type FormEvent } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Copy, Database, Download, LogOut, RotateCcw, Settings as SettingsIcon, Upload, UserRound } from 'lucide-react';
+import { Copy, Database, Download, LogOut, PlusCircle, RotateCcw, Settings as SettingsIcon, Trash2, Upload, UserRound, X } from 'lucide-react';
 import QRCode from 'react-qr-code';
 import { dataMode, dataModeLabel } from '../../lib/dataRepository';
 import {
@@ -14,10 +14,13 @@ import {
 import { createParentInviteToken, getParentInviteUrl } from '../../lib/parentDeviceBinding';
 import { settingsRepository } from '../../lib/settingsRepository';
 import type { LocalFamilySettings } from '../../lib/localTypes';
+import type { DemoDataResult, TestDataCleanupCounts, TestDataCleanupPreview, TestDataCleanupResult } from '../../lib/localData';
 import { useLocalDataState } from '../../lib/useLocalData';
 import { useSupabaseRuntimeInfo } from '../../lib/useSupabaseRuntimeInfo';
+import { getErrorMessage } from '../../lib/errorDiagnostics';
 
 type SettingsForm = Omit<LocalFamilySettings, 'family_created_at' | 'updated_at'>;
+const CLEANUP_CONFIRM_TEXT = '清空測試資料';
 
 export function Settings() {
   const navigate = useNavigate();
@@ -29,9 +32,19 @@ export function Settings() {
   const [inviteLink, setInviteLink] = useState('');
   const [inviteCode, setInviteCode] = useState('');
   const [members, setMembers] = useState<ProductionFamilyParent[]>([]);
+  const [cleanupOpen, setCleanupOpen] = useState(false);
+  const [cleanupPreview, setCleanupPreview] = useState<TestDataCleanupPreview | null>(null);
+  const [cleanupResult, setCleanupResult] = useState<TestDataCleanupResult | null>(null);
+  const [cleanupRemoveFamily, setCleanupRemoveFamily] = useState(false);
+  const [cleanupConfirmText, setCleanupConfirmText] = useState('');
+  const [cleanupBusy, setCleanupBusy] = useState(false);
+  const [cleanupError, setCleanupError] = useState('');
+  const [demoBusy, setDemoBusy] = useState<'create' | 'remove' | null>(null);
+  const [demoResult, setDemoResult] = useState<DemoDataResult | null>(null);
   const usage = useMemo(() => estimateStorageUsage(), [state]);
   const familyName = settings.family_name || '小小夢想家 Family';
   const parentRoleLabel = runtimeInfo.parentRole === 'owner' ? 'Owner' : runtimeInfo.parentRole ? 'Parent' : '-';
+  const canManageTestData = dataMode !== 'supabase' || runtimeInfo.parentRole === 'owner';
 
   useEffect(() => {
     let cancelled = false;
@@ -103,15 +116,76 @@ export function Settings() {
     }
   };
 
-  const resetDemoData = async () => {
-    if (!window.confirm('這會清除目前所有測試資料，回到乾淨狀態，是否繼續？')) return;
+  const openCleanupPreview = async () => {
+    setCleanupOpen(true);
+    setCleanupPreview(null);
+    setCleanupResult(null);
+    setCleanupConfirmText('');
+    setCleanupError('');
+    setCleanupBusy(true);
     try {
-      await settingsRepository.resetDemoData();
-      setForm(toForm(settingsRepository.getSettings()));
-      setMessage('已回復初始狀態');
-      navigate('/parent/children', { replace: true });
+      const preview = await settingsRepository.previewTestDataCleanup(runtimeInfo.familyId ?? null);
+      setCleanupPreview(preview);
+      setCleanupRemoveFamily(false);
     } catch (caught) {
-      setMessage(caught instanceof Error ? caught.message : '回復初始狀態失敗');
+      setCleanupError(getErrorMessage(caught, '無法讀取清理預覽'));
+    } finally {
+      setCleanupBusy(false);
+    }
+  };
+
+  const executeCleanup = async () => {
+    if (cleanupConfirmText !== CLEANUP_CONFIRM_TEXT || cleanupBusy) return;
+    setCleanupBusy(true);
+    setCleanupError('');
+    setCleanupResult(null);
+    try {
+      const result = await settingsRepository.executeTestDataCleanup({
+        familyId: cleanupPreview?.familyId ?? runtimeInfo.familyId ?? null,
+        removeFamily: cleanupRemoveFamily
+      });
+      setCleanupResult(result);
+      setForm(toForm(settingsRepository.getSettings()));
+      setMessage(cleanupRemoveFamily ? '已清空測試資料並移除目前家庭，請重新建立家庭。' : '已清空目前家庭的測試資料。');
+      if (result.removedFamily) {
+        navigate('/create-family', { replace: true });
+      }
+    } catch (caught) {
+      setCleanupError(getErrorMessage(caught, '清空測試資料失敗'));
+    } finally {
+      setCleanupBusy(false);
+    }
+  };
+
+  const createDemoData = async () => {
+    if (demoBusy) return;
+    setDemoBusy('create');
+    setDemoResult(null);
+    try {
+      const result = await settingsRepository.createDemoData(runtimeInfo.familyId ?? null);
+      setDemoResult(result);
+      setForm(toForm(settingsRepository.getSettings()));
+      setMessage('已建立示範資料。');
+    } catch (caught) {
+      setMessage(getErrorMessage(caught, '建立示範資料失敗'));
+    } finally {
+      setDemoBusy(null);
+    }
+  };
+
+  const removeDemoData = async () => {
+    if (demoBusy) return;
+    setDemoBusy('remove');
+    setDemoResult(null);
+    try {
+      const result = await settingsRepository.removeDemoData(runtimeInfo.familyId ?? null);
+      setDemoResult(result);
+      setForm(toForm(settingsRepository.getSettings()));
+      setMessage('已移除示範資料。');
+    } catch (caught) {
+      setMessage(getErrorMessage(caught, '移除示範資料失敗'));
+    } finally {
+      setDemoBusy(null);
     }
   };
 
@@ -224,13 +298,62 @@ export function Settings() {
         </article>
       </section>
 
-      <section className="settings-data-panel">
-        <header><div><h2>測試資料管理</h2><p>{dataMode === 'supabase' ? '目前使用 Supabase 同步資料；匯入匯出只處理 repository JSON。' : 'localStorage 只保存文字、設定與 mediaId metadata。'}</p></div><Database size={28} /></header>
-        <div className="settings-data-actions">
-          <button type="button" onClick={exportData}><Download size={18} /> 匯出 JSON</button>
-          <label><Upload size={18} /> 匯入 JSON<input type="file" accept="application/json,.json" onChange={importData} /></label>
-          <button type="button" className="is-danger" onClick={() => void resetDemoData()}><RotateCcw size={18} /> 回復初始狀態</button>
+      {cleanupOpen ? (
+        <div className="settings-modal-backdrop" role="presentation" onMouseDown={() => !cleanupBusy && setCleanupOpen(false)}>
+          <section className="local-form-dialog settings-cleanup-dialog" role="dialog" aria-modal="true" aria-labelledby="settings-cleanup-title" onMouseDown={(event) => event.stopPropagation()}>
+            <header>
+              <div>
+                <small>危險操作</small>
+                <h2 id="settings-cleanup-title">清空所有測試資料</h2>
+              </div>
+              <button type="button" onClick={() => setCleanupOpen(false)} disabled={cleanupBusy} aria-label="關閉"><X size={18} /></button>
+            </header>
+            <div className="settings-cleanup-body">
+              <p className="settings-cleanup-warning">此操作會永久刪除目前家庭的測試資料，無法從介面復原。Supabase Auth 家長帳號、schema、migration、RLS、RPC 與部署設定會保留。</p>
+              {cleanupBusy && !cleanupPreview ? <p className="settings-operation-summary">正在讀取即將刪除的資料數量...</p> : null}
+              {cleanupError ? <p className="settings-cleanup-error">{cleanupError}</p> : null}
+              {cleanupPreview ? (
+                <>
+                  <CleanupCounts counts={cleanupPreview.counts} />
+                  <div className="settings-cleanup-options">
+                    <label className="settings-toggle">
+                      <span>保留目前家庭，只清除家庭內內容</span>
+                      <input type="radio" name="cleanupScope" checked={!cleanupRemoveFamily} onChange={() => setCleanupRemoveFamily(false)} disabled={cleanupBusy} />
+                    </label>
+                    <label className="settings-toggle">
+                      <span>連目前家庭一起移除，登入後重新建立家庭</span>
+                      <input type="radio" name="cleanupScope" checked={cleanupRemoveFamily} onChange={() => setCleanupRemoveFamily(true)} disabled={cleanupBusy} />
+                    </label>
+                  </div>
+                  <label className="settings-confirm-input">
+                    請輸入「{CLEANUP_CONFIRM_TEXT}」啟用最終確認
+                    <input value={cleanupConfirmText} onChange={(event) => setCleanupConfirmText(event.target.value)} disabled={cleanupBusy} />
+                  </label>
+                  {cleanupResult ? <p className="settings-operation-summary">{formatCleanupResult(cleanupResult)}</p> : null}
+                </>
+              ) : null}
+            </div>
+            <footer>
+              <button type="button" onClick={() => setCleanupOpen(false)} disabled={cleanupBusy}>取消</button>
+              <button type="button" className="is-danger" onClick={() => void executeCleanup()} disabled={!cleanupPreview || cleanupConfirmText !== CLEANUP_CONFIRM_TEXT || cleanupBusy}>
+                {cleanupBusy ? '執行中...' : '永久清空測試資料'}
+              </button>
+            </footer>
+          </section>
         </div>
+      ) : null}
+
+      <section className="settings-data-panel">
+        <header><div><h2>測試資料管理</h2><p>{dataMode === 'supabase' ? '正式資料清理會先預覽數量，並透過 Owner 限定 RPC transaction 執行。' : '本機模式會清理目前瀏覽器內的 local/mock 測試資料。'}</p></div><Database size={28} /></header>
+        <div className="settings-data-actions">
+          <button type="button" onClick={exportData}><Download size={18} /> 匯出備份 JSON</button>
+          <label><Upload size={18} /> 匯入 JSON<input type="file" accept="application/json,.json" onChange={importData} /></label>
+          <button type="button" className="is-danger" onClick={() => void openCleanupPreview()} disabled={!canManageTestData || cleanupBusy}><Trash2 size={18} /> 清空所有測試資料</button>
+          <button type="button" onClick={() => void createDemoData()} disabled={!canManageTestData || demoBusy !== null}><PlusCircle size={18} /> {demoBusy === 'create' ? '建立中...' : '建立示範資料'}</button>
+          <button type="button" className="is-secondary-danger" onClick={() => void removeDemoData()} disabled={!canManageTestData || demoBusy !== null}><RotateCcw size={18} /> {demoBusy === 'remove' ? '移除中...' : '移除示範資料'}</button>
+        </div>
+        {!canManageTestData ? <p className="settings-cleanup-error">只有目前家庭的 Owner 可以管理測試資料。</p> : null}
+        {demoResult ? <p className="settings-operation-summary">{formatDemoResult(demoResult)}</p> : null}
         <dl>
           <div><dt>{dataMode === 'supabase' ? 'Repository JSON 大小' : 'localStorage 用量'}</dt><dd>{usage.kb} KB</dd></div>
           <div><dt>dataMode</dt><dd>{dataMode}</dd></div>
@@ -286,6 +409,57 @@ export function Settings() {
       </section>
     </form>
   );
+}
+
+const cleanupCountLabels: Record<string, string> = {
+  families: '家庭',
+  family_memberships: '家庭成員',
+  children: '孩子',
+  child_login_challenges: '登入挑戰',
+  child_onboarding_tokens: '舊 QR token',
+  device_bindings: '裝置綁定',
+  child_sessions: '孩子 session',
+  child_device_heartbeats: '裝置 heartbeat',
+  tasks: '任務',
+  stars: '星星紀錄',
+  dreams: '撲滿夢想',
+  dream_funds: '撲滿流水',
+  growth_records: '成長紀錄',
+  shares: '分享',
+  share_media: '分享媒體',
+  mailbox_messages: '信箱訊息',
+  notifications: '通知',
+  screen_time_logs: '平板時間紀錄'
+};
+
+function CleanupCounts({ counts }: { counts: TestDataCleanupCounts }) {
+  const entries = Object.entries(counts).filter(([, value]) => Number(value) > 0);
+  if (!entries.length) {
+    return <p className="settings-operation-summary">目前家庭沒有可清除的測試內容。</p>;
+  }
+  return (
+    <dl className="settings-cleanup-counts">
+      {entries.map(([key, value]) => (
+        <div key={key}>
+          <dt>{cleanupCountLabels[key] ?? key}</dt>
+          <dd>{value}</dd>
+        </div>
+      ))}
+    </dl>
+  );
+}
+
+function formatCleanupResult(result: TestDataCleanupResult) {
+  const total = Object.values(result.deletedCounts).reduce((sum, value) => sum + Number(value || 0), 0);
+  return `已刪除 ${total} 筆測試資料；保留 ${Object.keys(result.preserved).join('、') || '必要系統資料'}。`;
+}
+
+function formatDemoResult(result: DemoDataResult) {
+  const summary = Object.entries(result.counts)
+    .filter(([, value]) => Number(value) > 0)
+    .map(([key, value]) => `${cleanupCountLabels[key] ?? key} ${value}`)
+    .join('、');
+  return summary ? `示範資料異動：${summary}` : '示範資料已存在，沒有重複建立。';
 }
 
 function Toggle({ label, checked, onChange }: { label: string; checked: boolean; onChange: (value: boolean) => void }) {

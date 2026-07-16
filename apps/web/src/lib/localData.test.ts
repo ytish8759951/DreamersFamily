@@ -1142,6 +1142,58 @@ describe('local MVP data flows', () => {
     });
   });
 
+  it('previews test data cleanup without mutating records', () => {
+    const child = data.createChild({ display_name: 'Preview Kid' });
+    data.createTask({ child_id: child.id, title: 'Preview task', reward_stars: 2 });
+
+    const before = data.exportData();
+    const preview = data.previewTestDataCleanup();
+
+    expect(preview.familyId).toBe(child.family_id);
+    expect(preview.counts.children).toBe(1);
+    expect(preview.counts.tasks).toBe(1);
+    expect(data.exportData()).toBe(before);
+  });
+
+  it('executes scoped test data cleanup and clears stale child routing state', () => {
+    const child = data.createChild({ display_name: 'Cleanup Kid' });
+    data.createTask({ child_id: child.id, title: 'Cleanup task', reward_stars: 2 });
+    data.bindChildDeviceByToken(child.child_token, child.family_id, bindingRecordForChild(child));
+
+    expect(data.getState().currentChildIdentity?.childId).toBe(child.id);
+    expect(data.getState().device_child_id).toBe(child.id);
+
+    const result = data.executeTestDataCleanup({ removeFamily: false });
+
+    expect(result.removedFamily).toBe(false);
+    expect(result.deletedCounts.children).toBe(1);
+    expect(result.deletedCounts.tasks).toBe(1);
+    expect(data.listChildren()).toHaveLength(0);
+    expect(data.getState().tasks).toHaveLength(0);
+    expect(data.getState().currentChildIdentity).toBeNull();
+    expect(data.getState().deviceBinding).toBeNull();
+    expect(data.getState().device_child_id).toBeNull();
+  });
+
+  it('creates demo data idempotently and removes only demo records', () => {
+    const realChild = data.createChild({ display_name: 'Real Kid' });
+    const realTask = data.createTask({ child_id: realChild.id, title: 'Real task', reward_stars: 1 });
+
+    const first = data.createDemoData();
+    const second = data.createDemoData();
+
+    expect(first.counts.children).toBe(1);
+    expect(second.counts.children).toBe(0);
+    expect(data.listChildren().filter((child) => child.display_name.startsWith('Demo '))).toHaveLength(1);
+
+    const removed = data.removeDemoData();
+
+    expect(removed.counts.children).toBe(1);
+    expect(data.listChildren().map((child) => child.id)).toContain(realChild.id);
+    expect(data.getState().tasks.map((task) => task.id)).toContain(realTask.id);
+    expect(data.getState().tasks.some((task) => task.title.includes('DEMO_DATA'))).toBe(false);
+  });
+
   it('keeps screen-time balance and immutable change history', () => {
     const child = data.createChild({ display_name: '樂樂' });
     data.updateScreenTime({ child_id: child.id, minutes_delta: 30, reason: '家長增加' });

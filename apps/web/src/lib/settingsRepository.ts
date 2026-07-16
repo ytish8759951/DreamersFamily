@@ -1,5 +1,6 @@
 import { dataRepository } from './dataRepository';
 import { mediaRepository, clearDemoMedia } from './mediaRepository';
+import { clearChildSession } from './childSessionRepository';
 
 export const settingsRepository = {
   getSettings: dataRepository.getSettings.bind(dataRepository),
@@ -9,6 +10,10 @@ export const settingsRepository = {
   importData: dataRepository.importData.bind(dataRepository),
   resetAllData: dataRepository.resetAllData.bind(dataRepository),
   resetDemoData,
+  previewTestDataCleanup: dataRepository.previewTestDataCleanup.bind(dataRepository),
+  executeTestDataCleanup,
+  createDemoData: dataRepository.createDemoData.bind(dataRepository),
+  removeDemoData: dataRepository.removeDemoData.bind(dataRepository),
   saveAvatar,
   saveAvatarFile,
   getAvatarUrl,
@@ -63,4 +68,10 @@ function estimateJsonKb(raw: string) {
 async function resetDemoData() {
   await clearDemoMedia();
   return dataRepository.resetDemoData();
+}
+
+async function executeTestDataCleanup(input?: { familyId?: string | null; removeFamily?: boolean }) {
+  const result = await dataRepository.executeTestDataCleanup(input);
+  clearChildSession();
+  return result;
 }
