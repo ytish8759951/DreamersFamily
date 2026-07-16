@@ -1,6 +1,6 @@
 import { getErrorMessage, getErrorStack, serializeError } from './errorDiagnostics';
 
-const STARTUP_TIMEOUT_MS = 5000;
+export const STARTUP_TIMEOUT_MS = 5000;
 
 type BootTraceWindow = Window & {
   __DREAMERS_BOOT_TRACE__?: (label: string, payload?: Record<string, unknown>) => void;

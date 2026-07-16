@@ -24100,6 +24100,57 @@ body.modal-open {
   font-weight: 800;
 }
 
+.startup-error-page {
+  display: grid;
+  min-height: 100vh;
+  min-height: 100dvh;
+  place-items: center;
+  padding: 24px;
+}
+
+.startup-error-panel {
+  width: min(100%, 520px);
+  border: 1px solid #efd0d0;
+  border-radius: 14px;
+  background: #fff;
+  padding: 22px;
+  box-shadow: 0 14px 34px rgba(84, 55, 37, 0.12);
+}
+
+.startup-error-panel h1 {
+  margin: 0 0 10px;
+  color: #8f2f2f;
+  font-size: 22px;
+}
+
+.startup-error-panel p {
+  margin: 0 0 14px;
+  color: #5f544b;
+  line-height: 1.6;
+}
+
+.startup-error-panel pre {
+  max-height: 220px;
+  overflow: auto;
+  border-radius: 10px;
+  background: #2b211d;
+  padding: 12px;
+  color: #fff7ed;
+  font-size: 12px;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+.startup-error-panel button {
+  border: 0;
+  border-radius: 10px;
+  background: #78966c;
+  padding: 10px 14px;
+  color: #fff;
+  font-weight: 800;
+  cursor: pointer;
+}
+
 /* Child V2 interaction restore. Keep this late so it wins over older duplicated V2 rules. */
 .ds-child-shell {
   position: relative;

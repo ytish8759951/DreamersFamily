@@ -137,6 +137,10 @@ export async function startApp() {
       href: window.location.href,
       pathname: window.location.pathname
     });
+    startupTrace('BOOT START', {
+      href: window.location.href,
+      pathname: window.location.pathname
+    });
     bootTrace('REACT START', {
       href: window.location.href,
       pathname: window.location.pathname
@@ -187,6 +191,10 @@ export async function startApp() {
     markReactMounted();
     bootTrace('Router render', { phase: 'after RouterProvider render call' });
     bootTrace('React Root Mounted');
+    startupTrace('APP READY', {
+      href: window.location.href,
+      pathname: window.location.pathname
+    });
     startupTrace('startApp finish');
   } catch (error) {
     startupTrace('startApp error', {

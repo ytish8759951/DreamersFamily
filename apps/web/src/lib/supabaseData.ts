@@ -89,7 +89,11 @@ export interface SupabaseRuntimeInfo {
   parentId: string | null;
   familyId: string | null;
   parentRole: ParentRuntimeRole | null;
-  authStatus: 'initializing' | 'signed_out' | 'needs_family' | 'ready' | 'missing_config';
+  authStatus: 'initializing' | 'signed_out' | 'needs_family' | 'ready' | 'missing_config' | 'error';
+  authError?: {
+    message: string;
+    stack: string | null;
+  } | null;
 }
 
 let runtimeInfo: SupabaseRuntimeInfo = {
@@ -1166,11 +1170,16 @@ export async function leaveProductionFamily() {
 }
 
 async function resolveProductionAuthScope(client: SupabaseClient): Promise<ProductionAuthScope | null> {
-  const { data: sessionData, error: sessionError } = await client.auth.getSession();
+  startupTrace('AUTH START');
+  const { data: sessionData, error: sessionError } = await traceStartupPromise(
+    'AUTH getSession',
+    () => client.auth.getSession()
+  );
   if (sessionError) throw sessionError;
   const user = sessionData.session?.user;
   if (!user) {
     const deviceBinding = readParentDeviceBinding();
+    startupTrace('AUTH END', { status: deviceBinding ? 'device_bound_parent' : 'signed_out' });
     if (!deviceBinding) return null;
     void touchDeviceBoundParent();
     return {
@@ -1181,16 +1190,30 @@ async function resolveProductionAuthScope(client: SupabaseClient): Promise<Produ
     };
   }
 
-  await ensureProfileForUser(client, user.id, user.user_metadata?.display_name, user.email);
+  await traceStartupPromise(
+    'AUTH ensureProfileForUser',
+    () => ensureProfileForUser(client, user.id, user.user_metadata?.display_name, user.email),
+    { userId: user.id }
+  );
 
-  const parentProfile = await getCurrentParentProfile(client);
+  const parentProfile = await traceStartupPromise('AUTH getCurrentParentProfile', () => getCurrentParentProfile(client), {
+    userId: user.id
+  });
   const savedBinding = readSavedFamilyBinding(user.id);
   const preferredFamilyId = parentProfile?.familyId ?? savedBinding?.familyId ?? null;
-  const familyScope = await getCurrentFamily(client, preferredFamilyId);
+  const familyScope = await traceStartupPromise('FAMILY getCurrentFamily', () => getCurrentFamily(client, preferredFamilyId), {
+    userId: user.id,
+    preferredFamilyId
+  });
 
   if (familyScope?.familyId) {
     saveFamilyBinding(user.id, familyScope.familyId);
-    await ensureParentForUser(client, user.id, familyScope.familyId, user.user_metadata?.display_name, user.email);
+    await traceStartupPromise(
+      'FAMILY ensureParentForUser',
+      () => ensureParentForUser(client, user.id, familyScope.familyId, user.user_metadata?.display_name, user.email),
+      { userId: user.id, familyId: familyScope.familyId }
+    );
+    startupTrace('AUTH END', { status: 'ready', userId: user.id, familyId: familyScope.familyId });
     return {
       userId: user.id,
       parentId: parentProfile?.parentId ?? user.id,
@@ -1201,6 +1224,7 @@ async function resolveProductionAuthScope(client: SupabaseClient): Promise<Produ
 
   if (parentProfile) {
     if (parentProfile.familyId) saveFamilyBinding(user.id, parentProfile.familyId);
+    startupTrace('AUTH END', { status: parentProfile.familyId ? 'ready' : 'needs_family', userId: user.id, familyId: parentProfile.familyId });
     return {
       userId: user.id,
       parentId: parentProfile.parentId,
@@ -1209,6 +1233,7 @@ async function resolveProductionAuthScope(client: SupabaseClient): Promise<Produ
     };
   }
 
+  startupTrace('AUTH END', { status: 'needs_family', userId: user.id });
   return { userId: user.id, parentId: null, familyId: null, role: null };
 }
 
@@ -1375,13 +1400,22 @@ export class SupabaseDataRepository implements LocalDataRepository {
         stack: getErrorStack(error),
         error: serializeError(error)
       });
+      startupTrace('AUTH END', {
+        status: 'error',
+        message: getErrorMessage(error),
+        stack: getErrorStack(error)
+      });
       this.hasFamilyScope = false;
       setRuntimeInfo({
         userId: null,
         parentId: null,
         familyId: null,
         parentRole: null,
-        authStatus: 'signed_out'
+        authStatus: 'error',
+        authError: {
+          message: getErrorMessage(error),
+          stack: getErrorStack(error)
+        }
       });
     }
   }

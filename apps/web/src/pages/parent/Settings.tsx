@@ -18,6 +18,7 @@ import type { TestDataCleanupCounts, TestDataCleanupPreview, TestDataCleanupResu
 import { useLocalDataState } from '../../lib/useLocalData';
 import { useSupabaseRuntimeInfo } from '../../lib/useSupabaseRuntimeInfo';
 import { getErrorMessage } from '../../lib/errorDiagnostics';
+import { startupTrace } from '../../lib/startupTrace';
 
 type SettingsForm = Omit<LocalFamilySettings, 'family_created_at' | 'updated_at'>;
 const CLEANUP_CONFIRM_TEXT = '清空測試資料';
@@ -46,6 +47,17 @@ export function Settings() {
   const canManageTestData = dataMode !== 'supabase' || runtimeInfo.parentRole === 'owner';
   const cleanupBusy = isPreviewLoading || isDeleting;
   const canExecuteCleanup = Boolean(cleanupPreview) && cleanupConfirmText === CLEANUP_CONFIRM_TEXT && !isDeleting;
+
+  useEffect(() => {
+    startupTrace('SETTINGS START', {
+      familyId: runtimeInfo.familyId,
+      parentRole: runtimeInfo.parentRole
+    });
+    startupTrace('SETTINGS END', {
+      familyId: runtimeInfo.familyId,
+      parentRole: runtimeInfo.parentRole
+    });
+  }, [runtimeInfo.familyId, runtimeInfo.parentRole]);
 
   useEffect(() => {
     let cancelled = false;

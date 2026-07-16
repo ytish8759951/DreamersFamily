@@ -1,4 +1,4 @@
-import { useEffect } from 'react';
+import { useEffect, useState } from 'react';
 import { createBrowserRouter, Link, Navigate, Outlet, useLocation, useRouteError } from 'react-router-dom';
 import { ChildLayout } from './components/layout/ChildLayout';
 import { ParentLayout } from './components/layout/ParentLayout';
@@ -33,6 +33,7 @@ import { getLoggedInFamilyLandingPath } from './lib/familyLanding';
 import { hasConfirmedChildDeviceSession } from './lib/childBindingState';
 import { getChildSession } from './lib/childSessionRepository';
 import { getErrorMessage, getErrorStack } from './lib/errorDiagnostics';
+import { STARTUP_TIMEOUT_MS, startupTrace } from './lib/startupTrace';
 import { useLocalDataState } from './lib/useLocalData';
 import { useSupabaseRuntimeInfo } from './lib/useSupabaseRuntimeInfo';
 import { restoreDocumentInteractionState } from './lib/touchInteractions';
@@ -82,6 +83,63 @@ function RouteErrorFallback({ label }: { label: string }) {
   );
 }
 
+function StartupBlocker({
+  stage,
+  runtimeInfo
+}: {
+  stage: 'AUTH' | 'FAMILY' | 'CHILD' | 'SETTINGS';
+  runtimeInfo?: ReturnType<typeof useSupabaseRuntimeInfo>;
+}) {
+  const [timedOut, setTimedOut] = useState(false);
+
+  useEffect(() => {
+    const startedAt = Date.now();
+    startupTrace(`${stage} START`, {
+      authStatus: runtimeInfo?.authStatus ?? null,
+      familyId: runtimeInfo?.familyId ?? null,
+      parentId: runtimeInfo?.parentId ?? null
+    });
+    const handle = window.setTimeout(() => {
+      const durationMs = Date.now() - startedAt;
+      startupTrace(`${stage} TIMEOUT`, {
+        durationMs,
+        authStatus: runtimeInfo?.authStatus ?? null,
+        familyId: runtimeInfo?.familyId ?? null,
+        parentId: runtimeInfo?.parentId ?? null
+      });
+      setTimedOut(true);
+    }, STARTUP_TIMEOUT_MS);
+    return () => window.clearTimeout(handle);
+  }, [runtimeInfo?.authStatus, runtimeInfo?.familyId, runtimeInfo?.parentId, stage]);
+
+  const authError = runtimeInfo?.authError;
+  if (!timedOut && runtimeInfo?.authStatus !== 'error') {
+    return <div className="auth-page">Loading...</div>;
+  }
+
+  const message =
+    runtimeInfo?.authStatus === 'error'
+      ? authError?.message ?? 'App initialization failed.'
+      : `${stage} initialization timed out after ${STARTUP_TIMEOUT_MS}ms.`;
+
+  return (
+    <main className="auth-page startup-error-page">
+      <section className="startup-error-panel">
+        <h1>App initialization failed</h1>
+        <p>{message}</p>
+        {authError?.stack ? <pre>{authError.stack}</pre> : null}
+        <button type="button" onClick={() => window.location.reload()}>
+          Retry
+        </button>
+      </section>
+    </main>
+  );
+}
+
+function isRuntimeAuthBlocked(runtimeInfo: ReturnType<typeof useSupabaseRuntimeInfo>) {
+  return dataMode === 'supabase' && (runtimeInfo.authStatus === 'initializing' || runtimeInfo.authStatus === 'error');
+}
+
 function RequireChildBinding() {
   const location = useLocation();
   const state = useLocalDataState();
@@ -103,6 +161,13 @@ function RequireChildBinding() {
   const childSession = getChildSession();
   const sessionChildId = childSession?.childId ?? null;
   const hasCoherentChildSession = hasConfirmedChildDeviceSession(state, requestedChildId);
+
+  useEffect(() => {
+    startupTrace('CHILD START', {
+      pathname: location.pathname,
+      search: location.search
+    });
+  }, [location.pathname, location.search]);
 
   console.log('Binding check start', {
     pathname: location.pathname,
@@ -135,6 +200,10 @@ function RequireChildBinding() {
   }
 
   console.log('Binding success', {
+    pathname: location.pathname,
+    childId: sessionChildId
+  });
+  startupTrace('CHILD END', {
     pathname: location.pathname,
     childId: sessionChildId
   });
@@ -179,8 +248,8 @@ function RootRedirect() {
   const state = useLocalDataState();
   const runtimeInfo = useSupabaseRuntimeInfo();
 
-  if (dataMode === 'supabase' && runtimeInfo.authStatus === 'initializing') {
-    return <div className="auth-page">Loading...</div>;
+  if (isRuntimeAuthBlocked(runtimeInfo)) {
+    return <StartupBlocker stage="AUTH" runtimeInfo={runtimeInfo} />;
   }
 
   if (dataMode === 'supabase' && runtimeInfo.authStatus !== 'ready') {
@@ -201,22 +270,35 @@ function RootRedirect() {
 
 function RequireFamilyAccess() {
   const runtimeInfo = useSupabaseRuntimeInfo();
-  if (dataMode === 'supabase' && runtimeInfo.authStatus === 'initializing') {
-    return <div className="auth-page">Loading...</div>;
+  useEffect(() => {
+    startupTrace('FAMILY START', {
+      authStatus: runtimeInfo.authStatus,
+      familyId: runtimeInfo.familyId,
+      parentId: runtimeInfo.parentId
+    });
+  }, [runtimeInfo.authStatus, runtimeInfo.familyId, runtimeInfo.parentId]);
+
+  if (isRuntimeAuthBlocked(runtimeInfo)) {
+    return <StartupBlocker stage="AUTH" runtimeInfo={runtimeInfo} />;
   }
   if (dataMode === 'supabase' && runtimeInfo.authStatus !== 'ready' && !hasParentAccess(runtimeInfo)) {
     const path = runtimeInfo.authStatus === 'needs_family' ? '/create-family' : '/login';
     console.log('[auth trace] navigate()', { from: 'RequireFamilyAccess', to: path, runtimeInfo });
     return <Navigate to={path} replace />;
   }
+  startupTrace('FAMILY END', {
+    authStatus: runtimeInfo.authStatus,
+    familyId: runtimeInfo.familyId,
+    parentId: runtimeInfo.parentId
+  });
   return <Outlet />;
 }
 
 function ParentIndexRedirect() {
   const runtimeInfo = useSupabaseRuntimeInfo();
 
-  if (dataMode === 'supabase' && runtimeInfo.authStatus === 'initializing') {
-    return <div className="auth-page">Loading...</div>;
+  if (isRuntimeAuthBlocked(runtimeInfo)) {
+    return <StartupBlocker stage="AUTH" runtimeInfo={runtimeInfo} />;
   }
 
   if (dataMode === 'supabase' && runtimeInfo.authStatus !== 'ready' && !hasParentAccess(runtimeInfo)) {
@@ -232,8 +314,8 @@ function ParentIndexRedirect() {
 function RequireCreateFamilyAccess() {
   const state = useLocalDataState();
   const runtimeInfo = useSupabaseRuntimeInfo();
-  if (dataMode === 'supabase' && runtimeInfo.authStatus === 'initializing') {
-    return <div className="auth-page">Loading...</div>;
+  if (isRuntimeAuthBlocked(runtimeInfo)) {
+    return <StartupBlocker stage="AUTH" runtimeInfo={runtimeInfo} />;
   }
   if (dataMode === 'supabase' && hasParentAccess(runtimeInfo)) {
     const path = getLoggedInFamilyLandingPath(state, runtimeInfo);
