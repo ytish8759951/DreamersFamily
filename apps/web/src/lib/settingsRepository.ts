@@ -12,8 +12,6 @@ export const settingsRepository = {
   resetDemoData,
   previewTestDataCleanup: dataRepository.previewTestDataCleanup.bind(dataRepository),
   executeTestDataCleanup,
-  createDemoData: dataRepository.createDemoData.bind(dataRepository),
-  removeDemoData: dataRepository.removeDemoData.bind(dataRepository),
   saveAvatar,
   saveAvatarFile,
   getAvatarUrl,

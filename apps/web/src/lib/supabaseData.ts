@@ -34,8 +34,7 @@ import {
   type CompleteChildLoginChallengeResult,
   type ChildSessionValidationResult,
   type TestDataCleanupPreview,
-  type TestDataCleanupResult,
-  type DemoDataResult
+  type TestDataCleanupResult
 } from './localData';
 import type {
   AnnualParentNote,
@@ -2275,30 +2274,6 @@ export class SupabaseDataRepository implements LocalDataRepository {
       deletedCounts: row.deleted_counts,
       preserved: row.preserved ?? {}
     };
-  }
-
-  async createDemoData(familyId?: UUID | null): Promise<DemoDataResult> {
-    if (!this.client) return this.cache.createDemoData(familyId);
-    const { data, error } = await this.client.rpc('create_demo_family_data', {
-      p_family_id: familyId ?? SUPABASE_FAMILY_ID
-    });
-    if (error) throw error;
-    const row = firstRpcRow(data as { family_id: UUID; created_counts: Record<string, number> }[] | { family_id: UUID; created_counts: Record<string, number> } | null);
-    if (!row?.family_id || !row.created_counts) throw new LocalDataError('Demo data response is invalid', 'DEMO_DATA_RESPONSE_INVALID');
-    this.hydrateFromSupabase();
-    return { familyId: row.family_id, counts: row.created_counts };
-  }
-
-  async removeDemoData(familyId?: UUID | null): Promise<DemoDataResult> {
-    if (!this.client) return this.cache.removeDemoData(familyId);
-    const { data, error } = await this.client.rpc('remove_demo_family_data', {
-      p_family_id: familyId ?? SUPABASE_FAMILY_ID
-    });
-    if (error) throw error;
-    const row = firstRpcRow(data as { family_id: UUID; deleted_counts: Record<string, number> }[] | { family_id: UUID; deleted_counts: Record<string, number> } | null);
-    if (!row?.family_id || !row.deleted_counts) throw new LocalDataError('Demo removal response is invalid', 'DEMO_DATA_RESPONSE_INVALID');
-    this.hydrateFromSupabase();
-    return { familyId: row.family_id, counts: row.deleted_counts };
   }
 
   updateScreenTime = this.delegateWrite('updateScreenTime');

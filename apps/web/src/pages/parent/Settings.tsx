@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState, type ChangeEvent, type FormEvent } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Copy, Database, Download, LogOut, PlusCircle, RotateCcw, Settings as SettingsIcon, Trash2, Upload, UserRound, X } from 'lucide-react';
+import { Copy, Database, Download, LogOut, Settings as SettingsIcon, Trash2, Upload, UserRound, X } from 'lucide-react';
 import QRCode from 'react-qr-code';
 import { dataMode, dataModeLabel } from '../../lib/dataRepository';
 import {
@@ -14,7 +14,7 @@ import {
 import { createParentInviteToken, getParentInviteUrl } from '../../lib/parentDeviceBinding';
 import { settingsRepository } from '../../lib/settingsRepository';
 import type { LocalFamilySettings } from '../../lib/localTypes';
-import type { DemoDataResult, TestDataCleanupCounts, TestDataCleanupPreview, TestDataCleanupResult } from '../../lib/localData';
+import type { TestDataCleanupCounts, TestDataCleanupPreview, TestDataCleanupResult } from '../../lib/localData';
 import { useLocalDataState } from '../../lib/useLocalData';
 import { useSupabaseRuntimeInfo } from '../../lib/useSupabaseRuntimeInfo';
 import { getErrorMessage } from '../../lib/errorDiagnostics';
@@ -39,8 +39,6 @@ export function Settings() {
   const [cleanupConfirmText, setCleanupConfirmText] = useState('');
   const [cleanupBusy, setCleanupBusy] = useState(false);
   const [cleanupError, setCleanupError] = useState('');
-  const [demoBusy, setDemoBusy] = useState<'create' | 'remove' | null>(null);
-  const [demoResult, setDemoResult] = useState<DemoDataResult | null>(null);
   const usage = useMemo(() => estimateStorageUsage(), [state]);
   const familyName = settings.family_name || '小小夢想家 Family';
   const parentRoleLabel = runtimeInfo.parentRole === 'owner' ? 'Owner' : runtimeInfo.parentRole ? 'Parent' : '-';
@@ -154,38 +152,6 @@ export function Settings() {
       setCleanupError(getErrorMessage(caught, '清空測試資料失敗'));
     } finally {
       setCleanupBusy(false);
-    }
-  };
-
-  const createDemoData = async () => {
-    if (demoBusy) return;
-    setDemoBusy('create');
-    setDemoResult(null);
-    try {
-      const result = await settingsRepository.createDemoData(runtimeInfo.familyId ?? null);
-      setDemoResult(result);
-      setForm(toForm(settingsRepository.getSettings()));
-      setMessage('已建立示範資料。');
-    } catch (caught) {
-      setMessage(getErrorMessage(caught, '建立示範資料失敗'));
-    } finally {
-      setDemoBusy(null);
-    }
-  };
-
-  const removeDemoData = async () => {
-    if (demoBusy) return;
-    setDemoBusy('remove');
-    setDemoResult(null);
-    try {
-      const result = await settingsRepository.removeDemoData(runtimeInfo.familyId ?? null);
-      setDemoResult(result);
-      setForm(toForm(settingsRepository.getSettings()));
-      setMessage('已移除示範資料。');
-    } catch (caught) {
-      setMessage(getErrorMessage(caught, '移除示範資料失敗'));
-    } finally {
-      setDemoBusy(null);
     }
   };
 
@@ -349,11 +315,8 @@ export function Settings() {
           <button type="button" onClick={exportData}><Download size={18} /> 匯出備份 JSON</button>
           <label><Upload size={18} /> 匯入 JSON<input type="file" accept="application/json,.json" onChange={importData} /></label>
           <button type="button" className="is-danger" onClick={() => void openCleanupPreview()} disabled={!canManageTestData || cleanupBusy}><Trash2 size={18} /> 清空所有測試資料</button>
-          <button type="button" onClick={() => void createDemoData()} disabled={!canManageTestData || demoBusy !== null}><PlusCircle size={18} /> {demoBusy === 'create' ? '建立中...' : '建立示範資料'}</button>
-          <button type="button" className="is-secondary-danger" onClick={() => void removeDemoData()} disabled={!canManageTestData || demoBusy !== null}><RotateCcw size={18} /> {demoBusy === 'remove' ? '移除中...' : '移除示範資料'}</button>
         </div>
         {!canManageTestData ? <p className="settings-cleanup-error">只有目前家庭的 Owner 可以管理測試資料。</p> : null}
-        {demoResult ? <p className="settings-operation-summary">{formatDemoResult(demoResult)}</p> : null}
         <dl>
           <div><dt>{dataMode === 'supabase' ? 'Repository JSON 大小' : 'localStorage 用量'}</dt><dd>{usage.kb} KB</dd></div>
           <div><dt>dataMode</dt><dd>{dataMode}</dd></div>
@@ -554,14 +517,6 @@ function CleanupCounts({ counts }: { counts: TestDataCleanupCounts }) {
 function formatCleanupResult(result: TestDataCleanupResult) {
   const total = Object.values(result.deletedCounts).reduce((sum, value) => sum + Number(value || 0), 0);
   return `已刪除 ${total} 筆測試資料；保留 ${Object.keys(result.preserved).join('、') || '必要系統資料'}。`;
-}
-
-function formatDemoResult(result: DemoDataResult) {
-  const summary = Object.entries(result.counts)
-    .filter(([, value]) => Number(value) > 0)
-    .map(([key, value]) => `${getCleanupCountLabel(key)} ${value}`)
-    .join('、');
-  return summary ? `示範資料異動：${summary}` : '示範資料已存在，沒有重複建立。';
 }
 
 function Toggle({ label, checked, onChange }: { label: string; checked: boolean; onChange: (value: boolean) => void }) {

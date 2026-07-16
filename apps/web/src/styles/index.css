@@ -20701,11 +20701,6 @@ body.modal-open {
   color: #a65c58;
 }
 
-.settings-data-actions .is-secondary-danger {
-  background: #fff2da;
-  color: #9a6a2f;
-}
-
 .settings-data-actions button:disabled,
 .settings-data-actions label:has(input:disabled),
 .settings-cleanup-dialog button:disabled {
@@ -20734,14 +20729,34 @@ body.modal-open {
 }
 
 .settings-cleanup-dialog {
+  display: grid;
+  grid-template-rows: auto minmax(0, 1fr) auto;
   width: min(720px, calc(100vw - 28px));
   max-height: calc(100vh - 40px);
-  overflow: auto;
+  overflow: hidden;
 }
 
 .settings-cleanup-body {
   display: grid;
   gap: 12px;
+  overflow-y: auto;
+  padding-right: 4px;
+}
+
+.settings-cleanup-dialog > footer {
+  position: sticky;
+  bottom: 0;
+  display: flex;
+  justify-content: space-between;
+  border-top: 1px solid #eee3d4;
+  background: #fff;
+  padding-top: 12px;
+  gap: 10px;
+}
+
+.settings-cleanup-dialog > footer .is-danger {
+  background: #ffe8e6;
+  color: #a65c58;
 }
 
 .settings-cleanup-warning,
