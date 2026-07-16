@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import migration from '../../../../supabase/migrations/017_atomic_child_device_token_binding.sql?raw';
+import hardeningMigration from '../../../../supabase/migrations/018_harden_child_binding_anon_table_access.sql?raw';
 
 describe('Supabase child binding migration', () => {
   it('adds the production-missing token binding columns', () => {
@@ -20,5 +21,13 @@ describe('Supabase child binding migration', () => {
     expect(migration).toContain('for update');
     expect(migration).toContain("qr_token_status = 'consumed'");
     expect(migration).toContain("binding_status = 'bound'");
+  });
+
+  it('removes direct anonymous table access after RPC binding is available', () => {
+    expect(hardeningMigration).toContain('revoke all privileges on table public.device_bindings from anon');
+    expect(hardeningMigration).toContain('revoke all privileges on table public.children from anon');
+    expect(hardeningMigration).toContain('drop policy if exists repository_foundation_all on public.device_bindings');
+    expect(hardeningMigration).toContain('drop policy if exists repository_foundation_all on public.children');
+    expect(hardeningMigration).toContain('grant execute on function public.bind_child_device_with_token(text, uuid, text) to anon, authenticated');
   });
 });
