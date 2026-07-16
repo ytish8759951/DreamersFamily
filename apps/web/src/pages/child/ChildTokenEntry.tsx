@@ -14,7 +14,12 @@ import {
   getErrorStack,
   serializeError
 } from '../../lib/errorDiagnostics';
-import { childBindingTrace, hashForTrace } from '../../lib/childBindingTrace';
+import {
+  CHILD_BINDING_TRACE_EVENT,
+  childBindingTrace,
+  hashForTrace,
+  type ChildBindingTraceEntry
+} from '../../lib/childBindingTrace';
 
 const childRoutes = new Set([
   'home',
@@ -115,7 +120,13 @@ function getStageStatus(currentStage: TokenEntryStage, stage: TokenEntryStage) {
   return 'pending';
 }
 
-function DiagnosticsPanel({ diagnostics }: { diagnostics: TokenEntryDiagnostics }) {
+function DiagnosticsPanel({
+  diagnostics,
+  traceEntries
+}: {
+  diagnostics: TokenEntryDiagnostics;
+  traceEntries: ChildBindingTraceEntry[];
+}) {
   return (
     <div style={{ width: '100%', textAlign: 'left' }}>
       <div style={{ display: 'grid', gap: 6, marginTop: 16 }}>
@@ -147,6 +158,42 @@ function DiagnosticsPanel({ diagnostics }: { diagnostics: TokenEntryDiagnostics 
       >
         {JSON.stringify(diagnostics, null, 2)}
       </pre>
+      <div style={{ marginTop: 16 }}>
+        <strong>Child Binding Trace</strong>
+        <div style={{ display: 'grid', gap: 8, marginTop: 8 }}>
+          {traceEntries.length ? traceEntries.map((entry) => (
+            <div
+              key={entry.id}
+              style={{
+                border: entry.label === 'SECOND CALL DETECTED' ? '2px solid #b91c1c' : '1px solid rgba(255,255,255,0.18)',
+                borderRadius: 6,
+                padding: 8,
+                background: entry.label === 'SECOND CALL DETECTED' ? 'rgba(185,28,28,0.16)' : 'rgba(255,255,255,0.06)'
+              }}
+            >
+              <div style={{ display: 'flex', justifyContent: 'space-between', gap: 8, fontSize: 12 }}>
+                <strong>{entry.label}</strong>
+                <span>{entry.timestamp}</span>
+              </div>
+              <pre
+                style={{
+                  margin: '6px 0 0',
+                  maxHeight: 180,
+                  overflow: 'auto',
+                  whiteSpace: 'pre-wrap',
+                  wordBreak: 'break-word',
+                  fontSize: 11,
+                  lineHeight: 1.45
+                }}
+              >
+                {JSON.stringify(entry.payload, null, 2)}
+              </pre>
+            </div>
+          )) : (
+            <div style={{ fontSize: 12, opacity: 0.8 }}>No child binding trace yet.</div>
+          )}
+        </div>
+      </div>
     </div>
   );
 }
@@ -158,6 +205,7 @@ export function ChildTokenEntry() {
   const [invalid, setInvalid] = useState(false);
   const [completed, setCompleted] = useState(false);
   const [diagnostics, setDiagnostics] = useState<TokenEntryDiagnostics>(initialDiagnostics);
+  const [traceEntries, setTraceEntries] = useState<ChildBindingTraceEntry[]>([]);
   const bindingPromiseRef = useRef<{
     token: string;
     promise: Promise<Awaited<ReturnType<typeof deviceBindingRepository.bindChildDeviceByToken>>>;
@@ -174,8 +222,19 @@ export function ChildTokenEntry() {
   }, [location.pathname, token]);
 
   useEffect(() => {
+    const handleTrace = (event: Event) => {
+      const entry = (event as CustomEvent<ChildBindingTraceEntry>).detail;
+      if (!entry) return;
+      setTraceEntries((current) => [...current, entry].slice(-80));
+    };
+    window.addEventListener(CHILD_BINDING_TRACE_EVENT, handleTrace as EventListener);
+    return () => window.removeEventListener(CHILD_BINDING_TRACE_EVENT, handleTrace as EventListener);
+  }, []);
+
+  useEffect(() => {
     if (reservedChildRoute) return;
 
+    setTraceEntries([]);
     let cancelled = false;
 
     const updateDiagnostics = (next: Partial<TokenEntryDiagnostics>) => {
@@ -377,6 +436,11 @@ export function ChildTokenEntry() {
           childId: syncedChild.id,
           status: 'success'
         });
+        childBindingTrace('Finish', {
+          tokenHash,
+          childId: syncedChild.id,
+          status: 'success'
+        });
       } catch (error) {
         childBindingTrace('Result', {
           tokenHash,
@@ -386,6 +450,11 @@ export function ChildTokenEntry() {
           error: serializeError(error)
         });
         childBindingTrace('========== Finish ==========', {
+          tokenHash,
+          childId: decodedChildId,
+          status: 'error'
+        });
+        childBindingTrace('Finish', {
           tokenHash,
           childId: decodedChildId,
           status: 'error'
@@ -423,7 +492,7 @@ export function ChildTokenEntry() {
         <span>{invalid ? '!' : completed ? 'OK' : '...'}</span>
         <h1>{invalid ? 'Child token initialization failed' : 'Initializing child session'}</h1>
         <p>{invalid ? diagnostics.errorMessage ?? 'Unknown error' : diagnostics.stage}</p>
-        <DiagnosticsPanel diagnostics={diagnostics} />
+        <DiagnosticsPanel diagnostics={diagnostics} traceEntries={traceEntries} />
         {invalid ? (
           <button type="button" onClick={() => navigate('/parent/children', { replace: true })}>
             回到孩子管理

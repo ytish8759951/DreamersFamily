@@ -1436,12 +1436,12 @@ export class SupabaseDataRepository implements LocalDataRepository {
       revoked_at: binding.revoked_at
     });
     const state = this.cache.getState();
-    childBindingTrace('bindChildDeviceByToken() 是否建立 child session', {
+    childBindingTrace('Create Session', {
       tokenHash: bindCall.tokenHash,
       childId: child.id,
       createdChildSession: state.device_child_id === child.id && state.deviceBinding === child.id
     });
-    childBindingTrace('bindChildDeviceByToken() 是否設定 currentChildIdentity', {
+    childBindingTrace('Set currentChildIdentity', {
       tokenHash: bindCall.tokenHash,
       childId: child.id,
       currentChildIdentityChildId: state.currentChildIdentity?.childId ?? null,
