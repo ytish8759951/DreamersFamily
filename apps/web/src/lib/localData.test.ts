@@ -311,6 +311,33 @@ describe('local MVP data flows', () => {
     expect(childDeviceData.getChildByToken(child.child_token)).toBeNull();
   });
 
+  it('accepts a consumed binding returned by a successful RPC only on the first scan', () => {
+    const child = data.createChild({ display_name: 'RPC Bound Kid' });
+    const childDeviceData = new LocalDataService(new MockDatabase(new TestStorage(), 'rpc-consumed-child-device-db'));
+    childDeviceData.resetLocalData();
+    const boundAt = new Date().toISOString();
+    const rpcConfirmedBinding = {
+      ...bindingRecordForChild(child),
+      used_at: boundAt
+    };
+
+    const boundChild = childDeviceData.bindChildDeviceByToken(child.child_token, child.family_id, rpcConfirmedBinding);
+    const localBinding = childDeviceData.getState().device_bindings.find((binding) => binding.token === child.child_token);
+
+    expect(boundChild.id).toBe(child.id);
+    expect(childDeviceData.getState().currentChildIdentity?.childId).toBe(child.id);
+    expect(childDeviceData.getState().device_child_id).toBe(child.id);
+    expect(localBinding).toMatchObject({
+      child_id: child.id,
+      binding_status: 'bound',
+      qr_token_status: 'consumed',
+      used_at: boundAt
+    });
+    expect(() =>
+      childDeviceData.bindChildDeviceByToken(child.child_token, child.family_id, rpcConfirmedBinding)
+    ).toThrowError(LocalDataError);
+  });
+
   it('keeps a newly created child pending when the first binding fails, then retries the same child', () => {
     const child = data.createChild({ display_name: 'Retry Kid' });
     expect(data.getState().active_child_id).toBe(child.id);

@@ -7,6 +7,7 @@ import {
   parseChildDeviceToken
 } from './childDeviceToken';
 import { requireBackendVerifiedChildBindingRow } from './childBindingRpcValidation';
+import { childBindingTrace, hashForTrace, recordBindChildDeviceCall } from './childBindingTrace';
 import {
   LOCAL_DEVICE_ID,
   MockDatabase
@@ -1395,6 +1396,20 @@ export class SupabaseDataRepository implements LocalDataRepository {
     if (!normalized) throw new LocalDataError('Child token is empty', 'CHILD_TOKEN_EMPTY');
     const decodedToken = parseChildDeviceToken(normalized);
     if (!decodedToken?.childId) throw new LocalDataError('Child token is invalid', 'CHILD_TOKEN_INVALID');
+    const bindCall = recordBindChildDeviceCall(normalized);
+    childBindingTrace('bindChildDeviceByToken() 開始呼叫', {
+      tokenHash: bindCall.tokenHash,
+      childId: decodedToken.childId,
+      callCount: bindCall.callCount
+    });
+    if (bindCall.secondCall) {
+      childBindingTrace('SECOND CALL DETECTED', {
+        tokenHash: bindCall.tokenHash,
+        childId: decodedToken.childId,
+        callCount: bindCall.callCount,
+        stack: new Error('SECOND CALL DETECTED').stack
+      });
+    }
     console.log('[child-binding-debug] B.token.repository', {
       childToken: normalized,
       tokenDecodeResult: decodedToken,
@@ -1404,6 +1419,14 @@ export class SupabaseDataRepository implements LocalDataRepository {
     console.log('[child-token-entry] bindChildDeviceByToken start', { childToken: normalized });
 
     const binding = await this.resolveQrBindingByRpc(normalized, decodedToken.childId);
+    childBindingTrace('bindChildDeviceByToken() 收到 RPC', {
+      tokenHash: bindCall.tokenHash,
+      childId: binding.child_id,
+      familyId: binding.family_id,
+      bindingStatus: binding.binding_status,
+      qrTokenStatus: binding.qr_token_status,
+      usedAt: binding.used_at
+    });
     const child = this.cache.bindChildDeviceByToken(normalized, binding.family_id, {
       family_id: binding.family_id,
       child_id: binding.child_id,
@@ -1411,6 +1434,24 @@ export class SupabaseDataRepository implements LocalDataRepository {
       expires_at: binding.expires_at,
       used_at: binding.used_at,
       revoked_at: binding.revoked_at
+    });
+    const state = this.cache.getState();
+    childBindingTrace('bindChildDeviceByToken() 是否建立 child session', {
+      tokenHash: bindCall.tokenHash,
+      childId: child.id,
+      createdChildSession: state.device_child_id === child.id && state.deviceBinding === child.id
+    });
+    childBindingTrace('bindChildDeviceByToken() 是否設定 currentChildIdentity', {
+      tokenHash: bindCall.tokenHash,
+      childId: child.id,
+      currentChildIdentityChildId: state.currentChildIdentity?.childId ?? null,
+      currentChildIdentitySet: state.currentChildIdentity?.childId === child.id
+    });
+    childBindingTrace('bindChildDeviceByToken() 是否 navigate', {
+      tokenHash: bindCall.tokenHash,
+      childId: child.id,
+      navigate: false,
+      reason: 'navigate is executed by ChildTokenEntry after syncChildDeviceLogin'
     });
     console.log('[child-token-entry] bindChildDeviceByToken parsed token child', {
       childId: child.id,
@@ -1442,7 +1483,26 @@ export class SupabaseDataRepository implements LocalDataRepository {
       }
     };
     console.log('[child-binding-debug] E.supabase.bindChildDeviceWithToken.request', request);
+    const tokenHash = hashForTrace(token);
+    childBindingTrace('RPC Start', {
+      tokenHash,
+      rpc: request.rpc,
+      childId: expectedChildId,
+      deviceId
+    });
     const { data, error } = await this.client.rpc('bind_child_device_with_token', request.payload);
+    childBindingTrace('RPC End', {
+      tokenHash,
+      rpc: request.rpc,
+      childId: expectedChildId,
+      error: error ? {
+        message: error.message,
+        code: error.code,
+        details: error.details,
+        hint: error.hint
+      } : null,
+      rowCount: Array.isArray(data) ? data.length : null
+    });
     console.log('[child-binding-debug] E.supabase.bindChildDeviceWithToken.response', {
       request,
       response: data,

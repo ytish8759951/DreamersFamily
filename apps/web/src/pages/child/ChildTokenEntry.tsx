@@ -14,6 +14,7 @@ import {
   getErrorStack,
   serializeError
 } from '../../lib/errorDiagnostics';
+import { childBindingTrace, hashForTrace } from '../../lib/childBindingTrace';
 
 const childRoutes = new Set([
   'home',
@@ -213,6 +214,8 @@ export function ChildTokenEntry() {
     }
 
     void (async () => {
+      const tokenHash = hashForTrace(token);
+      let decodedChildId: string | null = null;
       try {
         updateDiagnostics({
           stage: 'Token parsing',
@@ -226,6 +229,15 @@ export function ChildTokenEntry() {
         debugChildBinding('A.url', getRouteDebugInfo(location.pathname));
 
         const tokenDebug = decodeChildTokenForDebug(token);
+        decodedChildId = tokenDebug.decoded?.childId ?? null;
+        childBindingTrace('========== Scan Start ==========', {
+          tokenHash,
+          childId: decodedChildId,
+          pathname: location.pathname,
+          href: typeof window !== 'undefined' ? window.location.href : null
+        });
+        childBindingTrace('Token Hash', { tokenHash });
+        childBindingTrace('Child Id', { childId: decodedChildId });
         debugChildBinding('B.token', tokenDebug);
         updateDiagnostics({
           stage: 'Token parsed',
@@ -256,6 +268,10 @@ export function ChildTokenEntry() {
         });
         console.log('[child-token-entry] received child URL token', { childToken: token });
 
+        childBindingTrace('Call bindChildDeviceByToken()', {
+          tokenHash,
+          childId: decodedChildId
+        });
         const child = await traceAsyncStep('deviceBindingRepository.bindChildDeviceByToken', () => {
           if (!bindingPromiseRef.current || bindingPromiseRef.current.token !== token) {
             bindingPromiseRef.current = {
@@ -271,6 +287,12 @@ export function ChildTokenEntry() {
         if (!child.family_id) {
           throw new Error('bindChildDeviceByToken returned no family_id');
         }
+        childBindingTrace('Result', {
+          tokenHash,
+          childId: child.id,
+          familyId: child.family_id,
+          success: true
+        });
 
         updateDiagnostics({
           stage: 'Child resolved',
@@ -334,6 +356,11 @@ export function ChildTokenEntry() {
         });
 
         const confirmedChildHomeTarget = `${childHomeTarget}?childId=${encodeURIComponent(syncedChild.id)}`;
+        childBindingTrace('Navigate', {
+          tokenHash,
+          childId: syncedChild.id,
+          target: confirmedChildHomeTarget
+        });
         updateDiagnostics({
           stage: 'Navigating to child home',
           details: { navigateTo: confirmedChildHomeTarget }
@@ -345,7 +372,24 @@ export function ChildTokenEntry() {
         });
         if (!cancelled) setCompleted(true);
         navigate(confirmedChildHomeTarget, { replace: true });
+        childBindingTrace('========== Finish ==========', {
+          tokenHash,
+          childId: syncedChild.id,
+          status: 'success'
+        });
       } catch (error) {
+        childBindingTrace('Result', {
+          tokenHash,
+          childId: decodedChildId,
+          success: false,
+          errorMessage: getErrorMessage(error),
+          error: serializeError(error)
+        });
+        childBindingTrace('========== Finish ==========', {
+          tokenHash,
+          childId: decodedChildId,
+          status: 'error'
+        });
         debugChildBinding('D.repository.error', {
           method: 'childTokenEntryInitialization',
           success: false,

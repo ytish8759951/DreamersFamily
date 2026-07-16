@@ -12,6 +12,7 @@ import {
   parseChildDeviceToken,
   type ChildDeviceTokenPayload
 } from './childDeviceToken';
+import { childBindingTrace, hashForTrace } from './childBindingTrace';
 import type {
   AnnualParentNote,
   DreamWithBalance,
@@ -1021,30 +1022,56 @@ export class LocalDataService implements LocalDataRepository {
       if (!normalized) throw new LocalDataError('Child token is empty', 'CHILD_TOKEN_EMPTY');
       const payload = parseChildDeviceToken(normalized);
       if (!payload) throw new LocalDataError('Child token is invalid', 'CHILD_TOKEN_INVALID');
+      const tokenHash = hashForTrace(normalized);
+      childBindingTrace('LocalDataService.bindChildDeviceByToken() 開始呼叫', {
+        tokenHash,
+        childId: payload.childId
+      });
       const timestamp = now();
       let binding = state.device_bindings.find((record) => record.token === normalized);
+      let bindingCreatedFromConfirmedRpc = false;
       if (!binding && bindingRecord) {
+        const confirmedUsedAt = bindingRecord.used_at ?? null;
         upsertDeviceBinding(state, bindingRecord.child_id, {
-          bindingStatus: 'unbound',
-          qrTokenStatus: 'active',
+          bindingStatus: confirmedUsedAt ? 'bound' : 'unbound',
+          qrTokenStatus: confirmedUsedAt ? 'consumed' : 'active',
           token: normalized,
           familyId: bindingRecord.family_id,
           childName: bindingRecord.child_name,
           expiresAt: bindingRecord.expires_at,
-          usedAt: bindingRecord.used_at ?? null,
+          usedAt: confirmedUsedAt,
           revokedAt: bindingRecord.revoked_at ?? null,
-          lastLoginAt: null,
+          lastLoginAt: confirmedUsedAt,
           lastLoginDevice: null
         });
         binding = state.device_bindings.find((record) => record.token === normalized);
+        bindingCreatedFromConfirmedRpc = Boolean(confirmedUsedAt);
       }
       if (!binding) throw new LocalDataError('QR binding record not found', 'QR_BINDING_NOT_FOUND');
+      childBindingTrace('LocalDataService.bindChildDeviceByToken() 收到 RPC/binding', {
+        tokenHash,
+        childId: binding.child_id,
+        familyId: binding.family_id,
+        bindingStatus: binding.binding_status,
+        qrTokenStatus: binding.qr_token_status,
+        usedAt: binding.used_at,
+        bindingCreatedFromConfirmedRpc
+      });
       if (binding.child_id !== payload.childId) {
         throw new LocalDataError('QR token does not match the requested child', 'QR_CHILD_MISMATCH');
       }
       if (binding.revoked_at || binding.qr_token_status === 'revoked') throw new LocalDataError('QR 已使用', 'QR_USED');
-      if (binding.used_at || binding.qr_token_status === 'consumed') throw new LocalDataError('QR 已使用', 'QR_USED');
-      if (binding.expires_at && binding.expires_at <= timestamp) throw new LocalDataError('QR 已過期', 'QR_EXPIRED');
+      const consumedByCurrentRpcSuccess =
+        bindingCreatedFromConfirmedRpc
+        && Boolean(bindingRecord?.used_at)
+        && binding.used_at === bindingRecord?.used_at
+        && binding.qr_token_status === 'consumed';
+      if (!consumedByCurrentRpcSuccess && (binding.used_at || binding.qr_token_status === 'consumed')) {
+        throw new LocalDataError('QR 已使用', 'QR_USED');
+      }
+      if (!consumedByCurrentRpcSuccess && binding.expires_at && binding.expires_at <= timestamp) {
+        throw new LocalDataError('QR 已過期', 'QR_EXPIRED');
+      }
       let child = state.children.find((item) => item.status === 'active' && item.id === binding.child_id) ?? null;
       if (!child && bindingRecord) {
         child = createChildFromTokenPayload(
@@ -1066,24 +1093,45 @@ export class LocalDataService implements LocalDataRepository {
         throw new LocalDataError('家庭驗證失敗', 'FAMILY_VERIFICATION_FAILED');
       }
       const lastLoginDevice = currentDeviceLabel();
+      const boundAt = consumedByCurrentRpcSuccess && bindingRecord?.used_at ? bindingRecord.used_at : timestamp;
       child.updated_at = timestamp;
-      child.child_token_consumed_at = timestamp;
+      child.child_token_consumed_at = boundAt;
       removeChildOnboardingToken(state, child.id);
       state.deviceBinding = child.id;
       state.device_child_id = child.id;
       state.active_child_id = child.id;
       state.pendingBindingChildId = null;
-      setCurrentChildIdentity(state, child, normalized, timestamp);
+      setCurrentChildIdentity(state, child, normalized, boundAt);
       upsertDeviceBinding(state, child.id, {
         bindingStatus: 'bound',
         qrTokenStatus: 'consumed',
         token: normalized,
         childName: binding.child_name || child.display_name,
         expiresAt: binding.expires_at,
-        usedAt: timestamp,
+        usedAt: boundAt,
         revokedAt: null,
-        lastLoginAt: timestamp,
+        lastLoginAt: boundAt,
         lastLoginDevice
+      });
+      childBindingTrace('LocalDataService.bindChildDeviceByToken() 是否建立 child session', {
+        tokenHash,
+        childId: child.id,
+        createdChildSession: state.device_child_id === child.id && state.deviceBinding === child.id,
+        activeChildId: state.active_child_id,
+        deviceChildId: state.device_child_id,
+        deviceBinding: state.deviceBinding
+      });
+      childBindingTrace('LocalDataService.bindChildDeviceByToken() 是否設定 currentChildIdentity', {
+        tokenHash,
+        childId: child.id,
+        currentChildIdentityChildId: state.currentChildIdentity?.childId ?? null,
+        currentChildIdentitySet: state.currentChildIdentity?.childId === child.id
+      });
+      childBindingTrace('LocalDataService.bindChildDeviceByToken() 是否 navigate', {
+        tokenHash,
+        childId: child.id,
+        navigate: false,
+        reason: 'LocalDataService only updates local session state'
       });
       return child;
     });
