@@ -7,6 +7,7 @@ import type {
 } from './localTypes';
 import { normalizeBadgeIcon } from './badgeIcons';
 import { createChildDeviceTokenForChild } from './childDeviceToken';
+import { getChildSession, type ChildSession } from './childSessionRepository';
 import {
   deleteCookieValue,
   getCookieValue,
@@ -284,7 +285,25 @@ function createDefaultSettings(timestamp: string) {
   };
 }
 
-function readChildSessionBootstrap(): { currentChildIdentity: LocalChildIdentity; deviceBinding: string } | null {
+function readChildSessionBootstrap(preferVersionedChildSession = false): { currentChildIdentity: LocalChildIdentity; deviceBinding: string; session?: ChildSession } | null {
+  if (preferVersionedChildSession) {
+    const session = getChildSession();
+    if (session) {
+      return {
+        currentChildIdentity: {
+          childId: session.childId,
+          displayName: session.childName,
+          birthDate: session.birthDate ?? null,
+          themeColor: session.themeColor ?? null,
+          childToken: session.childToken ?? '',
+          boundAt: session.boundAt
+        },
+        deviceBinding: session.childId,
+        session
+      };
+    }
+  }
+
   const identityRaw = getCookieValue(LOCAL_CURRENT_CHILD_IDENTITY_KEY);
   const deviceBinding = getCookieValue(LOCAL_DEVICE_BINDING_KEY);
   if (!identityRaw || !deviceBinding) return null;
@@ -527,11 +546,11 @@ function applyParentBootstrap(state: LocalDatabaseState, bootstrap: LocalParentB
   });
 }
 
-function createBootstrapChild(identity: LocalChildIdentity, boundDeviceId: string): LocalChild {
+function createBootstrapChild(identity: LocalChildIdentity, boundDeviceId: string, session?: ChildSession): LocalChild {
   const timestamp = now();
   return {
     id: identity.childId,
-    family_id: LOCAL_FAMILY_ID,
+    family_id: session?.familyId ?? LOCAL_FAMILY_ID,
     display_name: identity.displayName,
     legal_name: null,
     birth_date: identity.birthDate ?? null,
@@ -546,7 +565,7 @@ function createBootstrapChild(identity: LocalChildIdentity, boundDeviceId: strin
     child_token: identity.childToken,
     child_token_updated_at: identity.boundAt ?? timestamp,
     child_token_consumed_at: identity.boundAt ?? timestamp,
-    created_by: LOCAL_PARENT_USER_ID,
+    created_by: session?.familyId ?? LOCAL_PARENT_USER_ID,
     created_at: identity.boundAt ?? timestamp,
     updated_at: timestamp,
     archived_at: null
@@ -592,7 +611,7 @@ export class MockDatabase {
 
   read(): LocalDatabaseState {
     const stored = readJson<LocalDatabaseState>(this.storage, this.storageKey);
-    const childBootstrap = readChildSessionBootstrap();
+    const childBootstrap = readChildSessionBootstrap(this.storageKey === 'little-dreamers-family:supabase-cache:v1');
     const parentBootstrap = loadParentBootstrap();
     const isEmptyStoredState =
       stored ? (stored.children?.length ?? 0) === 0 && !stored.currentChildIdentity && !stored.deviceBinding && !stored.device_child_id : false;
@@ -603,11 +622,38 @@ export class MockDatabase {
     if (!stored || stored.schema_version !== 1 || (childBootstrap && isEmptyStoredState) || (parentBootstrap && isEmptyStoredState) || canApplyParentBootstrap) {
       if (childBootstrap) {
         const seeded = createEmptyState();
-        seeded.children = [createBootstrapChild(childBootstrap.currentChildIdentity, seeded.device_id ?? LOCAL_DEVICE_ID)];
+        if (childBootstrap.session) seeded.family_id = childBootstrap.session.familyId;
+        seeded.children = [
+          createBootstrapChild(
+            childBootstrap.currentChildIdentity,
+            childBootstrap.session?.deviceId ?? seeded.device_id ?? LOCAL_DEVICE_ID,
+            childBootstrap.session
+          )
+        ];
         seeded.deviceBinding = childBootstrap.deviceBinding;
         seeded.device_child_id = childBootstrap.deviceBinding;
         seeded.currentChildIdentity = childBootstrap.currentChildIdentity;
         seeded.active_child_id = childBootstrap.deviceBinding;
+        if (childBootstrap.session) {
+          seeded.device_id = childBootstrap.session.deviceId;
+          seeded.device_bindings = [{
+            id: childBootstrap.session.deviceBindingId,
+            token: childBootstrap.session.childToken ?? null,
+            family_id: childBootstrap.session.familyId,
+            child_id: childBootstrap.session.childId,
+            child_name: childBootstrap.session.childName,
+            device_id: childBootstrap.session.deviceId,
+            expires_at: childBootstrap.session.boundAt,
+            used_at: childBootstrap.session.boundAt,
+            revoked_at: null,
+            last_login_at: childBootstrap.session.boundAt,
+            last_login_device: null,
+            binding_status: 'bound',
+            qr_token_status: 'consumed',
+            created_at: childBootstrap.session.sessionCreatedAt,
+            updated_at: childBootstrap.session.boundAt
+          }];
+        }
         seeded.pendingBindingChildId = null;
         this.write(seeded);
         return clone(seeded);

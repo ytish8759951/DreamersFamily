@@ -8,6 +8,8 @@ import {
 } from './childDeviceToken';
 import { requireBackendVerifiedChildBindingRow } from './childBindingRpcValidation';
 import { childBindingTrace, hashForTrace, recordBindChildDeviceCall } from './childBindingTrace';
+import { bootstrapChildDeviceSession } from './childHydration';
+import { getChildSession, isChildSessionValid } from './childSessionRepository';
 import {
   LOCAL_DEVICE_ID,
   MockDatabase
@@ -51,6 +53,9 @@ import type {
   LocalShareMedia,
   LocalSpecialDay,
   LocalStarTransaction,
+  ShareWithMedia,
+  PiggyBankSummary,
+  WeeklyScreenTimeDay,
   MemoryPack,
   LocalTask,
   UUID
@@ -153,6 +158,8 @@ interface SupabaseDeviceBindingRow {
   family_id: UUID;
   child_id: UUID;
   child_name: string;
+  child_birth_date?: string | null;
+  child_theme_color?: string | null;
   device_id: UUID;
   expires_at: string;
   used_at: string | null;
@@ -1190,6 +1197,25 @@ function setRuntimeInfo(next: SupabaseRuntimeInfo) {
   runtimeListeners.forEach((listener) => listener(runtimeInfo));
 }
 
+function sum(values: number[]) {
+  return values.reduce((total, value) => total + value, 0);
+}
+
+function todayIsoDate() {
+  return new Date().toISOString().slice(0, 10);
+}
+
+function normalizeScreenLogType(log: LocalScreenTimeLog): NonNullable<LocalScreenTimeLog['type']> {
+  if (log.type) return log.type;
+  if (log.entry_type === 'usage') return 'used';
+  if (log.entry_type === 'manual_deduction') return 'penalty';
+  return 'manual_add';
+}
+
+function getScreenTimeLedgerBalance(state: LocalDatabaseState, childId: UUID) {
+  return Math.max(0, sum(state.screen_time_logs.filter((item) => item.child_id === childId).map((item) => item.minutes_delta)));
+}
+
 export class SupabaseDataRepository implements LocalDataRepository {
   private readonly client: SupabaseClient | null;
   private cache = new LocalDataService(new MockDatabase(undefined, SUPABASE_CACHE_KEY));
@@ -1319,6 +1345,25 @@ export class SupabaseDataRepository implements LocalDataRepository {
     }) as LocalDataRepository[K];
   }
 
+  private requireChildScopedSession(childId: UUID) {
+    const session = getChildSession();
+    if (!isChildSessionValid(session, childId)) {
+      throw new LocalDataError('Child session is invalid or does not match requested child', 'CHILD_SESSION_FORBIDDEN');
+    }
+    return session;
+  }
+
+  private canUseChildScopedSession(childId: UUID) {
+    return isChildSessionValid(getChildSession(), childId);
+  }
+
+  private getChildScopedState(childId: UUID) {
+    if (!this.canUseChildScopedSession(childId) && !runtimeInfo.familyId) {
+      this.requireChildScopedSession(childId);
+    }
+    return scopeStateToCurrentFamily(this.cache.getState());
+  }
+
   getState(): LocalDatabaseState {
     this.hydrateFromSupabase();
     return scopeStateToCurrentFamily(this.cache.getState());
@@ -1419,6 +1464,17 @@ export class SupabaseDataRepository implements LocalDataRepository {
     console.log('[child-token-entry] bindChildDeviceByToken start', { childToken: normalized });
 
     const binding = await this.resolveQrBindingByRpc(normalized, decodedToken.childId);
+    bootstrapChildDeviceSession({
+      token: normalized,
+      childId: binding.child_id,
+      childName: binding.child_name,
+      familyId: binding.family_id,
+      deviceBindingId: binding.id,
+      deviceId: binding.device_id,
+      boundAt: binding.used_at ?? new Date().toISOString(),
+      birthDate: binding.child_birth_date ?? null,
+      themeColor: binding.child_theme_color ?? null
+    });
     childBindingTrace('bindChildDeviceByToken() 收到 RPC', {
       tokenHash: bindCall.tokenHash,
       childId: binding.child_id,
@@ -1566,6 +1622,8 @@ export class SupabaseDataRepository implements LocalDataRepository {
       family_id: row.family_id,
       child_id: row.id,
       child_name: row.display_name,
+      child_birth_date: row.birth_date,
+      child_theme_color: row.theme_color,
       device_id: deviceId,
       expires_at: row.binding_expires_at,
       used_at: row.binding_used_at,
@@ -1872,9 +1930,27 @@ export class SupabaseDataRepository implements LocalDataRepository {
   createTask = this.delegateWrite('createTask');
   completeTask = this.delegateWrite('completeTask');
   approveTask = this.delegateWrite('approveTask');
-  listTasks = this.delegate('listTasks');
-  getStarBalance = this.delegate('getStarBalance');
-  listStarTransactions = this.delegate('listStarTransactions');
+  listTasks(childId?: UUID): LocalTask[] {
+    if (childId && this.canUseChildScopedSession(childId)) {
+      return this.getChildScopedState(childId).tasks
+        .filter((task) => task.child_id === childId)
+        .sort((a, b) => b.created_at.localeCompare(a.created_at));
+    }
+    return this.cache.listTasks(childId);
+  }
+
+  getStarBalance(childId: UUID): number {
+    const state = this.getChildScopedState(childId);
+    return sum(state.stars.filter((item) => item.child_id === childId).map((item) => item.amount));
+  }
+
+  listStarTransactions(childId: UUID): LocalStarTransaction[] {
+    const state = this.getChildScopedState(childId);
+    return state.stars
+      .filter((item) => item.child_id === childId)
+      .sort((a, b) => b.created_at.localeCompare(a.created_at));
+  }
+
   createDream = this.delegateWrite('createDream');
   migrateDreamCoverToMedia = this.delegateWrite('migrateDreamCoverToMedia');
   deleteDream = this.delegateWrite('deleteDream');
@@ -1883,12 +1959,35 @@ export class SupabaseDataRepository implements LocalDataRepository {
   listDreams = this.delegate('listDreams');
   createShare = this.delegateWrite('createShare');
   updateShareMediaStorage = this.delegateWrite('updateShareMediaStorage');
-  listShares = this.delegate('listShares');
+  listShares(childId?: UUID): ShareWithMedia[] {
+    if (childId && this.canUseChildScopedSession(childId)) {
+      const state = this.getChildScopedState(childId);
+      return state.shares
+        .filter((share) => !share.deleted_at && share.child_id === childId)
+        .map((share) => ({
+          ...share,
+          media: state.share_media
+            .filter((media) => media.share_id === share.id)
+            .sort((a, b) => a.sort_order - b.sort_order)
+        }))
+        .sort((a, b) => b.created_at.localeCompare(a.created_at));
+    }
+    return this.cache.listShares(childId);
+  }
+
   deleteShare = this.delegateWrite('deleteShare');
   approveShare = this.delegateWrite('approveShare');
   createMailboxMessage = this.delegateWrite('createMailboxMessage');
   markMessageRead = this.delegateWrite('markMessageRead');
-  listMailboxMessages = this.delegate('listMailboxMessages');
+  listMailboxMessages(childId?: UUID): LocalMailboxMessage[] {
+    if (childId && this.canUseChildScopedSession(childId)) {
+      return this.getChildScopedState(childId).encouragement_cards
+        .filter((message) => message.child_id === childId)
+        .sort((a, b) => b.created_at.localeCompare(a.created_at));
+    }
+    return this.cache.listMailboxMessages(childId);
+  }
+
   createBadge = this.delegateWrite('createBadge');
   deleteBadge = this.delegateWrite('deleteBadge');
   awardBadge = this.delegateWrite('awardBadge');
@@ -1917,21 +2016,96 @@ export class SupabaseDataRepository implements LocalDataRepository {
   addScreenTime = this.delegateWrite('addScreenTime');
   deductScreenTimePenalty = this.delegateWrite('deductScreenTimePenalty');
   recordScreenTimeUsed = this.delegateWrite('recordScreenTimeUsed');
-  getScreenTimeLogsByChild = this.delegate('getScreenTimeLogsByChild');
-  getTodayScreenTimeByChild = this.delegate('getTodayScreenTimeByChild');
+  getScreenTimeLogsByChild(childId: UUID): LocalScreenTimeLog[] {
+    const state = this.getChildScopedState(childId);
+    return state.screen_time_logs
+      .filter((item) => item.child_id === childId)
+      .sort((a, b) => b.created_at.localeCompare(a.created_at));
+  }
+
+  getTodayScreenTimeByChild(childId: UUID): WeeklyScreenTimeDay {
+    const state = this.getChildScopedState(childId);
+    const date = todayIsoDate();
+    const logs = state.screen_time_logs.filter((log) => log.child_id === childId && (log.date ?? log.created_at.slice(0, 10)) === date);
+    const sumMinutes = (type: NonNullable<LocalScreenTimeLog['type']>) =>
+      sum(logs.filter((log) => normalizeScreenLogType(log) === type).map((log) => Math.abs(log.minutes ?? log.minutes_delta)));
+    return {
+      date,
+      weekday: new Intl.DateTimeFormat('zh-TW', { weekday: 'short' }).format(new Date(`${date}T00:00:00`)),
+      plannedMinutes: 0,
+      redeemedMinutes: sumMinutes('redeem'),
+      manualAddedMinutes: sumMinutes('manual_add'),
+      penaltyMinutes: sumMinutes('penalty'),
+      usedMinutes: sumMinutes('used'),
+      remainingMinutes: getScreenTimeLedgerBalance(state, childId)
+    };
+  }
+
   createGrowthRecord = this.delegateWrite('createGrowthRecord');
   updateGrowthRecord = this.delegateWrite('updateGrowthRecord');
   deleteGrowthRecord = this.delegateWrite('deleteGrowthRecord');
-  getGrowthRecords = this.delegate('getGrowthRecords');
-  getLatestGrowthRecordByChild = this.delegate('getLatestGrowthRecordByChild');
-  getGrowthRecordsByChild = this.delegate('getGrowthRecordsByChild');
+  getGrowthRecords(childId?: UUID): LocalGrowthRecord[] {
+    if (childId && this.canUseChildScopedSession(childId)) {
+      return this.getChildScopedState(childId).growth_records
+        .filter((record) => record.child_id === childId)
+        .sort((a, b) => b.date.localeCompare(a.date) || b.created_at.localeCompare(a.created_at));
+    }
+    return this.cache.getGrowthRecords(childId);
+  }
+
+  getLatestGrowthRecordByChild(childId: UUID): LocalGrowthRecord | null {
+    return this.getGrowthRecordsByChild(childId)[0] ?? null;
+  }
+
+  getGrowthRecordsByChild(childId: UUID): LocalGrowthRecord[] {
+    return this.getGrowthRecords(childId);
+  }
+
   listNotifications = this.delegate('listNotifications');
   markNotificationRead = this.delegateWrite('markNotificationRead');
   addPiggyIncome = this.delegateWrite('addPiggyIncome');
   depositPiggyCoin = this.delegateWrite('depositPiggyCoin');
-  getPiggyBankSummary = this.delegate('getPiggyBankSummary');
-  getPiggyIncomeRecords = this.delegate('getPiggyIncomeRecords');
-  getPiggyBankLogs = this.delegate('getPiggyBankLogs');
+  getPiggyBankSummary(childId: UUID): PiggyBankSummary {
+    const state = this.getChildScopedState(childId);
+    const date = todayIsoDate();
+    const currentSavings = sum(
+      state.piggy_bank_logs
+        .filter((log) => log.child_id === childId)
+        .map((log) => (log.type === 'coin_deposit' || log.type === 'purchase_refund' ? log.amount : -log.amount))
+    );
+    return {
+      currentSavings,
+      availableToDepositToday: sum(
+        state.piggy_incomes
+          .filter((income) => income.child_id === childId && income.created_at.slice(0, 10) === date)
+          .map((income) => income.remaining_amount)
+      ),
+      depositedToday: sum(
+        state.piggy_bank_logs
+          .filter((log) => log.child_id === childId && log.type === 'coin_deposit' && log.created_at.slice(0, 10) === date)
+          .map((log) => log.amount)
+      )
+    };
+  }
+
+  getPiggyIncomeRecords(childId?: UUID): LocalPiggyIncome[] {
+    if (childId && this.canUseChildScopedSession(childId)) {
+      return this.getChildScopedState(childId).piggy_incomes
+        .filter((income) => income.child_id === childId)
+        .sort((a, b) => b.created_at.localeCompare(a.created_at));
+    }
+    return this.cache.getPiggyIncomeRecords(childId);
+  }
+
+  getPiggyBankLogs(childId?: UUID): LocalPiggyBankLog[] {
+    if (childId && this.canUseChildScopedSession(childId)) {
+      return this.getChildScopedState(childId).piggy_bank_logs
+        .filter((log) => log.child_id === childId)
+        .sort((a, b) => b.created_at.localeCompare(a.created_at));
+    }
+    return this.cache.getPiggyBankLogs(childId);
+  }
+
   createPiggyProduct = this.delegateWrite('createPiggyProduct');
   updatePiggyProduct = this.delegateWrite('updatePiggyProduct');
   deletePiggyProduct = this.delegateWrite('deletePiggyProduct');

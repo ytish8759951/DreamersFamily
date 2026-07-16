@@ -1,4 +1,5 @@
 import type { LocalDatabaseState } from './localTypes';
+import { getChildSession, isChildSessionValid } from './childSessionRepository';
 
 export function hasConfirmedChildDeviceSession(
   state: Pick<
@@ -7,11 +8,12 @@ export function hasConfirmedChildDeviceSession(
   >,
   requestedChildId?: string | null
 ) {
-  const sessionChildId = state.currentChildIdentity?.childId ?? null;
+  const childSession = getChildSession();
+  const sessionChildId = childSession?.childId ?? null;
   return Boolean(sessionChildId) &&
+    isChildSessionValid(childSession, requestedChildId) &&
     state.deviceBinding === sessionChildId &&
     state.device_child_id === sessionChildId &&
-    (!requestedChildId || requestedChildId === sessionChildId) &&
     state.children.some((child) => child.id === sessionChildId && child.status === 'active') &&
     state.device_bindings.some(
       (record) =>

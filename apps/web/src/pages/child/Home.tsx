@@ -4,6 +4,7 @@ import { Component, useEffect, useMemo, type ErrorInfo, type ReactNode } from 'r
 import { Link, useLocation } from 'react-router-dom';
 import { LocalShareMedia as LocalShareMediaView } from '../../components/LocalShareMedia';
 import { debugChildBinding, getRepositoryDebugInfo, getRouteDebugInfo } from '../../lib/childBindingDebug';
+import { getChildSession, isChildSessionValid } from '../../lib/childSessionRepository';
 import { dataMode } from '../../lib/dataRepository';
 import { deviceBindingRepository } from '../../lib/deviceBindingRepository';
 import { useDreamCoverMigration } from '../../lib/dreamCoverMigration';
@@ -106,13 +107,18 @@ function ChildHomeContent() {
   useDreamCoverMigration();
   const location = useLocation();
   const localState = useLocalDataState();
+  const childSession = getChildSession();
   const currentChildIdentity = localState.currentChildIdentity;
   const deviceBinding = localState.deviceBinding;
   const hasChildDeviceSession = Boolean(localState.currentChildIdentity || deviceBinding);
   const selectedChildId = useMemo(() => {
     const childId = new URLSearchParams(location.search).get('childId');
+    if (isChildSessionValid(childSession, childId)) return childSession.childId;
     return childId || localState.currentChildIdentity?.childId || deviceBinding || null;
-  }, [deviceBinding, location.search, localState.currentChildIdentity?.childId]);
+  }, [childSession, deviceBinding, location.search, localState.currentChildIdentity?.childId]);
+  const hasValidChildSession = dataMode === 'supabase'
+    ? isChildSessionValid(childSession, selectedChildId)
+    : true;
   const selectedChild = selectedChildId
     ? localState.children.find((child) => child.id === selectedChildId && child.status === 'active')
     : null;
@@ -122,7 +128,7 @@ function ChildHomeContent() {
         .sort((first, second) => second.updated_at.localeCompare(first.updated_at))[0] ?? null
     : null;
   const hasActiveDeviceBinding = dataMode === 'supabase'
-    ? Boolean(latestDeviceBinding)
+    ? hasValidChildSession && Boolean(latestDeviceBinding)
     : hasChildDeviceSession;
 
   useEffect(() => {
@@ -131,6 +137,8 @@ function ChildHomeContent() {
       ...getRepositoryDebugInfo(),
       renderSource: 'useLocalDataState -> dataRepository snapshot',
       selectedChildId,
+      childSession,
+      hasValidChildSession,
       selectedChild: selectedChild
         ? {
             id: selectedChild.id,
@@ -154,6 +162,8 @@ function ChildHomeContent() {
     });
   }, [
     hasActiveDeviceBinding,
+    hasValidChildSession,
+    childSession,
     latestDeviceBinding,
     localState.currentChildIdentity,
     localState.deviceBinding,
@@ -194,23 +204,49 @@ function ChildHomeContent() {
     );
   }
 
-  const childName = selectedChild?.display_name ?? currentChildIdentity?.displayName ?? '小朋友';
+  if (dataMode === 'supabase' && !hasValidChildSession) {
+    return (
+      <div className="v1-page v1-home v2-home-page">
+        <section className="child-home-install-banner">
+          <strong>此平板的孩子裝置 session 無效，請家長重新掃描 QR Code</strong>
+        </section>
+        <div className="child-home-empty-state">
+          <h1>孩子首頁</h1>
+          <p>為了安全起見，系統不會使用舊快取開啟孩子頁面。</p>
+        </div>
+      </div>
+    );
+  }
+
+  if (dataMode === 'supabase' && hasValidChildSession && !selectedChild) {
+    return (
+      <div className="v1-page v1-home v2-home-page">
+        <section className="child-home-install-banner">
+          <strong>孩子裝置資料載入中</strong>
+          <p>正在準備孩子首頁。</p>
+        </section>
+      </div>
+    );
+  }
+
+  const activeChildId = selectedChild?.id ?? childSession?.childId ?? null;
+  const childName = selectedChild?.display_name ?? childSession?.childName ?? currentChildIdentity?.displayName ?? '小朋友';
   const childShares = traceChildHomeStep('buildChildShares', () => selectedChild
     ? buildChildShares(localState).filter((share) => share.child_id === selectedChild.id).slice(0, 3)
     : []);
-  const piggySavings = traceChildHomeStep('piggyRepository.getPiggyBankSummary', () => selectedChild
-    ? piggyRepository.getPiggyBankSummary(selectedChild.id).currentSavings
+  const piggySavings = traceChildHomeStep('piggyRepository.getPiggyBankSummary', () => activeChildId
+    ? piggyRepository.getPiggyBankSummary(activeChildId).currentSavings
     : 0);
-  const totalStars = traceChildHomeStep('starRepository.getStarBalance', () => selectedChild
-    ? starRepository.getStarBalance(selectedChild.id)
+  const totalStars = traceChildHomeStep('starRepository.getStarBalance', () => activeChildId
+    ? starRepository.getStarBalance(activeChildId)
     : 0);
-  const remainingScreenMinutes = traceChildHomeStep('tabletRepository.getTodayScreenTimeByChild', () => selectedChild
-    ? tabletRepository.getTodayScreenTimeByChild(selectedChild.id).remainingMinutes
+  const remainingScreenMinutes = traceChildHomeStep('tabletRepository.getTodayScreenTimeByChild', () => activeChildId
+    ? tabletRepository.getTodayScreenTimeByChild(activeChildId).remainingMinutes
     : 0);
-  const latestGrowth = traceChildHomeStep('growthRepository.getLatestGrowthRecordByChild', () => selectedChild
-    ? growthRepository.getLatestGrowthRecordByChild(selectedChild.id)
+  const latestGrowth = traceChildHomeStep('growthRepository.getLatestGrowthRecordByChild', () => activeChildId
+    ? growthRepository.getLatestGrowthRecordByChild(activeChildId)
     : null);
-  const specialDaySummary = traceChildHomeStep('getHomeSpecialDaySummary', () => selectedChild ? getHomeSpecialDaySummary(localState, selectedChild.id) : null);
+  const specialDaySummary = traceChildHomeStep('getHomeSpecialDaySummary', () => activeChildId ? getHomeSpecialDaySummary(localState, activeChildId) : null);
   const visibleSpecialDays = traceChildHomeStep('visibleSpecialDays', () => specialDaySummary?.specialDays.slice(0, 3) ?? []);
 
   return (

@@ -30,6 +30,7 @@ import { JoinParentDevicePage } from './pages/auth/JoinParentDevicePage';
 import { dataMode } from './lib/dataRepository';
 import { getLoggedInFamilyLandingPath } from './lib/familyLanding';
 import { hasConfirmedChildDeviceSession } from './lib/childBindingState';
+import { getChildSession } from './lib/childSessionRepository';
 import { getErrorMessage, getErrorStack } from './lib/errorDiagnostics';
 import { useLocalDataState } from './lib/useLocalData';
 import { useSupabaseRuntimeInfo } from './lib/useSupabaseRuntimeInfo';
@@ -98,7 +99,8 @@ function RequireChildBinding() {
   ]);
   const isTokenRoute = pathSegment && !reservedChildRoutes.has(pathSegment);
   const requestedChildId = new URLSearchParams(location.search).get('childId');
-  const sessionChildId = state.currentChildIdentity?.childId ?? null;
+  const childSession = getChildSession();
+  const sessionChildId = childSession?.childId ?? null;
   const hasCoherentChildSession = hasConfirmedChildDeviceSession(state, requestedChildId);
 
   console.log('Binding check start', {
@@ -122,6 +124,7 @@ function RequireChildBinding() {
     console.warn('[child-binding] blocked child route without confirmed session', {
       pathname: location.pathname,
       requestedChildId,
+      childSession,
       currentChildIdentity: state.currentChildIdentity ?? null,
       deviceBinding: state.deviceBinding ?? null,
       deviceChildId: state.device_child_id ?? null,
