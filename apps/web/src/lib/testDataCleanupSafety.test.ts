@@ -9,12 +9,14 @@ function readRepoFile(relativePath: string) {
 
 describe('test data cleanup safety', () => {
   it('qualifies family_id references in the latest cleanup RPC migration', () => {
-    const sql = readRepoFile('supabase/migrations/022_fix_test_data_cleanup_family_id_ambiguity.sql');
+    const sql = readRepoFile('supabase/migrations/023_fix_test_data_cleanup_fk_order.sql');
 
     expect(sql).not.toMatch(/\bwhere\s+family_id\s*=/i);
     expect(sql).not.toMatch(/\bon\s+family_id\s*=/i);
     expect(sql).not.toMatch(/\bselect\s+family_id\b/i);
     expect(sql).toContain('delete from public.tasks as t where t.family_id = v_target_family_id');
+    expect(sql.indexOf('delete from public.piggy_banks as pb where pb.family_id = v_target_family_id')).toBeGreaterThan(-1);
+    expect(sql.indexOf('delete from public.piggy_banks as pb')).toBeLessThan(sql.indexOf('delete from public.children as c'));
     expect(sql).toContain('delete from public.family_members as fm');
     expect(sql).toContain('v_target_family_id as family_id');
   });

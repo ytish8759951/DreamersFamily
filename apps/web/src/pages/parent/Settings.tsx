@@ -382,7 +382,10 @@ const cleanupCountLabels: Record<string, string> = {
   families: '家庭',
   family_members: '家庭成員',
   family_memberships: '家庭成員',
+  family_invitations: '家庭邀請',
+  parents: '家長資料',
   children: '孩子',
+  child_devices: '孩子裝置',
   child_login_challenges: '孩子登入邀請',
   child_onboarding_tokens: '舊版孩子 QR 邀請',
   child_sessions: '孩子登入狀態',
@@ -391,46 +394,67 @@ const cleanupCountLabels: Record<string, string> = {
   task_records: '任務完成紀錄',
   tasks: '任務',
   stars: '星星與獎勵',
+  reward_transactions: '舊版獎勵紀錄',
   badges: '徽章',
   child_badges: '孩子徽章',
   dreams: '撲滿目標',
   dream_funds: '撲滿流水',
+  dream_fund_reversals: '撲滿沖銷紀錄',
+  wishes: '舊版願望',
+  wish_stages: '願望階段',
+  wish_progress_entries: '願望進度',
+  piggy_banks: '撲滿帳戶',
   piggy_bank_records: '撲滿紀錄',
   store_items: '商品／兌換項目',
   purchases: '兌換紀錄',
+  growth_categories: '成長分類',
+  growth_measurements: '身高體重紀錄',
   growth_records: '成長紀錄',
   shares: '分享內容',
   share_media: '分享附件',
   encouragement_cards: '鼓勵卡片',
+  album_entries: '相簿項目',
+  comments: '留言',
+  artifacts: '作品紀錄',
+  media_assets: '媒體檔案',
+  achievement_messages: '成就訊息',
   mailbox_messages: '信箱訊息',
+  special_events: '特別事件',
   special_days: '特殊日',
+  notification_events: '通知事件',
+  notification_preferences: '通知偏好',
   notifications: '通知',
   tablet_time: '平板時間紀錄',
+  screen_time: '舊版平板時間',
   screen_time_logs: '平板時間紀錄',
+  screen_time_log_reversals: '平板時間沖銷紀錄',
   screen_time_requests: '平板時間申請',
-  screen_time_schedules: '平板時間設定'
+  screen_time_schedules: '平板時間設定',
+  reminders: '提醒',
+  device_tokens: '推播裝置 Token',
+  milestones: '里程碑'
 };
 
 const cleanupCountGroups: Array<{ title: string; keys: string[] }> = [
   {
     title: '家庭與孩子',
-    keys: ['families', 'family_members', 'family_memberships', 'children']
+    keys: ['families', 'family_members', 'family_memberships', 'family_invitations', 'parents', 'children']
   },
   {
     title: '裝置與登入',
-    keys: ['device_bindings', 'child_login_challenges', 'child_onboarding_tokens', 'child_sessions', 'child_device_heartbeats']
+    keys: ['device_bindings', 'child_devices', 'child_login_challenges', 'child_onboarding_tokens', 'child_sessions', 'child_device_heartbeats', 'device_tokens']
   },
   {
     title: '任務與獎勵',
-    keys: ['tasks', 'task_records', 'stars', 'badges', 'child_badges']
+    keys: ['tasks', 'task_records', 'stars', 'star_reversals', 'reward_transactions', 'badges', 'child_badges']
   },
   {
     title: '撲滿與成長',
-    keys: ['dreams', 'dream_funds', 'piggy_bank_records', 'store_items', 'purchases', 'growth_records', 'tablet_time', 'screen_time_logs', 'screen_time_requests', 'screen_time_schedules']
+    keys: ['dreams', 'dream_funds', 'dream_fund_reversals', 'wishes', 'wish_stages', 'wish_progress_entries', 'piggy_banks', 'piggy_bank_records', 'store_items', 'purchases', 'growth_categories', 'growth_measurements', 'growth_records', 'milestones', 'child_milestones', 'tablet_time', 'screen_time', 'screen_time_logs', 'screen_time_log_reversals', 'screen_time_requests', 'screen_time_schedules']
   },
   {
     title: '分享與信箱',
-    keys: ['shares', 'share_media', 'encouragement_cards', 'mailbox_messages', 'special_days', 'notifications']
+    keys: ['shares', 'share_media', 'encouragement_cards', 'album_entries', 'comments', 'artifacts', 'media_assets', 'mailbox_messages', 'achievement_messages', 'special_events', 'special_days', 'reminders', 'notification_events', 'notification_preferences', 'notifications']
   }
 ];
 
