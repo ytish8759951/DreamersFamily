@@ -9,6 +9,7 @@ import {
 } from './childSessionRepository';
 import { LocalDataService } from './localData';
 import { MockDatabase } from './mockDatabase';
+import { hasConfirmedChildDeviceSession } from './childBindingState';
 import type { KeyValueStorage } from './storage';
 
 class TestStorage implements KeyValueStorage {
@@ -42,6 +43,9 @@ function session(overrides: Partial<ChildSession> = {}): ChildSession {
     familyId,
     deviceBindingId: 'binding-0716-6',
     deviceId,
+    bindingConfirmed: true,
+    bindingStatus: 'bound',
+    tokenStatus: 'consumed',
     boundAt: '2026-07-16T10:00:00.000Z',
     sessionCreatedAt: '2026-07-16T10:00:01.000Z',
     sessionVersion: 1,
@@ -108,6 +112,9 @@ describe('child session repository', () => {
       familyId,
       deviceBindingId: 'binding-0716-6',
       deviceId,
+      bindingConfirmed: true,
+      bindingStatus: 'bound',
+      tokenStatus: 'consumed',
       sessionVersion: 1
     });
     expect(isChildSessionValid(stored, childId)).toBe(true);
@@ -148,5 +155,32 @@ describe('child session repository', () => {
       availableToDepositToday: 0,
       depositedToday: 0
     });
+  });
+
+  it('lets the child route guard pass immediately after a confirmed first scan before legacy cache snapshot updates', () => {
+    saveChildSession(session());
+
+    expect(hasConfirmedChildDeviceSession({
+      children: [],
+      currentChildIdentity: null,
+      deviceBinding: null,
+      device_child_id: null,
+      device_bindings: []
+    }, childId)).toBe(true);
+  });
+
+  it('does not let an unconfirmed child session pass the route guard', () => {
+    window.localStorage.setItem('little-dreamers-family:child-session:v1', JSON.stringify({
+      ...session(),
+      bindingConfirmed: false
+    }));
+
+    expect(hasConfirmedChildDeviceSession({
+      children: [],
+      currentChildIdentity: null,
+      deviceBinding: null,
+      device_child_id: null,
+      device_bindings: []
+    }, childId)).toBe(false);
   });
 });

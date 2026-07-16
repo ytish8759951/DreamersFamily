@@ -1,5 +1,5 @@
 import { childBindingTrace, hashForTrace } from './childBindingTrace';
-import { CHILD_SESSION_VERSION, saveChildSession, type ChildSession } from './childSessionRepository';
+import { CHILD_SESSION_VERSION, getChildSession, saveChildSession, type ChildSession } from './childSessionRepository';
 import type { UUID } from './localTypes';
 
 export interface ChildBindingBootstrapResult {
@@ -27,6 +27,9 @@ export function createChildSessionFromBindingResult(binding: ChildBindingBootstr
     familyId: binding.familyId,
     deviceBindingId: binding.deviceBindingId,
     deviceId: binding.deviceId,
+    bindingConfirmed: true,
+    bindingStatus: 'bound',
+    tokenStatus: 'consumed',
     boundAt: binding.boundAt,
     sessionCreatedAt,
     sessionVersion: CHILD_SESSION_VERSION,
@@ -50,7 +53,23 @@ export function bootstrapChildDeviceSession(binding: ChildBindingBootstrapResult
     childId: session.childId,
     familyId: session.familyId,
     deviceBindingId: session.deviceBindingId,
+    deviceId: session.deviceId,
+    bindingConfirmed: session.bindingConfirmed,
+    bindingStatus: session.bindingStatus,
+    tokenStatus: session.tokenStatus,
     sessionVersion: session.sessionVersion
+  });
+  const savedSession = getChildSession();
+  childBindingTrace('ChildSession read after save', {
+    tokenHash,
+    childId: savedSession?.childId ?? null,
+    familyId: savedSession?.familyId ?? null,
+    deviceBindingId: savedSession?.deviceBindingId ?? null,
+    deviceId: savedSession?.deviceId ?? null,
+    bindingConfirmed: savedSession?.bindingConfirmed ?? null,
+    bindingStatus: savedSession?.bindingStatus ?? null,
+    tokenStatus: savedSession?.tokenStatus ?? null,
+    sessionVersion: savedSession?.sessionVersion ?? null
   });
   childBindingTrace('repository ready', {
     tokenHash,
@@ -59,4 +78,3 @@ export function bootstrapChildDeviceSession(binding: ChildBindingBootstrapResult
   });
   return { session, repositoryReady: true };
 }
-

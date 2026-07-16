@@ -10,17 +10,19 @@ export function hasConfirmedChildDeviceSession(
 ) {
   const childSession = getChildSession();
   const sessionChildId = childSession?.childId ?? null;
-  return Boolean(sessionChildId) &&
-    isChildSessionValid(childSession, requestedChildId) &&
-    state.deviceBinding === sessionChildId &&
-    state.device_child_id === sessionChildId &&
-    state.children.some((child) => child.id === sessionChildId && child.status === 'active') &&
-    state.device_bindings.some(
-      (record) =>
-        record.child_id === sessionChildId &&
-        record.binding_status === 'bound' &&
-        record.qr_token_status === 'consumed' &&
-        Boolean(record.used_at) &&
-        !record.revoked_at
-    );
+  const confirmedSession = Boolean(sessionChildId) && isChildSessionValid(childSession, requestedChildId);
+  if (!confirmedSession) {
+    console.warn('[child-binding] confirmed ChildSession missing or invalid', {
+      requestedChildId,
+      childSession,
+      legacy: {
+        currentChildIdentity: state.currentChildIdentity ?? null,
+        deviceBinding: state.deviceBinding ?? null,
+        deviceChildId: state.device_child_id ?? null,
+        childCount: state.children.length,
+        deviceBindingCount: state.device_bindings.length
+      }
+    });
+  }
+  return confirmedSession;
 }

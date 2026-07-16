@@ -14,6 +14,9 @@ export interface ChildSession {
   familyId: UUID;
   deviceBindingId: string;
   deviceId: UUID;
+  bindingConfirmed: true;
+  bindingStatus: 'bound';
+  tokenStatus: 'consumed';
   boundAt: string;
   sessionCreatedAt: string;
   sessionVersion: typeof CHILD_SESSION_VERSION;
@@ -45,9 +48,23 @@ export function normalizeChildSession(value: unknown): ChildSession | null {
   const familyId = normalizeString(value.familyId);
   const deviceBindingId = normalizeString(value.deviceBindingId);
   const deviceId = normalizeString(value.deviceId);
+  const bindingConfirmed = value.bindingConfirmed === true;
+  const bindingStatus = value.bindingStatus === 'bound' ? 'bound' : null;
+  const tokenStatus = value.tokenStatus === 'consumed' ? 'consumed' : null;
   const boundAt = normalizeString(value.boundAt);
   const sessionCreatedAt = normalizeString(value.sessionCreatedAt);
-  if (!childId || !childName || !familyId || !deviceBindingId || !deviceId || !boundAt || !sessionCreatedAt) {
+  if (
+    !childId ||
+    !childName ||
+    !familyId ||
+    !deviceBindingId ||
+    !deviceId ||
+    !bindingConfirmed ||
+    !bindingStatus ||
+    !tokenStatus ||
+    !boundAt ||
+    !sessionCreatedAt
+  ) {
     return null;
   }
   return {
@@ -56,6 +73,9 @@ export function normalizeChildSession(value: unknown): ChildSession | null {
     familyId,
     deviceBindingId,
     deviceId,
+    bindingConfirmed,
+    bindingStatus,
+    tokenStatus,
     boundAt,
     sessionCreatedAt,
     sessionVersion: CHILD_SESSION_VERSION,
@@ -108,6 +128,7 @@ export function clearChildSession() {
 export function isChildSessionValid(session: ChildSession | null | undefined, expectedChildId?: UUID | null): session is ChildSession {
   if (!session || session.sessionVersion !== CHILD_SESSION_VERSION) return false;
   if (!session.childId || !session.childName || !session.familyId || !session.deviceBindingId || !session.deviceId) return false;
+  if (session.bindingConfirmed !== true || session.bindingStatus !== 'bound' || session.tokenStatus !== 'consumed') return false;
   if (expectedChildId && session.childId !== expectedChildId) return false;
   return true;
 }
@@ -134,6 +155,9 @@ export function migrateLegacyChildState(state?: Pick<LocalDatabaseState, 'curren
     familyId,
     deviceBindingId: binding?.id ?? `${legacyChildId}:${deviceId}`,
     deviceId,
+    bindingConfirmed: true,
+    bindingStatus: 'bound',
+    tokenStatus: 'consumed',
     boundAt: timestamp,
     sessionCreatedAt: timestamp,
     sessionVersion: CHILD_SESSION_VERSION,
@@ -143,4 +167,3 @@ export function migrateLegacyChildState(state?: Pick<LocalDatabaseState, 'curren
   });
   return session ? saveChildSession(session) : null;
 }
-
