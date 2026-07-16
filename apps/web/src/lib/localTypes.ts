@@ -61,6 +61,26 @@ export interface LocalChildOnboardingToken {
   createdAt: ISODateTime;
 }
 
+export interface LocalChildLoginChallenge {
+  id: UUID;
+  family_id: UUID;
+  child_id: UUID;
+  child_name: string;
+  challenge_token: string;
+  pin: string;
+  status: 'pending' | 'verified' | 'used' | 'expired' | 'cancelled';
+  failed_attempts: number;
+  max_attempts: number;
+  expires_at: ISODateTime;
+  verified_at: ISODateTime | null;
+  used_at: ISODateTime | null;
+  cancelled_at: ISODateTime | null;
+  cancel_reason: string | null;
+  device_binding_id: UUID | null;
+  created_at: ISODateTime;
+  updated_at: ISODateTime;
+}
+
 export interface LocalChildIdentity {
   childId: UUID;
   displayName: string;
@@ -396,6 +416,12 @@ export interface LocalDeviceBinding {
   last_login_device: string | null;
   binding_status: 'unbound' | 'bound';
   qr_token_status: 'active' | 'consumed' | 'revoked';
+  device_binding_status?: 'active' | 'revoked' | 'replaced' | 'expired';
+  challenge_id?: UUID | null;
+  activated_at?: ISODateTime | null;
+  replaced_at?: ISODateTime | null;
+  last_heartbeat_at?: ISODateTime | null;
+  revoke_reason?: string | null;
   created_at: ISODateTime;
   updated_at: ISODateTime;
 }
@@ -517,6 +543,7 @@ export interface LocalDatabaseState {
   parent_bootstrap_summary?: LocalRepositoryDataSummary[];
   children: LocalChild[];
   child_onboarding_tokens?: LocalChildOnboardingToken[];
+  child_login_challenges?: LocalChildLoginChallenge[];
   tasks: LocalTask[];
   stars: LocalStarTransaction[];
   dreams: LocalDream[];

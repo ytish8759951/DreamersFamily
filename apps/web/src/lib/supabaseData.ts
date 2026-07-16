@@ -25,9 +25,14 @@ import {
 import {
   LocalDataError,
   LocalDataService,
+  childLoginUrlFromChallengeToken,
   type LocalDataRepository,
   type CreateChildInput,
-  type UpdateChildInput
+  type UpdateChildInput,
+  type ChildLoginChallengeResult,
+  type ChildLoginChallengePreview,
+  type CompleteChildLoginChallengeResult,
+  type ChildSessionValidationResult
 } from './localData';
 import type {
   AnnualParentNote,
@@ -168,8 +173,59 @@ interface SupabaseDeviceBindingRow {
   last_login_device: string | null;
   binding_status: LocalDeviceBinding['binding_status'];
   qr_token_status: LocalDeviceBinding['qr_token_status'];
+  device_binding_status?: LocalDeviceBinding['device_binding_status'];
+  challenge_id?: string | null;
+  activated_at?: string | null;
+  replaced_at?: string | null;
+  last_heartbeat_at?: string | null;
+  revoke_reason?: string | null;
   created_at: string;
   updated_at: string;
+}
+
+interface CreateChildLoginChallengeRow {
+  challenge_id: UUID;
+  child_id: UUID;
+  child_name: string;
+  challenge_token: string;
+  pin: string;
+  expires_at: string;
+  remaining_attempts: number;
+  status: ChildLoginChallengeResult['status'];
+}
+
+interface ResolveChildLoginChallengeRow {
+  challenge_id: UUID;
+  child_name: string;
+  expires_at: string;
+  remaining_attempts: number;
+  status: ChildLoginChallengePreview['status'];
+}
+
+interface CompleteChildLoginChallengeRow {
+  challenge_id: UUID;
+  child_id: UUID;
+  child_name: string;
+  family_id: UUID;
+  device_binding_id: string;
+  device_id: UUID;
+  binding_status: 'active';
+  challenge_status: 'used';
+  bound_at: string;
+  birth_date: string | null;
+  theme_color: string | null;
+  remaining_attempts: number;
+}
+
+interface ValidateChildDeviceSessionRow {
+  child_id: UUID;
+  child_name?: string | null;
+  family_id?: UUID | null;
+  device_binding_id: string;
+  device_id: UUID;
+  binding_status: ChildSessionValidationResult['bindingStatus'];
+  last_heartbeat_at: string | null;
+  valid: boolean;
 }
 
 interface BindChildDeviceWithTokenRow {
@@ -1434,6 +1490,174 @@ export class SupabaseDataRepository implements LocalDataRepository {
   getChildByToken(token: string): LocalChild | null {
     this.hydrateFromSupabase();
     return this.cache.getChildByToken(token);
+  }
+
+  async createChildLoginChallenge(childId: UUID, replaceExistingBinding = false): Promise<ChildLoginChallengeResult> {
+    if (!this.client) return this.cache.createChildLoginChallenge(childId, replaceExistingBinding);
+    const child = this.cache.getState().children.find((item) => item.id === childId);
+    if (child) await this.upsertChildToSupabase(child, 'regenerateChildToken');
+    const { data, error } = await this.client.rpc('create_child_login_challenge', {
+      p_child_id: childId,
+      p_replace_existing_binding: replaceExistingBinding
+    });
+    if (error) throw error;
+    const row = firstRpcRow(data as CreateChildLoginChallengeRow[] | CreateChildLoginChallengeRow | null);
+    if (!row?.challenge_token || !row.challenge_id || !row.child_id) {
+      throw new LocalDataError('Login challenge response is invalid', 'CHALLENGE_RESPONSE_INVALID');
+    }
+    return {
+      challengeId: row.challenge_id,
+      childId: row.child_id,
+      childName: row.child_name,
+      challengeToken: row.challenge_token,
+      pin: row.pin,
+      expiresAt: row.expires_at,
+      remainingAttempts: row.remaining_attempts,
+      status: row.status,
+      loginUrl: childLoginUrlFromChallengeToken(row.challenge_token)
+    };
+  }
+
+  async resolveChildLoginChallenge(challengeToken: string): Promise<ChildLoginChallengePreview> {
+    if (!this.client) return this.cache.resolveChildLoginChallenge(challengeToken);
+    const normalized = challengeToken.trim();
+    if (!normalized) throw new LocalDataError('Login challenge token is empty', 'CHALLENGE_TOKEN_EMPTY');
+    const { data, error } = await this.client.rpc('resolve_child_login_challenge', {
+      p_challenge_token: normalized
+    });
+    if (error) throw error;
+    const row = firstRpcRow(data as ResolveChildLoginChallengeRow[] | ResolveChildLoginChallengeRow | null);
+    if (!row?.challenge_id) throw new LocalDataError('Login challenge response is invalid', 'CHALLENGE_RESPONSE_INVALID');
+    return {
+      challengeId: row.challenge_id,
+      childName: row.child_name,
+      expiresAt: row.expires_at,
+      remainingAttempts: row.remaining_attempts,
+      status: row.status
+    };
+  }
+
+  async completeChildLoginChallenge(challengeToken: string, pin: string): Promise<CompleteChildLoginChallengeResult> {
+    if (!this.client) {
+      const result = this.cache.completeChildLoginChallenge(challengeToken, pin);
+      bootstrapChildDeviceSession({
+        token: challengeToken,
+        childId: result.childId,
+        childName: result.childName,
+        familyId: result.familyId,
+        deviceBindingId: result.deviceBindingId,
+        deviceId: result.deviceId,
+        boundAt: result.boundAt,
+        birthDate: result.birthDate,
+        themeColor: result.themeColor
+      });
+      return result;
+    }
+    const state = this.cache.getState();
+    const deviceId = toSupabaseUuid(state.device_id ?? LOCAL_DEVICE_ID, SUPABASE_DEVICE_FALLBACK_ID);
+    const { data, error } = await this.client.rpc('complete_child_login_challenge', {
+      p_challenge_token: challengeToken.trim(),
+      p_pin: pin.trim(),
+      p_device_id: deviceId,
+      p_device_label: currentDeviceLabel()
+    });
+    if (error) throw error;
+    const row = firstRpcRow(data as CompleteChildLoginChallengeRow[] | CompleteChildLoginChallengeRow | null);
+    if (!row?.child_id || !row.device_binding_id || row.binding_status !== 'active') {
+      throw new LocalDataError('Login challenge completion response is invalid', 'CHALLENGE_RESPONSE_INVALID');
+    }
+    const result: CompleteChildLoginChallengeResult = {
+      challengeId: row.challenge_id,
+      childId: row.child_id,
+      childName: row.child_name,
+      familyId: row.family_id,
+      deviceBindingId: row.device_binding_id,
+      deviceId: row.device_id,
+      bindingStatus: 'active',
+      challengeStatus: 'used',
+      boundAt: row.bound_at,
+      birthDate: row.birth_date,
+      themeColor: row.theme_color,
+      remainingAttempts: row.remaining_attempts
+    };
+    bootstrapChildDeviceSession({
+      token: challengeToken.trim(),
+      childId: result.childId,
+      childName: result.childName,
+      familyId: result.familyId,
+      deviceBindingId: result.deviceBindingId,
+      deviceId: result.deviceId,
+      boundAt: result.boundAt,
+      birthDate: result.birthDate,
+      themeColor: result.themeColor
+    });
+    this.cache.applyChildLoginBootstrap(result, challengeToken.trim());
+    this.hydrateFromSupabase();
+    return result;
+  }
+
+  applyChildLoginBootstrap(result: CompleteChildLoginChallengeResult, challengeToken = ''): LocalChild {
+    return this.cache.applyChildLoginBootstrap(result, challengeToken);
+  }
+
+  async validateChildDeviceSession(childId: UUID, deviceBindingId: UUID, deviceId: UUID): Promise<ChildSessionValidationResult> {
+    if (!this.client) return this.cache.validateChildDeviceSession(childId, deviceBindingId, deviceId);
+    const { data, error } = await this.client.rpc('validate_child_device_session', {
+      p_child_id: childId,
+      p_device_binding_id: deviceBindingId,
+      p_device_id: deviceId
+    });
+    if (error) throw error;
+    const row = firstRpcRow(data as ValidateChildDeviceSessionRow[] | ValidateChildDeviceSessionRow | null);
+    if (!row) {
+      return {
+        childId,
+        deviceBindingId,
+        deviceId,
+        bindingStatus: 'revoked',
+        lastHeartbeatAt: null,
+        valid: false
+      };
+    }
+    return {
+      childId: row.child_id,
+      childName: row.child_name ?? null,
+      familyId: row.family_id ?? null,
+      deviceBindingId: row.device_binding_id,
+      deviceId: row.device_id,
+      bindingStatus: row.binding_status,
+      lastHeartbeatAt: row.last_heartbeat_at,
+      valid: row.valid
+    };
+  }
+
+  async heartbeatChildDeviceSession(childId: UUID, deviceBindingId: UUID, deviceId: UUID): Promise<ChildSessionValidationResult> {
+    if (!this.client) return this.cache.heartbeatChildDeviceSession(childId, deviceBindingId, deviceId);
+    const { data, error } = await this.client.rpc('heartbeat_child_device_session', {
+      p_child_id: childId,
+      p_device_binding_id: deviceBindingId,
+      p_device_id: deviceId
+    });
+    if (error) throw error;
+    const row = firstRpcRow(data as ValidateChildDeviceSessionRow[] | ValidateChildDeviceSessionRow | null);
+    if (!row) {
+      return {
+        childId,
+        deviceBindingId,
+        deviceId,
+        bindingStatus: 'revoked',
+        lastHeartbeatAt: null,
+        valid: false
+      };
+    }
+    return {
+      childId: row.child_id,
+      deviceBindingId: row.device_binding_id,
+      deviceId,
+      bindingStatus: row.binding_status,
+      lastHeartbeatAt: row.last_heartbeat_at,
+      valid: row.valid
+    };
   }
 
   async bindChildDeviceByToken(token: string): Promise<LocalChild> {
@@ -3045,6 +3269,12 @@ function toSupabaseDeviceBinding(binding: LocalDeviceBinding): SupabaseDeviceBin
     last_login_device: binding.last_login_device,
     binding_status: binding.binding_status,
     qr_token_status: binding.qr_token_status,
+    device_binding_status: binding.device_binding_status ?? (binding.binding_status === 'bound' ? 'active' : 'revoked'),
+    challenge_id: binding.challenge_id ?? null,
+    activated_at: binding.activated_at ?? null,
+    replaced_at: binding.replaced_at ?? null,
+    last_heartbeat_at: binding.last_heartbeat_at ?? null,
+    revoke_reason: binding.revoke_reason ?? null,
     created_at: binding.created_at,
     updated_at: binding.updated_at
   };
@@ -3876,6 +4106,12 @@ function fromSupabaseDeviceBinding(row: SupabaseDeviceBindingRow): LocalDeviceBi
     last_login_device: row.last_login_device,
     binding_status: row.binding_status,
     qr_token_status: row.qr_token_status,
+    device_binding_status: row.device_binding_status ?? (row.binding_status === 'bound' ? 'active' : 'revoked'),
+    challenge_id: row.challenge_id ?? null,
+    activated_at: row.activated_at ?? null,
+    replaced_at: row.replaced_at ?? null,
+    last_heartbeat_at: row.last_heartbeat_at ?? null,
+    revoke_reason: row.revoke_reason ?? null,
     created_at: row.created_at,
     updated_at: row.updated_at
   };

@@ -4,7 +4,7 @@ import { Component, useEffect, useMemo, type ErrorInfo, type ReactNode } from 'r
 import { Link, useLocation } from 'react-router-dom';
 import { LocalShareMedia as LocalShareMediaView } from '../../components/LocalShareMedia';
 import { debugChildBinding, getRepositoryDebugInfo, getRouteDebugInfo } from '../../lib/childBindingDebug';
-import { getChildSession, isChildSessionValid } from '../../lib/childSessionRepository';
+import { clearChildSession, getChildSession, isChildSessionValid } from '../../lib/childSessionRepository';
 import { dataMode } from '../../lib/dataRepository';
 import { deviceBindingRepository } from '../../lib/deviceBindingRepository';
 import { useDreamCoverMigration } from '../../lib/dreamCoverMigration';
@@ -175,6 +175,26 @@ function ChildHomeContent() {
   ]);
 
   useEffect(() => {
+    if (dataMode === 'supabase' && childSession && isChildSessionValid(childSession)) {
+      void Promise.resolve(deviceBindingRepository.heartbeatChildDeviceSession(
+        childSession.childId,
+        childSession.deviceBindingId,
+        childSession.deviceId
+      )).then((result) => {
+        if (result.valid) return;
+        clearChildSession();
+        window.location.assign('/child');
+      }).catch((error) => {
+        console.error('[child-home-runtime] heartbeatChildDeviceSession error', {
+          childId: childSession.childId,
+          message: getErrorMessage(error),
+          stack: getErrorStack(error) ?? undefined,
+          error,
+          diagnostics: serializeError(error)
+        });
+      });
+      return;
+    }
     const sessionChildId = localState.currentChildIdentity?.childId ?? deviceBinding;
     if (!sessionChildId) return;
     try {
@@ -188,7 +208,7 @@ function ChildHomeContent() {
         diagnostics: serializeError(error)
       });
     }
-  }, [deviceBinding, localState.currentChildIdentity?.childId]);
+  }, [childSession, deviceBinding, localState.currentChildIdentity?.childId]);
 
   if (!selectedChild && !hasActiveDeviceBinding) {
     return (

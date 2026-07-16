@@ -10,7 +10,15 @@ export function hasConfirmedChildDeviceSession(
 ) {
   const childSession = getChildSession();
   const sessionChildId = childSession?.childId ?? null;
-  const confirmedSession = Boolean(sessionChildId) && isChildSessionValid(childSession, requestedChildId);
+  const localBinding = childSession?.deviceBindingId
+    ? state.device_bindings.find((binding) => binding.id === childSession.deviceBindingId)
+    : null;
+  const localBindingStillActive = !localBinding || (
+    localBinding.binding_status === 'bound' &&
+    (localBinding.device_binding_status ?? 'active') === 'active' &&
+    !localBinding.revoked_at
+  );
+  const confirmedSession = Boolean(sessionChildId) && isChildSessionValid(childSession, requestedChildId) && localBindingStillActive;
   if (!confirmedSession) {
     console.warn('[child-binding] confirmed ChildSession missing or invalid', {
       requestedChildId,

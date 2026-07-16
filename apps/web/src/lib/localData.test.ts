@@ -124,6 +124,88 @@ describe('local MVP data flows', () => {
     expect(data.getState().active_child_id).toBe(first.id);
   });
 
+  it('creates a child login challenge without binding or consuming it when the QR is scanned', () => {
+    const child = data.createChild({ display_name: 'Challenge Kid' });
+    const challenge = data.createChildLoginChallenge(child.id);
+
+    const preview = data.resolveChildLoginChallenge(challenge.challengeToken);
+    const state = data.getState();
+    const challengeRecord = state.child_login_challenges?.find((item) => item.id === challenge.challengeId);
+    const activeBinding = state.device_bindings.find((item) => item.child_id === child.id && item.binding_status === 'bound');
+
+    expect(preview).toMatchObject({
+      childName: 'Challenge Kid',
+      status: 'pending',
+      remainingAttempts: 5
+    });
+    expect(challenge.loginUrl).toContain('/child/login/');
+    expect(challenge.loginUrl).not.toContain(child.id);
+    expect(challenge.loginUrl).not.toContain(challenge.pin);
+    expect(challengeRecord?.status).toBe('pending');
+    expect(challengeRecord?.used_at).toBeNull();
+    expect(activeBinding).toBeUndefined();
+  });
+
+  it('does not bind or consume the challenge when the PIN is wrong', () => {
+    const child = data.createChild({ display_name: 'Wrong Pin Kid' });
+    const challenge = data.createChildLoginChallenge(child.id);
+
+    expect(() => data.completeChildLoginChallenge(challenge.challengeToken, challenge.pin === '0000' ? '0001' : '0000'))
+      .toThrowError(LocalDataError);
+
+    const state = data.getState();
+    const challengeRecord = state.child_login_challenges?.find((item) => item.id === challenge.challengeId);
+    const activeBinding = state.device_bindings.find((item) => item.child_id === child.id && item.binding_status === 'bound');
+    expect(challengeRecord?.status).toBe('pending');
+    expect(challengeRecord?.used_at).toBeNull();
+    expect(challengeRecord?.failed_attempts).toBe(1);
+    expect(activeBinding).toBeUndefined();
+  });
+
+  it('completes a child login challenge atomically and creates an active binding', () => {
+    const child = data.createChild({ display_name: 'PIN Kid' });
+    const challenge = data.createChildLoginChallenge(child.id);
+
+    const result = data.completeChildLoginChallenge(challenge.challengeToken, challenge.pin);
+    const state = data.getState();
+    const challengeRecord = state.child_login_challenges?.find((item) => item.id === challenge.challengeId);
+    const activeBinding = state.device_bindings.find((item) =>
+      item.id === result.deviceBindingId &&
+      item.child_id === child.id &&
+      item.binding_status === 'bound' &&
+      item.device_binding_status === 'active'
+    );
+
+    expect(result).toMatchObject({
+      childId: child.id,
+      childName: child.display_name,
+      familyId: child.family_id,
+      bindingStatus: 'active',
+      challengeStatus: 'used'
+    });
+    expect(challengeRecord?.status).toBe('used');
+    expect(challengeRecord?.device_binding_id).toBe(result.deviceBindingId);
+    expect(activeBinding).toBeTruthy();
+    expect(state.device_child_id).toBe(child.id);
+  });
+
+  it('rebinds a child by replacing the old active binding and issuing a fresh challenge', () => {
+    const child = data.createChild({ display_name: 'Rebind Kid' });
+    const first = data.createChildLoginChallenge(child.id);
+    const firstResult = data.completeChildLoginChallenge(first.challengeToken, first.pin);
+
+    const second = data.createChildLoginChallenge(child.id, true);
+    const state = data.getState();
+    const oldBinding = state.device_bindings.find((item) => item.id === firstResult.deviceBindingId);
+    const secondChallenge = state.child_login_challenges?.find((item) => item.id === second.challengeId);
+
+    expect(oldBinding?.device_binding_status).toBe('replaced');
+    expect(oldBinding?.revoked_at).toBeTruthy();
+    expect(secondChallenge?.status).toBe('pending');
+    expect(second.challengeToken).not.toBe(first.challengeToken);
+    expect(second.pin).toHaveLength(4);
+  });
+
   it('creates a portable child token and binds a fresh child device by token', () => {
     const child = data.createChild({ display_name: '安安', birth_date: '2021-03-04', theme_color: 'green' });
 

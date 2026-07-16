@@ -17,6 +17,7 @@ import { childrenRepository } from '../../lib/childrenRepository';
 import { deviceBindingRepository } from '../../lib/deviceBindingRepository';
 import { starRepository } from '../../lib/starRepository';
 import type { LocalChild, LocalDeviceBinding } from '../../lib/localTypes';
+import type { ChildLoginChallengeResult } from '../../lib/localData';
 import { useLocalDataState } from '../../lib/useLocalData';
 import { resolveChildDeviceStatus, type ChildDeviceStatus } from '../../lib/childDeviceStatus';
 
@@ -86,6 +87,7 @@ export function Children() {
   const [copiedChildId, setCopiedChildId] = useState<string | null>(null);
   const [regeneratingChildId, setRegeneratingChildId] = useState<string | null>(null);
   const [deviceErrorByChildId, setDeviceErrorByChildId] = useState<Record<string, string>>({});
+  const [challengeByChildId, setChallengeByChildId] = useState<Record<string, ChildLoginChallengeResult>>({});
 
   const activeChildren = useMemo(
     () => state.children.filter((child) => child.status === 'active'),
@@ -128,7 +130,7 @@ export function Children() {
     setError('');
   };
 
-  const submit = (event: FormEvent) => {
+  const submit = async (event: FormEvent) => {
     event.preventDefault();
     setError('');
 
@@ -140,6 +142,8 @@ export function Children() {
           theme_color: form.theme_color,
           notes: form.notes || null
         });
+        const challenge = await Promise.resolve(deviceBindingRepository.createChildLoginChallenge(child.id, false));
+        setChallengeByChildId((current) => ({ ...current, [child.id]: challenge }));
         setCreatedChildId(child.id);
         setExpandedDeviceId(child.id);
       } else if (editingId) {
@@ -164,7 +168,7 @@ export function Children() {
   };
 
   const copyChildUrl = async (child: LocalChild) => {
-    const copyUrl = childDeviceUrl(child);
+    const copyUrl = challengeByChildId[child.id]?.loginUrl ?? childDeviceUrl(child);
     await copyText(copyUrl);
     setCopiedChildId(child.id);
     window.setTimeout(() => setCopiedChildId((current) => current === child.id ? null : current), 1600);
@@ -180,8 +184,10 @@ export function Children() {
       return next;
     });
     try {
-      const next = await deviceBindingRepository.regenerateChildToken(child.id);
-      setExpandedDeviceId(next.id);
+      const challenge = await Promise.resolve(deviceBindingRepository.createChildLoginChallenge(child.id, true));
+      setChallengeByChildId((current) => ({ ...current, [child.id]: challenge }));
+      setExpandedDeviceId(child.id);
+      setCreatedChildId(child.id);
       setCopiedChildId(null);
     } catch (caught) {
       const message = caught instanceof Error ? caught.message : '重新產生孩子專屬網址失敗';
@@ -285,6 +291,7 @@ export function Children() {
                         child={child}
                         deviceStatus={deviceStatus}
                         deviceBinding={deviceBinding}
+                        challenge={challengeByChildId[child.id] ?? null}
                         copied={copiedChildId === child.id}
                         error={deviceErrorByChildId[child.id] ?? ''}
                         regenerating={regeneratingChildId === child.id}
@@ -422,7 +429,7 @@ export function Children() {
               </div>
               <button type="button" aria-label="關閉" onClick={() => setCreatedChildId(null)}>×</button>
             </header>
-            <QRCodeDialogContent child={createdChild} />
+            <QRCodeDialogContent child={createdChild} challenge={challengeByChildId[createdChild.id] ?? null} />
             <footer className="child-created-actions">
               <button type="button" onClick={() => void copyChildUrl(createdChild)}>
                 <Copy size={18} /> {copiedChildId === createdChild.id ? '已複製' : '複製網址'}
@@ -439,15 +446,25 @@ export function Children() {
 }
 
 function QRCodeDialogContent({
-  child
+  child,
+  challenge
 }: {
   child: LocalChild;
+  challenge: ChildLoginChallengeResult | null;
 }) {
-  const copyUrl = childDeviceUrl(child);
+  const copyUrl = challenge?.loginUrl ?? childDeviceUrl(child);
   return (
     <div className="child-created-content">
       <p>請使用孩子的平板掃描下方 QR Code</p>
       <p>綁定孩子：{child.display_name}</p>
+      {challenge ? (
+        <>
+          <p>4 位 PIN：<strong>{challenge.pin}</strong></p>
+          <p>有效期限：{formatDateTime(challenge.expiresAt)}</p>
+        </>
+      ) : (
+        <p>登入 challenge 建立中，請稍候。</p>
+      )}
       <LocalQRCode value={copyUrl} label={`${child.display_name} QR Code`} />
     </div>
   );
@@ -457,6 +474,7 @@ function ChildDeviceSettings({
   child: childInput,
   deviceStatus,
   deviceBinding,
+  challenge,
   copied,
   error,
   regenerating,
@@ -467,6 +485,7 @@ function ChildDeviceSettings({
   child: LocalChild;
   deviceStatus: ChildDeviceStatus;
   deviceBinding: LocalDeviceBinding | null;
+  challenge: ChildLoginChallengeResult | null;
   copied: boolean;
   error: string;
   regenerating: boolean;
@@ -478,7 +497,7 @@ function ChildDeviceSettings({
   const lastLoginAt = deviceStatus.lastLoginAt;
   const lastHeartbeatAt = deviceStatus.lastHeartbeatAt;
   const lastLoginDevice = deviceBinding?.last_login_device ?? null;
-  const copyUrl = childDeviceUrl(childInput);
+  const copyUrl = challenge?.loginUrl ?? childDeviceUrl(childInput);
   return (
     <div className="child-device-settings">
       <dl>
@@ -494,6 +513,13 @@ function ChildDeviceSettings({
         <small>孩子專屬網址</small>
         <code>{copyUrl}</code>
       </div>
+      {challenge ? (
+        <div className="child-device-url">
+          <small>4 位 PIN</small>
+          <code>{challenge.pin}</code>
+          <small>有效期限：{formatDateTime(challenge.expiresAt)}</small>
+        </div>
+      ) : null}
       <div className="child-device-qr">
         <p>綁定孩子：{childInput.display_name}</p>
         <LocalQRCode value={copyUrl} label={`${childInput.display_name} QR Code`} />

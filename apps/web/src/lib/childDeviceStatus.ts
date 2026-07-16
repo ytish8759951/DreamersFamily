@@ -31,6 +31,7 @@ export function latestConfirmedDeviceBinding(records: LocalDeviceBinding[], chil
       record.child_id === childId &&
       record.binding_status === 'bound' &&
       record.qr_token_status === 'consumed' &&
+      (record.device_binding_status ?? 'active') === 'active' &&
       Boolean(record.used_at) &&
       !record.revoked_at
     )
@@ -100,4 +101,3 @@ export function resolveChildDeviceStatus(
     lastHeartbeatAt
   };
 }
-

@@ -9,6 +9,7 @@ import { normalizeBadgeIcon } from './badgeIcons';
 import {
   createChildDeviceToken,
   createChildDeviceTokenForChild,
+  createRandomChildToken,
   parseChildDeviceToken,
   type ChildDeviceTokenPayload
 } from './childDeviceToken';
@@ -19,6 +20,7 @@ import type {
   LocalBadge,
   LocalChildBadge,
   LocalChild,
+  LocalChildLoginChallenge,
   LocalChildOnboardingToken,
   LocalDatabaseState,
   LocalDream,
@@ -413,6 +415,12 @@ function upsertDeviceBinding(
     deviceId?: string;
     lastLoginAt?: string | null;
     lastLoginDevice?: string | null;
+    deviceBindingStatus?: 'active' | 'revoked' | 'replaced' | 'expired';
+    challengeId?: string | null;
+    activatedAt?: string | null;
+    replacedAt?: string | null;
+    lastHeartbeatAt?: string | null;
+    revokeReason?: string | null;
   }
 ) {
   const timestamp = now();
@@ -436,6 +444,12 @@ function upsertDeviceBinding(
       last_login_device: input.lastLoginDevice ?? null,
       binding_status: input.bindingStatus,
       qr_token_status: input.qrTokenStatus,
+      device_binding_status: input.deviceBindingStatus ?? (input.bindingStatus === 'bound' ? 'active' : 'revoked'),
+      challenge_id: input.challengeId ?? null,
+      activated_at: input.activatedAt ?? null,
+      replaced_at: input.replacedAt ?? null,
+      last_heartbeat_at: input.lastHeartbeatAt ?? null,
+      revoke_reason: input.revokeReason ?? null,
       created_at: timestamp,
       updated_at: timestamp
     };
@@ -453,12 +467,34 @@ function upsertDeviceBinding(
   record.last_login_device = input.lastLoginDevice ?? record.last_login_device;
   record.binding_status = input.bindingStatus;
   record.qr_token_status = input.qrTokenStatus;
+  record.device_binding_status = input.deviceBindingStatus ?? record.device_binding_status ?? (input.bindingStatus === 'bound' ? 'active' : 'revoked');
+  record.challenge_id = input.challengeId === undefined ? record.challenge_id ?? null : input.challengeId;
+  record.activated_at = input.activatedAt === undefined ? record.activated_at ?? null : input.activatedAt;
+  record.replaced_at = input.replacedAt === undefined ? record.replaced_at ?? null : input.replacedAt;
+  record.last_heartbeat_at = input.lastHeartbeatAt === undefined ? record.last_heartbeat_at ?? null : input.lastHeartbeatAt;
+  record.revoke_reason = input.revokeReason === undefined ? record.revoke_reason ?? null : input.revokeReason;
   record.updated_at = timestamp;
   return record;
 }
 
 function addHours(isoDate: string, hours: number) {
   return new Date(new Date(isoDate).getTime() + hours * 60 * 60 * 1000).toISOString();
+}
+
+function addMinutes(isoDate: string, minutes: number) {
+  return new Date(new Date(isoDate).getTime() + minutes * 60 * 1000).toISOString();
+}
+
+function createFourDigitPin() {
+  return Math.floor(Math.random() * 10000).toString().padStart(4, '0');
+}
+
+export function childLoginUrlFromChallengeToken(token: string) {
+  const productionOrigin = 'https://dreamersfamily.pages.dev';
+  const origin = typeof window !== 'undefined' && !window.location.hostname.includes('localhost')
+    ? window.location.origin
+    : productionOrigin;
+  return `${origin}/child/login/${token}`;
 }
 
 function revokeDeviceBindingsForChild(state: LocalDatabaseState, childId: UUID) {
@@ -713,6 +749,52 @@ export interface CreatePiggyProductInput {
   shelf_status?: LocalPiggyProduct['shelf_status'];
 }
 
+export interface ChildLoginChallengeResult {
+  challengeId: UUID;
+  childId: UUID;
+  childName: string;
+  challengeToken: string;
+  pin: string;
+  expiresAt: string;
+  remainingAttempts: number;
+  status: LocalChildLoginChallenge['status'];
+  loginUrl: string;
+}
+
+export interface ChildLoginChallengePreview {
+  challengeId: UUID;
+  childName: string;
+  expiresAt: string;
+  remainingAttempts: number;
+  status: LocalChildLoginChallenge['status'];
+}
+
+export interface CompleteChildLoginChallengeResult {
+  challengeId: UUID;
+  childId: UUID;
+  childName: string;
+  familyId: UUID;
+  deviceBindingId: UUID;
+  deviceId: UUID;
+  bindingStatus: 'active';
+  challengeStatus: 'used';
+  boundAt: string;
+  birthDate: string | null;
+  themeColor: string | null;
+  remainingAttempts: number;
+}
+
+export interface ChildSessionValidationResult {
+  childId: UUID;
+  childName?: string | null;
+  familyId?: UUID | null;
+  deviceBindingId: UUID;
+  deviceId: UUID;
+  bindingStatus: 'active' | 'revoked' | 'replaced' | 'expired';
+  lastHeartbeatAt: string | null;
+  valid: boolean;
+}
+
 export interface UpdatePiggyProductInput {
   name?: string;
   price?: number;
@@ -732,6 +814,12 @@ export interface LocalDataRepository {
   switchChild(childId: UUID): LocalChild;
   listChildren(includeArchived?: boolean): LocalChild[];
   getChildByToken(token: string): LocalChild | null;
+  createChildLoginChallenge(childId: UUID, replaceExistingBinding?: boolean): ChildLoginChallengeResult | Promise<ChildLoginChallengeResult>;
+  resolveChildLoginChallenge(challengeToken: string): ChildLoginChallengePreview | Promise<ChildLoginChallengePreview>;
+  completeChildLoginChallenge(challengeToken: string, pin: string): CompleteChildLoginChallengeResult | Promise<CompleteChildLoginChallengeResult>;
+  applyChildLoginBootstrap(result: CompleteChildLoginChallengeResult, challengeToken?: string): LocalChild;
+  validateChildDeviceSession(childId: UUID, deviceBindingId: UUID, deviceId: UUID): ChildSessionValidationResult | Promise<ChildSessionValidationResult>;
+  heartbeatChildDeviceSession(childId: UUID, deviceBindingId: UUID, deviceId: UUID): ChildSessionValidationResult | Promise<ChildSessionValidationResult>;
   bindChildDeviceByToken(token: string, familyId?: UUID, bindingRecord?: {
     family_id: UUID;
     child_id: UUID;
@@ -1007,6 +1095,339 @@ export class LocalDataService implements LocalDataRepository {
     if (!onboardingToken) return null;
     if (onboardingToken.childId !== payload.childId) return null;
     return state.children.find((item) => item.status === 'active' && item.id === onboardingToken.childId && !item.child_token_consumed_at) ?? null;
+  }
+
+  createChildLoginChallenge(childId: UUID, replaceExistingBinding = false): ChildLoginChallengeResult {
+    return this.db.transaction((state) => {
+      const child = requireChild(state, childId);
+      const timestamp = now();
+      const challengeToken = createRandomChildToken();
+      const pin = createFourDigitPin();
+      state.child_login_challenges ??= [];
+      state.child_login_challenges.forEach((challenge) => {
+        if (challenge.child_id === child.id && challenge.status === 'pending') {
+          challenge.status = 'cancelled';
+          challenge.cancelled_at = timestamp;
+          challenge.cancel_reason = 'replaced_by_new_challenge';
+          challenge.updated_at = timestamp;
+        }
+      });
+      if (replaceExistingBinding) {
+        state.device_bindings.forEach((binding) => {
+          if (binding.child_id === child.id && (binding.device_binding_status ?? 'active') === 'active') {
+            binding.device_binding_status = 'replaced';
+            binding.binding_status = 'unbound';
+            binding.revoked_at = timestamp;
+            binding.replaced_at = timestamp;
+            binding.revoke_reason = 'rebind_requested';
+            binding.updated_at = timestamp;
+          }
+        });
+      }
+      const challenge: LocalChildLoginChallenge = {
+        id: id(),
+        family_id: child.family_id,
+        child_id: child.id,
+        child_name: child.display_name,
+        challenge_token: challengeToken,
+        pin,
+        status: 'pending',
+        failed_attempts: 0,
+        max_attempts: 5,
+        expires_at: addMinutes(timestamp, 10),
+        verified_at: null,
+        used_at: null,
+        cancelled_at: null,
+        cancel_reason: null,
+        device_binding_id: null,
+        created_at: timestamp,
+        updated_at: timestamp
+      };
+      state.child_login_challenges.push(challenge);
+      state.pendingBindingChildId = child.id;
+      return {
+        challengeId: challenge.id,
+        childId: child.id,
+        childName: child.display_name,
+        challengeToken,
+        pin,
+        expiresAt: challenge.expires_at,
+        remainingAttempts: challenge.max_attempts,
+        status: challenge.status,
+        loginUrl: childLoginUrlFromChallengeToken(challengeToken)
+      };
+    });
+  }
+
+  resolveChildLoginChallenge(challengeToken: string): ChildLoginChallengePreview {
+    const normalized = challengeToken.trim();
+    if (!normalized) throw new LocalDataError('Login challenge token is empty', 'CHALLENGE_TOKEN_EMPTY');
+    return this.db.transaction((state) => {
+      const timestamp = now();
+      const challenge = (state.child_login_challenges ?? []).find((item) => item.challenge_token === normalized);
+      if (!challenge) throw new LocalDataError('Login challenge was not found', 'CHALLENGE_NOT_FOUND');
+      if (challenge.status === 'pending' && challenge.expires_at <= timestamp) {
+        challenge.status = 'expired';
+        challenge.updated_at = timestamp;
+      }
+      const child = requireChild(state, challenge.child_id);
+      return {
+        challengeId: challenge.id,
+        childName: child.display_name,
+        expiresAt: challenge.expires_at,
+        remainingAttempts: Math.max(challenge.max_attempts - challenge.failed_attempts, 0),
+        status: challenge.status
+      };
+    });
+  }
+
+  completeChildLoginChallenge(challengeToken: string, pin: string): CompleteChildLoginChallengeResult {
+    const normalized = challengeToken.trim();
+    const normalizedPin = pin.trim();
+    if (!normalized) throw new LocalDataError('Login challenge token is empty', 'CHALLENGE_TOKEN_EMPTY');
+    if (!/^\d{4}$/.test(normalizedPin)) throw new LocalDataError('請輸入 4 位數驗證碼', 'PIN_FORMAT_INVALID');
+    const preflight = this.db.read();
+    const preflightChallenge = (preflight.child_login_challenges ?? []).find((item) => item.challenge_token === normalized);
+    if (
+      preflightChallenge &&
+      preflightChallenge.status === 'pending' &&
+      preflightChallenge.expires_at > now() &&
+      preflightChallenge.failed_attempts < preflightChallenge.max_attempts &&
+      normalizedPin !== preflightChallenge.pin
+    ) {
+      let remaining = 0;
+      this.db.transaction((state) => {
+        const challenge = (state.child_login_challenges ?? []).find((item) => item.challenge_token === normalized);
+        if (!challenge) return null;
+        const timestamp = now();
+        challenge.failed_attempts += 1;
+        remaining = Math.max(challenge.max_attempts - challenge.failed_attempts, 0);
+        if (challenge.failed_attempts >= challenge.max_attempts) {
+          challenge.status = 'cancelled';
+          challenge.cancelled_at = timestamp;
+          challenge.cancel_reason = 'too_many_attempts';
+        }
+        challenge.updated_at = timestamp;
+        return null;
+      });
+      throw new LocalDataError(`驗證碼錯誤，剩餘 ${remaining} 次`, 'PIN_INCORRECT');
+    }
+    return this.db.transaction((state) => {
+      const timestamp = now();
+      const challenge = (state.child_login_challenges ?? []).find((item) => item.challenge_token === normalized);
+      if (!challenge) throw new LocalDataError('Login challenge was not found', 'CHALLENGE_NOT_FOUND');
+      const child = requireChild(state, challenge.child_id);
+      const deviceId = state.device_id ?? LOCAL_DEVICE_ID;
+      const existingSameDevice = challenge.device_binding_id
+        ? state.device_bindings.find((binding) =>
+            binding.id === challenge.device_binding_id &&
+            binding.child_id === child.id &&
+            binding.device_id === deviceId &&
+            (binding.device_binding_status ?? 'active') === 'active'
+          )
+        : null;
+      if (challenge.status === 'used' && existingSameDevice) {
+        return {
+          challengeId: challenge.id,
+          childId: child.id,
+          childName: child.display_name,
+          familyId: child.family_id,
+          deviceBindingId: existingSameDevice.id,
+          deviceId,
+          bindingStatus: 'active',
+          challengeStatus: 'used',
+          boundAt: challenge.used_at ?? timestamp,
+          birthDate: child.birth_date,
+          themeColor: child.theme_color,
+          remainingAttempts: Math.max(challenge.max_attempts - challenge.failed_attempts, 0)
+        };
+      }
+      if (challenge.status !== 'pending') {
+        throw new LocalDataError('登入挑戰已失效', challenge.status === 'used' ? 'CHALLENGE_USED' : 'CHALLENGE_INVALID_STATUS');
+      }
+      if (challenge.expires_at <= timestamp) {
+        challenge.status = 'expired';
+        challenge.updated_at = timestamp;
+        throw new LocalDataError('登入驗證碼已過期', 'CHALLENGE_EXPIRED');
+      }
+      if (challenge.failed_attempts >= challenge.max_attempts) {
+        challenge.status = 'cancelled';
+        challenge.cancelled_at = timestamp;
+        challenge.cancel_reason = 'too_many_attempts';
+        challenge.updated_at = timestamp;
+        throw new LocalDataError('驗證碼錯誤次數已達上限', 'PIN_ATTEMPTS_EXCEEDED');
+      }
+      if (normalizedPin !== challenge.pin) {
+        challenge.failed_attempts += 1;
+        if (challenge.failed_attempts >= challenge.max_attempts) {
+          challenge.status = 'cancelled';
+          challenge.cancelled_at = timestamp;
+          challenge.cancel_reason = 'too_many_attempts';
+        }
+        challenge.updated_at = timestamp;
+        throw new LocalDataError(`驗證碼錯誤，剩餘 ${Math.max(challenge.max_attempts - challenge.failed_attempts, 0)} 次`, 'PIN_INCORRECT');
+      }
+      state.device_bindings.forEach((binding) => {
+        if (binding.child_id === child.id && (binding.device_binding_status ?? 'active') === 'active' && binding.device_id !== deviceId) {
+          binding.device_binding_status = 'replaced';
+          binding.binding_status = 'unbound';
+          binding.revoked_at = timestamp;
+          binding.replaced_at = timestamp;
+          binding.revoke_reason = 'replaced_by_child_login_challenge';
+          binding.updated_at = timestamp;
+        }
+      });
+      const binding = upsertDeviceBinding(state, child.id, {
+        bindingStatus: 'bound',
+        qrTokenStatus: 'consumed',
+        token: null,
+        childName: child.display_name,
+        familyId: child.family_id,
+        expiresAt: addHours(timestamp, 24 * 365 * 10),
+        usedAt: timestamp,
+        revokedAt: null,
+        deviceId,
+        lastLoginAt: timestamp,
+        lastLoginDevice: currentDeviceLabel(),
+        deviceBindingStatus: 'active',
+        challengeId: challenge.id,
+        activatedAt: timestamp,
+        lastHeartbeatAt: timestamp,
+        revokeReason: null
+      });
+      challenge.status = 'used';
+      challenge.verified_at = timestamp;
+      challenge.used_at = timestamp;
+      challenge.device_binding_id = binding.id;
+      challenge.updated_at = timestamp;
+      state.deviceBinding = child.id;
+      state.device_child_id = child.id;
+      state.active_child_id = child.id;
+      state.pendingBindingChildId = null;
+      setCurrentChildIdentity(state, child, child.child_token, timestamp);
+      return {
+        challengeId: challenge.id,
+        childId: child.id,
+        childName: child.display_name,
+        familyId: child.family_id,
+        deviceBindingId: binding.id,
+        deviceId,
+        bindingStatus: 'active',
+        challengeStatus: 'used',
+        boundAt: timestamp,
+        birthDate: child.birth_date,
+        themeColor: child.theme_color,
+        remainingAttempts: Math.max(challenge.max_attempts - challenge.failed_attempts, 0)
+      };
+    });
+  }
+
+  applyChildLoginBootstrap(result: CompleteChildLoginChallengeResult, challengeToken = ''): LocalChild {
+    return this.db.transaction((state) => {
+      const timestamp = result.boundAt || now();
+      let child = state.children.find((item) => item.id === result.childId) ?? null;
+      if (!child) {
+        child = {
+          id: result.childId,
+          family_id: result.familyId,
+          display_name: result.childName,
+          legal_name: null,
+          birth_date: result.birthDate,
+          birthday: result.birthDate,
+          gender: null,
+          avatar_path: null,
+          avatar_media_id: null,
+          theme_color: result.themeColor,
+          timezone: 'Asia/Taipei',
+          status: 'active',
+          notes: null,
+          child_token: challengeToken,
+          child_token_updated_at: timestamp,
+          child_token_consumed_at: timestamp,
+          created_by: state.current_user_id,
+          created_at: timestamp,
+          updated_at: timestamp,
+          archived_at: null
+        };
+        state.children.push(child);
+      }
+      child.family_id = result.familyId;
+      child.display_name = result.childName;
+      child.birth_date = result.birthDate;
+      child.birthday = result.birthDate;
+      child.theme_color = result.themeColor;
+      child.status = 'active';
+      child.child_token_consumed_at = timestamp;
+      child.updated_at = timestamp;
+      const binding = upsertDeviceBinding(state, result.childId, {
+        bindingStatus: 'bound',
+        qrTokenStatus: 'consumed',
+        token: null,
+        childName: result.childName,
+        familyId: result.familyId,
+        expiresAt: addHours(timestamp, 24 * 365 * 10),
+        usedAt: timestamp,
+        revokedAt: null,
+        deviceId: result.deviceId,
+        lastLoginAt: timestamp,
+        lastLoginDevice: currentDeviceLabel(),
+        deviceBindingStatus: 'active',
+        challengeId: result.challengeId,
+        activatedAt: timestamp,
+        lastHeartbeatAt: timestamp,
+        revokeReason: null
+      });
+      binding.id = result.deviceBindingId;
+      state.deviceBinding = child.id;
+      state.device_child_id = child.id;
+      state.active_child_id = child.id;
+      state.pendingBindingChildId = null;
+      setCurrentChildIdentity(state, child, challengeToken || child.child_token, timestamp);
+      return child;
+    });
+  }
+
+  validateChildDeviceSession(childId: UUID, deviceBindingId: UUID, deviceId: UUID): ChildSessionValidationResult {
+    return this.db.transaction((state) => {
+      const child = requireChild(state, childId);
+      const timestamp = now();
+      const binding = state.device_bindings.find((item) =>
+        item.id === deviceBindingId &&
+        item.child_id === childId &&
+        item.device_id === deviceId &&
+        item.binding_status === 'bound' &&
+        (item.device_binding_status ?? 'active') === 'active' &&
+        !item.revoked_at
+      );
+      if (!binding) {
+        return {
+          childId,
+          childName: child.display_name,
+          familyId: child.family_id,
+          deviceBindingId,
+          deviceId,
+          bindingStatus: 'revoked',
+          lastHeartbeatAt: null,
+          valid: false
+        };
+      }
+      binding.last_heartbeat_at = timestamp;
+      binding.updated_at = timestamp;
+      return {
+        childId,
+        childName: child.display_name,
+        familyId: child.family_id,
+        deviceBindingId: binding.id,
+        deviceId: binding.device_id,
+        bindingStatus: 'active',
+        lastHeartbeatAt: timestamp,
+        valid: true
+      };
+    });
+  }
+
+  heartbeatChildDeviceSession(childId: UUID, deviceBindingId: UUID, deviceId: UUID): ChildSessionValidationResult {
+    return this.validateChildDeviceSession(childId, deviceBindingId, deviceId);
   }
 
   bindChildDeviceByToken(token: string, familyId?: UUID, bindingRecord?: {

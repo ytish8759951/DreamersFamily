@@ -118,6 +118,7 @@ function createEmptyState(): LocalDatabaseState {
     parent_bootstrap_summary: [],
     children: [],
     child_onboarding_tokens: [],
+    child_login_challenges: [],
     tasks: [],
     stars: [],
     dreams: [],

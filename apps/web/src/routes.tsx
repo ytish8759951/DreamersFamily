@@ -22,6 +22,7 @@ import { ChildHonorWall } from './pages/child/HonorWall';
 import { ChildSpecialDays } from './pages/child/SpecialDays';
 import { ChildScreenTime } from './pages/child/ScreenTime';
 import { ChildTokenEntry } from './pages/child/ChildTokenEntry';
+import { ChildLoginChallengeEntry } from './pages/child/ChildLoginChallengeEntry';
 import { DesignSystemPreview } from './pages/preview/DesignSystemPreview';
 import { AuthPage } from './pages/auth/AuthPage';
 import { JoinFamilyPage } from './pages/auth/JoinFamilyPage';
@@ -309,6 +310,7 @@ export const router = createBrowserRouter([
     element: <RouteMatchTrace name="/child" />,
     errorElement: <RouteErrorFallback label="/child route failed" />,
     children: [
+      { path: 'login/:challengeToken', element: <ChildLoginChallengeEntry /> },
       {
         element: <RequireChildBinding />,
         errorElement: <RouteErrorFallback label="RequireChildBinding route failed" />,
