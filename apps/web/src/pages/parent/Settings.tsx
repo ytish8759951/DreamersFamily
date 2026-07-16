@@ -19,9 +19,52 @@ import { useLocalDataState } from '../../lib/useLocalData';
 import { useSupabaseRuntimeInfo } from '../../lib/useSupabaseRuntimeInfo';
 import { getErrorMessage } from '../../lib/errorDiagnostics';
 import { startupTrace } from '../../lib/startupTrace';
+import { restoreDocumentInteractionState } from '../../lib/touchInteractions';
 
 type SettingsForm = Omit<LocalFamilySettings, 'family_created_at' | 'updated_at'>;
 const CLEANUP_CONFIRM_TEXT = '清空測試資料';
+const CLEANUP_OPERATION_TIMEOUT_MS = 30000;
+
+function restoreCleanupModalInteractionState() {
+  if (typeof document === 'undefined') return;
+  const elements = [document.documentElement, document.body, document.getElementById('root')].filter(Boolean) as HTMLElement[];
+  elements.forEach((element) => {
+    element.removeAttribute('inert');
+    element.removeAttribute('aria-hidden');
+    if (element.style.pointerEvents === 'none') element.style.pointerEvents = '';
+    if (element.style.touchAction === 'none') element.style.touchAction = '';
+  });
+  document.body.classList.remove('modal-open');
+  if (document.body.style.overflow === 'hidden') document.body.style.overflow = '';
+  restoreDocumentInteractionState();
+  window.requestAnimationFrame(() => {
+    document.querySelectorAll('.settings-modal-backdrop').forEach((backdrop) => {
+      if (!document.getElementById('root')?.contains(backdrop)) backdrop.remove();
+    });
+  });
+}
+
+function withCleanupTimeout<T>(operation: Promise<T>) {
+  return new Promise<T>((resolve, reject) => {
+    if (typeof window === 'undefined') {
+      operation.then(resolve, reject);
+      return;
+    }
+    const timeout = window.setTimeout(() => {
+      reject(new Error('清空測試資料逾時，請重新整理後確認資料狀態。'));
+    }, CLEANUP_OPERATION_TIMEOUT_MS);
+    operation.then(
+      (value) => {
+        window.clearTimeout(timeout);
+        resolve(value);
+      },
+      (error) => {
+        window.clearTimeout(timeout);
+        reject(error);
+      }
+    );
+  });
+}
 
 export function Settings() {
   const navigate = useNavigate();
@@ -47,6 +90,18 @@ export function Settings() {
   const canManageTestData = dataMode !== 'supabase' || runtimeInfo.parentRole === 'owner';
   const cleanupBusy = isPreviewLoading || isDeleting;
   const canExecuteCleanup = Boolean(cleanupPreview) && cleanupConfirmText === CLEANUP_CONFIRM_TEXT && !isDeleting;
+
+  const closeCleanupDialog = () => {
+    setCleanupOpen(false);
+    setIsPreviewLoading(false);
+    setIsDeleting(false);
+    restoreCleanupModalInteractionState();
+  };
+
+  useEffect(() => {
+    if (!cleanupOpen) restoreCleanupModalInteractionState();
+    return restoreCleanupModalInteractionState;
+  }, [cleanupOpen]);
 
   useEffect(() => {
     startupTrace('SETTINGS START', {
@@ -153,20 +208,25 @@ export function Settings() {
     setCleanupError('');
     setCleanupResult(null);
     try {
-      const result = await settingsRepository.executeTestDataCleanup({
+      const result = await withCleanupTimeout(settingsRepository.executeTestDataCleanup({
         familyId: cleanupPreview?.familyId ?? runtimeInfo.familyId ?? null,
         removeFamily: cleanupRemoveFamily
-      });
+      }));
       setCleanupResult(result);
       setForm(toForm(settingsRepository.getSettings()));
       setMessage(cleanupRemoveFamily ? '已清空測試資料並移除目前家庭，請重新建立家庭。' : '已清空目前家庭的測試資料。');
+      closeCleanupDialog();
       if (result.removedFamily) {
         navigate('/create-family', { replace: true });
       }
     } catch (caught) {
-      setCleanupError(getErrorMessage(caught, '清空測試資料失敗'));
+      const errorMessage = getErrorMessage(caught, '清空測試資料失敗');
+      setCleanupError(errorMessage);
+      setMessage(errorMessage);
+      closeCleanupDialog();
     } finally {
       setIsDeleting(false);
+      restoreCleanupModalInteractionState();
     }
   };
 
@@ -280,14 +340,14 @@ export function Settings() {
       </section>
 
       {cleanupOpen ? (
-        <div className="settings-modal-backdrop" role="presentation" onMouseDown={() => !cleanupBusy && setCleanupOpen(false)}>
+        <div className="settings-modal-backdrop" role="presentation" onMouseDown={() => !cleanupBusy && closeCleanupDialog()}>
           <section className="local-form-dialog settings-cleanup-dialog" role="dialog" aria-modal="true" aria-labelledby="settings-cleanup-title" onMouseDown={(event) => event.stopPropagation()}>
             <header>
               <div>
                 <small>危險操作</small>
                 <h2 id="settings-cleanup-title">清空所有測試資料</h2>
               </div>
-              <button type="button" onClick={() => setCleanupOpen(false)} disabled={cleanupBusy} aria-label="關閉"><X size={18} /></button>
+              <button type="button" onClick={closeCleanupDialog} disabled={cleanupBusy} aria-label="關閉"><X size={18} /></button>
             </header>
             <div className="settings-cleanup-body">
               <p className="settings-cleanup-warning">此操作會永久刪除目前家庭的測試資料，無法從介面復原。Supabase Auth 家長帳號、schema、migration、RLS、RPC 與部署設定會保留。</p>
@@ -316,7 +376,7 @@ export function Settings() {
               ) : null}
             </div>
             <footer>
-              <button type="button" onClick={() => setCleanupOpen(false)} disabled={cleanupBusy}>取消</button>
+              <button type="button" onClick={closeCleanupDialog} disabled={cleanupBusy}>取消</button>
               <button type="button" className="is-danger" onClick={() => void executeCleanup()} disabled={!canExecuteCleanup}>
                 {isDeleting ? <><span className="settings-inline-spinner" aria-hidden="true" /> 正在清空</> : '永久清空測試資料'}
               </button>

@@ -11,6 +11,7 @@ const INTERACTIVE_SELECTOR = [
 
 const ACTIVE_OVERLAY_SELECTOR = [
   '.local-form-backdrop',
+  '.settings-modal-backdrop',
   '.piggy-product-sheet-backdrop',
   '.piggy-arrange-backdrop',
   '.v2-mail-modal',

@@ -35,4 +35,22 @@ describe('test data cleanup safety', () => {
     expect(css).toContain('min-width: 180px');
     expect(css).toContain('settings-spin');
   });
+
+  it('closes the cleanup modal and restores document interaction after cleanup outcomes', () => {
+    const source = readRepoFile('apps/web/src/pages/parent/Settings.tsx');
+    const touchInteractions = readRepoFile('apps/web/src/lib/touchInteractions.ts');
+
+    expect(source).toContain('function restoreCleanupModalInteractionState()');
+    expect(source).toContain("document.querySelectorAll('.settings-modal-backdrop')");
+    expect(source).toContain("element.removeAttribute('inert')");
+    expect(source).toContain("element.removeAttribute('aria-hidden')");
+    expect(source).toContain("document.body.classList.remove('modal-open')");
+    expect(source).toContain("if (document.body.style.overflow === 'hidden') document.body.style.overflow = ''");
+    expect(source).toContain('const closeCleanupDialog = () =>');
+    expect(source).toContain('closeCleanupDialog();');
+    expect(source).toContain('return restoreCleanupModalInteractionState');
+    expect(source).toContain('withCleanupTimeout(settingsRepository.executeTestDataCleanup');
+    expect(source).toContain('CLEANUP_OPERATION_TIMEOUT_MS');
+    expect(touchInteractions).toContain("'.settings-modal-backdrop'");
+  });
 });
