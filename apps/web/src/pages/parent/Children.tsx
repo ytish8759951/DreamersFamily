@@ -18,6 +18,7 @@ import { deviceBindingRepository } from '../../lib/deviceBindingRepository';
 import { starRepository } from '../../lib/starRepository';
 import type { LocalChild, LocalDeviceBinding } from '../../lib/localTypes';
 import { useLocalDataState } from '../../lib/useLocalData';
+import { resolveChildDeviceStatus, type ChildDeviceStatus } from '../../lib/childDeviceStatus';
 
 type FormMode = 'create' | 'edit';
 
@@ -43,12 +44,6 @@ function childDeviceUrl(child: LocalChild) {
     ? window.location.origin
     : productionOrigin;
   return `${origin}/child/${child.child_token}`;
-}
-
-function activeDeviceBindingForChild(records: LocalDeviceBinding[], childId: string) {
-  return records
-    .filter((record) => record.child_id === childId && record.binding_status === 'bound' && Boolean(record.used_at))
-    .sort((first, second) => second.updated_at.localeCompare(first.updated_at))[0] ?? null;
 }
 
 function LocalQRCode({ value, label }: { value: string; label: string }) {
@@ -252,8 +247,8 @@ export function Children() {
             {activeChildren.map((child, index) => {
               const isActive = child.id === state.active_child_id;
               const tone = child.theme_color || tones[index % tones.length];
-              const deviceBinding = activeDeviceBindingForChild(state.device_bindings, child.id);
-              const isDeviceBound = Boolean(deviceBinding);
+              const deviceStatus = resolveChildDeviceStatus(state.device_bindings, child.id);
+              const deviceBinding = deviceStatus.binding;
               return (
                 <article className={`child-manager-item${isActive ? ' is-active' : ''}`} key={child.id}>
                   <div className="child-manager-main">
@@ -283,11 +278,12 @@ export function Children() {
                     >
                       <Tablet size={16} />
                       裝置設定
-                      <span>{isDeviceBound ? '已綁定' : '尚未綁定'}</span>
+                      <span>{deviceStatus.label}</span>
                     </button>
                     {expandedDeviceId === child.id ? (
                       <ChildDeviceSettings
                         child={child}
+                        deviceStatus={deviceStatus}
                         deviceBinding={deviceBinding}
                         copied={copiedChildId === child.id}
                         error={deviceErrorByChildId[child.id] ?? ''}
@@ -306,7 +302,7 @@ export function Children() {
                       onClick={() => childrenRepository.switchChild(child.id)}
                     >
                       <UserRoundCheck size={16} />
-                      {isActive ? '使用中' : '切換孩子'}
+                      {isActive ? '目前孩子' : '切換孩子'}
                     </button>
                     <button aria-label={`編輯 ${child.display_name}`} onClick={() => openEdit(child)}>
                       <Edit3 size={16} /> 編輯
@@ -459,6 +455,7 @@ function QRCodeDialogContent({
 
 function ChildDeviceSettings({
   child: childInput,
+  deviceStatus,
   deviceBinding,
   copied,
   error,
@@ -468,6 +465,7 @@ function ChildDeviceSettings({
   onUnbind
 }: {
   child: LocalChild;
+  deviceStatus: ChildDeviceStatus;
   deviceBinding: LocalDeviceBinding | null;
   copied: boolean;
   error: string;
@@ -476,16 +474,19 @@ function ChildDeviceSettings({
   onRegenerate: () => void;
   onUnbind: () => void;
 }) {
-  const isBound = deviceBinding?.binding_status === 'bound';
-  const lastLoginAt = deviceBinding?.last_login_at ?? null;
+  const isBound = deviceStatus.isBound;
+  const lastLoginAt = deviceStatus.lastLoginAt;
+  const lastHeartbeatAt = deviceStatus.lastHeartbeatAt;
   const lastLoginDevice = deviceBinding?.last_login_device ?? null;
   const copyUrl = childDeviceUrl(childInput);
   return (
     <div className="child-device-settings">
       <dl>
-        <div><dt>綁定狀態</dt><dd>{isBound ? '已綁定' : '尚未綁定'}</dd></div>
+        <div><dt>綁定狀態</dt><dd>{isBound ? '已綁定' : '未綁定'}</dd></div>
+        <div><dt>使用狀態</dt><dd>{deviceStatus.label}</dd></div>
         <div><dt>QR 狀態</dt><dd>{childInput.child_token_consumed_at ? '已失效' : '可使用'}</dd></div>
         <div><dt>最後登入時間</dt><dd>{lastLoginAt ? formatDateTime(lastLoginAt) : '尚無'}</dd></div>
+        <div><dt>最近心跳</dt><dd>{lastHeartbeatAt ? formatDateTime(lastHeartbeatAt) : '尚無'}</dd></div>
         <div><dt>最後登入裝置</dt><dd>{lastLoginDevice ?? '尚無'}</dd></div>
       </dl>
       {error ? <p className="local-form-error">{error}</p> : null}
