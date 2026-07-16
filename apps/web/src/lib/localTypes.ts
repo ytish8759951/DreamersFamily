@@ -513,6 +513,7 @@ export interface LocalDatabaseState {
   currentChildIdentity?: LocalChildIdentity | null;
   current_user_id: UUID;
   active_child_id: UUID | null;
+  pendingBindingChildId?: UUID | null;
   parent_bootstrap_summary?: LocalRepositoryDataSummary[];
   children: LocalChild[];
   child_onboarding_tokens?: LocalChildOnboardingToken[];

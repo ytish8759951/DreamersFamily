@@ -1,5 +1,5 @@
 import { useEffect } from 'react';
-import { createBrowserRouter, Navigate, Outlet, useLocation, useRouteError } from 'react-router-dom';
+import { createBrowserRouter, Link, Navigate, Outlet, useLocation, useRouteError } from 'react-router-dom';
 import { ChildLayout } from './components/layout/ChildLayout';
 import { ParentLayout } from './components/layout/ParentLayout';
 import { Children } from './pages/parent/Children';
@@ -29,6 +29,7 @@ import { CreateFamilyPage } from './pages/auth/CreateFamilyPage';
 import { JoinParentDevicePage } from './pages/auth/JoinParentDevicePage';
 import { dataMode } from './lib/dataRepository';
 import { getLoggedInFamilyLandingPath } from './lib/familyLanding';
+import { hasConfirmedChildDeviceSession } from './lib/childBindingState';
 import { useLocalDataState } from './lib/useLocalData';
 import { useSupabaseRuntimeInfo } from './lib/useSupabaseRuntimeInfo';
 import { restoreDocumentInteractionState } from './lib/touchInteractions';
@@ -81,25 +82,72 @@ function RouteErrorFallback({ label }: { label: string }) {
 function RequireChildBinding() {
   const location = useLocation();
   const state = useLocalDataState();
+  const pathSegment = decodeURIComponent(location.pathname.replace(/^\/child\/?/, ''));
+  const reservedChildRoutes = new Set([
+    '',
+    'home',
+    'tasks',
+    'share',
+    'dreams',
+    'mailbox',
+    'honor-wall',
+    'special-days',
+    'screen-time',
+    'growth'
+  ]);
+  const isTokenRoute = pathSegment && !reservedChildRoutes.has(pathSegment);
+  const requestedChildId = new URLSearchParams(location.search).get('childId');
+  const sessionChildId = state.currentChildIdentity?.childId ?? null;
+  const hasCoherentChildSession = hasConfirmedChildDeviceSession(state, requestedChildId);
 
   console.log('Binding check start', {
-    pathname: location.pathname
+    pathname: location.pathname,
+    isTokenRoute,
+    requestedChildId
   });
   console.log('Session loaded', {
     activeChildId: state.active_child_id ?? null,
     deviceChildId: state.device_child_id ?? null,
-    hasDeviceBinding: Boolean(state.deviceBinding)
+    hasDeviceBinding: Boolean(state.deviceBinding),
+    pendingBindingChildId: state.pendingBindingChildId ?? null
   });
   console.log('Child loaded', {
     currentChildIdentity: state.currentChildIdentity ?? null,
     childCount: state.children.length
   });
+  if (isTokenRoute) return <Outlet />;
+
+  if (!hasCoherentChildSession) {
+    console.warn('[child-binding] blocked child route without confirmed session', {
+      pathname: location.pathname,
+      requestedChildId,
+      currentChildIdentity: state.currentChildIdentity ?? null,
+      deviceBinding: state.deviceBinding ?? null,
+      deviceChildId: state.device_child_id ?? null,
+      pendingBindingChildId: state.pendingBindingChildId ?? null
+    });
+    return <ChildBindingRequired />;
+  }
+
   console.log('Binding success', {
     pathname: location.pathname,
-    childId: state.currentChildIdentity?.childId ?? state.active_child_id ?? state.device_child_id ?? null
+    childId: sessionChildId
   });
 
   return <Outlet />;
+}
+
+function ChildBindingRequired() {
+  return (
+    <main className="child-device-entry">
+      <section>
+        <span>!</span>
+        <h1>需要重新綁定孩子裝置</h1>
+        <p>這個孩子頁面沒有確認過的裝置綁定，請回到家長端為指定孩子重新產生或掃描 QR Code。</p>
+        <Link to="/parent/children" replace>回到孩子管理</Link>
+      </section>
+    </main>
+  );
 }
 
 function ChildHomeRouteTrace() {
@@ -264,7 +312,7 @@ export const router = createBrowserRouter([
         element: <ChildLayout />,
         errorElement: <RouteErrorFallback label="ChildLayout route failed" />,
         children: [
-          { index: true, element: <Navigate to="/child/home" replace /> },
+          { index: true, element: <ChildBindingRequired /> },
           { path: 'home', element: <ChildHomeRouteTrace /> },
           { path: 'tasks', element: <TodayTasks /> },
           { path: 'share', element: <ShareGrowth /> },

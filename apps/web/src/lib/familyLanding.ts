@@ -2,7 +2,7 @@ import type { LocalDatabaseState } from './localTypes';
 import type { SupabaseRuntimeInfo } from './supabaseData';
 
 export function getLoggedInFamilyLandingPath(
-  state: Pick<LocalDatabaseState, 'children' | 'currentChildIdentity' | 'deviceBinding' | 'active_child_id'>,
+  state: Pick<LocalDatabaseState, 'children' | 'currentChildIdentity' | 'deviceBinding' | 'active_child_id' | 'pendingBindingChildId'>,
   runtimeInfo?: Pick<SupabaseRuntimeInfo, 'authStatus' | 'familyId' | 'parentId'>
 ) {
   let path: string;
@@ -13,9 +13,10 @@ export function getLoggedInFamilyLandingPath(
   }
 
   const activeChildId = resolveActiveChildId(state);
-  path = activeChildId ? `/child/home?childId=${encodeURIComponent(activeChildId)}` : '/create-child';
+  path = activeChildId ? '/parent/share' : '/create-child';
   console.log('[auth trace] getLoggedInFamilyLandingPath()', {
     activeChildId,
+    pendingBindingChildId: state.pendingBindingChildId ?? null,
     runtimeInfo,
     path
   });
@@ -26,5 +27,7 @@ export function resolveActiveChildId(
   state: Pick<LocalDatabaseState, 'children' | 'currentChildIdentity' | 'deviceBinding' | 'active_child_id'>
 ) {
   const activeChildren = state.children.filter((child) => child.status === 'active');
-  return activeChildren[0]?.id ?? null;
+  return state.active_child_id && activeChildren.some((child) => child.id === state.active_child_id)
+    ? state.active_child_id
+    : activeChildren[0]?.id ?? null;
 }

@@ -1370,6 +1370,7 @@ export class SupabaseDataRepository implements LocalDataRepository {
     const normalized = token.trim();
     if (!normalized) throw new LocalDataError('Child token is empty', 'CHILD_TOKEN_EMPTY');
     const decodedToken = parseChildDeviceToken(normalized);
+    if (!decodedToken?.childId) throw new LocalDataError('Child token is invalid', 'CHILD_TOKEN_INVALID');
     console.log('[child-binding-debug] B.token.repository', {
       childToken: normalized,
       tokenDecodeResult: decodedToken,
@@ -1377,26 +1378,8 @@ export class SupabaseDataRepository implements LocalDataRepository {
       familyId: null
     });
     console.log('[child-token-entry] bindChildDeviceByToken start', { childToken: normalized });
-    const cachedChild = this.cache.getChildByToken(normalized);
-    if (cachedChild) {
-      const child = this.cache.bindChildDeviceByToken(normalized);
-      console.log('[child-token-entry] bindChildDeviceByToken matched cached child', {
-        childId: child.id,
-        childToken: normalized,
-        familyId: child.family_id
-      });
-      console.log('[child-binding-debug] D.repository.schedulePersistence', {
-        repositoryName: this.constructor.name,
-        method: 'persistChildDeviceBindingInBackground',
-        source: 'bindChildDeviceByToken',
-        childId: child.id,
-        familyId: child.family_id
-      });
-      this.persistChildDeviceBindingInBackground(child, 'active', 'bindChildDeviceByToken');
-      return child;
-    }
 
-    const binding = await this.resolveQrBindingByToken(normalized);
+    const binding = await this.resolveQrBindingByToken(normalized, decodedToken.childId);
     const childRow = await this.resolveChildForBinding(binding);
     const child = this.cache.bindChildDeviceByToken(normalized, binding.family_id, {
       family_id: binding.family_id,
@@ -1422,12 +1405,12 @@ export class SupabaseDataRepository implements LocalDataRepository {
     return child;
   }
 
-  private async resolveQrBindingByToken(token: string): Promise<SupabaseDeviceBindingRow> {
+  private async resolveQrBindingByToken(token: string, expectedChildId: UUID): Promise<SupabaseDeviceBindingRow> {
     if (!this.client) throw new LocalDataError('Supabase client is unavailable', 'SUPABASE_UNAVAILABLE');
     const request = {
       table: 'device_bindings',
       select: 'token,family_id,child_id,child_name,expires_at,used_at,revoked_at,qr_token_status,binding_status,device_id,last_login_at,last_login_device,created_at,updated_at',
-      eq: { token },
+      eq: { token, child_id: expectedChildId },
       maybeSingle: true
     };
     console.log('[child-binding-debug] E.supabase.qrBinding.request', request);
@@ -1435,6 +1418,7 @@ export class SupabaseDataRepository implements LocalDataRepository {
       .from('device_bindings')
       .select('*')
       .eq('token', token)
+      .eq('child_id', expectedChildId)
       .maybeSingle();
     console.log('[child-binding-debug] E.supabase.qrBinding.response', {
       request,
@@ -1444,6 +1428,7 @@ export class SupabaseDataRepository implements LocalDataRepository {
     if (error) throw error;
     const binding = data as SupabaseDeviceBindingRow | null;
     if (!binding) throw new LocalDataError('QR binding record not found', 'QR_BINDING_NOT_FOUND');
+    if (binding.child_id !== expectedChildId) throw new LocalDataError('QR token does not match the requested child', 'QR_CHILD_MISMATCH');
     const timestamp = new Date().toISOString();
     if (binding.revoked_at || binding.qr_token_status === 'revoked') throw new LocalDataError('QR 已使用', 'QR_USED');
     if (binding.used_at || binding.qr_token_status === 'consumed') throw new LocalDataError('QR 已使用', 'QR_USED');
@@ -2013,6 +1998,10 @@ export class SupabaseDataRepository implements LocalDataRepository {
           createdAt: child.child_token_updated_at
         })),
       device_bindings: mergedDeviceBindings,
+      pendingBindingChildId:
+        baseState.pendingBindingChildId && mergedChildren.some((child) => child.id === baseState.pendingBindingChildId)
+          ? baseState.pendingBindingChildId
+          : null,
       active_child_id: baseState.active_child_id ?? mergedChildren.find((child) => child.status === 'active')?.id ?? null,
       updated_at: updatedAt
     });
@@ -2603,6 +2592,8 @@ function scopeStateToCurrentFamily(state: LocalDatabaseState): LocalDatabaseStat
     parent_id: SUPABASE_PARENT_ID,
     current_user_id: SUPABASE_PARENT_ID,
     active_child_id: activeChildId,
+    pendingBindingChildId:
+      state.pendingBindingChildId && childIds.has(state.pendingBindingChildId) ? state.pendingBindingChildId : null,
     deviceBinding: state.deviceBinding && childIds.has(state.deviceBinding) ? state.deviceBinding : null,
     device_child_id: state.device_child_id && childIds.has(state.device_child_id) ? state.device_child_id : null,
     currentChildIdentity:
@@ -2640,14 +2631,17 @@ function scopeStateToCurrentFamily(state: LocalDatabaseState): LocalDatabaseStat
 function mergeRemoteState(current: LocalDatabaseState, remote: LocalDatabaseState): LocalDatabaseState {
   const scopedRemote = scopeStateToCurrentFamily(remote);
   const activeChildId =
-    current.currentChildIdentity?.childId ??
-    current.deviceBinding ??
-    current.device_child_id ??
-    (scopedRemote.active_child_id && scopedRemote.children.some((child) => child.id === scopedRemote.active_child_id)
+    scopedRemote.active_child_id && scopedRemote.children.some((child) => child.id === scopedRemote.active_child_id)
       ? scopedRemote.active_child_id
       : current.active_child_id && scopedRemote.children.some((child) => child.id === current.active_child_id)
         ? current.active_child_id
-        : scopedRemote.children.find((child) => child.status === 'active')?.id ?? null);
+        : scopedRemote.children.find((child) => child.status === 'active')?.id ?? null;
+  const pendingBindingChildId =
+    current.pendingBindingChildId && scopedRemote.children.some((child) => child.id === current.pendingBindingChildId)
+      ? current.pendingBindingChildId
+      : scopedRemote.pendingBindingChildId && scopedRemote.children.some((child) => child.id === scopedRemote.pendingBindingChildId)
+        ? scopedRemote.pendingBindingChildId
+        : null;
 
   return {
     ...scopedRemote,
@@ -2655,6 +2649,7 @@ function mergeRemoteState(current: LocalDatabaseState, remote: LocalDatabaseStat
     deviceBinding: current.deviceBinding,
     device_child_id: current.device_child_id,
     currentChildIdentity: current.currentChildIdentity,
+    pendingBindingChildId,
     active_child_id: activeChildId
   };
 }

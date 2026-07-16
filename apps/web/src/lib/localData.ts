@@ -913,7 +913,8 @@ export class LocalDataService implements LocalDataRepository {
         usedAt: null,
         revokedAt: null
       });
-      state.active_child_id ??= child.id;
+      state.active_child_id = child.id;
+      state.pendingBindingChildId = child.id;
       return child;
     });
   }
@@ -957,6 +958,9 @@ export class LocalDataService implements LocalDataRepository {
       if (state.active_child_id === childId) {
         state.active_child_id = state.children.find((item) => item.status === 'active')?.id ?? null;
       }
+      if (state.pendingBindingChildId === childId) {
+        state.pendingBindingChildId = null;
+      }
       if (state.device_child_id === childId || state.deviceBinding === childId) {
         state.device_child_id = null;
         state.currentChildIdentity = null;
@@ -988,15 +992,19 @@ export class LocalDataService implements LocalDataRepository {
   getChildByToken(token: string) {
     const normalized = token.trim();
     if (!normalized) return null;
+    const payload = parseChildDeviceToken(normalized);
+    if (!payload) return null;
     const state = this.db.read();
     const binding = state.device_bindings.find((record) => record.token === normalized);
     if (binding) {
       if (binding.used_at || binding.revoked_at || binding.expires_at <= now()) return null;
+      if (binding.child_id !== payload.childId) return null;
       return state.children.find((item) => item.id === binding.child_id && item.status === 'active') ?? null;
     }
 
     const onboardingToken = findOnboardingTokenByToken(state, normalized);
     if (!onboardingToken) return null;
+    if (onboardingToken.childId !== payload.childId) return null;
     return state.children.find((item) => item.status === 'active' && item.id === onboardingToken.childId && !item.child_token_consumed_at) ?? null;
   }
 
@@ -1011,6 +1019,8 @@ export class LocalDataService implements LocalDataRepository {
     return this.db.transaction((state) => {
       const normalized = token.trim();
       if (!normalized) throw new LocalDataError('Child token is empty', 'CHILD_TOKEN_EMPTY');
+      const payload = parseChildDeviceToken(normalized);
+      if (!payload) throw new LocalDataError('Child token is invalid', 'CHILD_TOKEN_INVALID');
       const timestamp = now();
       let binding = state.device_bindings.find((record) => record.token === normalized);
       if (!binding && bindingRecord) {
@@ -1029,12 +1039,14 @@ export class LocalDataService implements LocalDataRepository {
         binding = state.device_bindings.find((record) => record.token === normalized);
       }
       if (!binding) throw new LocalDataError('QR binding record not found', 'QR_BINDING_NOT_FOUND');
+      if (binding.child_id !== payload.childId) {
+        throw new LocalDataError('QR token does not match the requested child', 'QR_CHILD_MISMATCH');
+      }
       if (binding.revoked_at || binding.qr_token_status === 'revoked') throw new LocalDataError('QR 已使用', 'QR_USED');
       if (binding.used_at || binding.qr_token_status === 'consumed') throw new LocalDataError('QR 已使用', 'QR_USED');
       if (binding.expires_at && binding.expires_at <= timestamp) throw new LocalDataError('QR 已過期', 'QR_EXPIRED');
       let child = state.children.find((item) => item.status === 'active' && item.id === binding.child_id) ?? null;
       if (!child && bindingRecord) {
-        const payload = parseChildDeviceToken(normalized);
         child = createChildFromTokenPayload(
           state,
           {
@@ -1060,6 +1072,7 @@ export class LocalDataService implements LocalDataRepository {
       state.deviceBinding = child.id;
       state.device_child_id = child.id;
       state.active_child_id = child.id;
+      state.pendingBindingChildId = null;
       setCurrentChildIdentity(state, child, normalized, timestamp);
       upsertDeviceBinding(state, child.id, {
         bindingStatus: 'bound',
@@ -1085,6 +1098,7 @@ export class LocalDataService implements LocalDataRepository {
       state.deviceBinding = child.id;
       state.device_child_id = child.id;
       state.active_child_id = child.id;
+      state.pendingBindingChildId = null;
       upsertDeviceBinding(state, child.id, {
         bindingStatus: 'bound',
         qrTokenStatus: 'consumed',
@@ -1107,6 +1121,7 @@ export class LocalDataService implements LocalDataRepository {
       child.child_token_updated_at = timestamp;
       child.child_token_consumed_at = null;
       child.updated_at = timestamp;
+      state.pendingBindingChildId = child.id;
       upsertChildOnboardingToken(state, child);
       upsertDeviceBinding(state, child.id, {
         bindingStatus: 'unbound',
@@ -1146,6 +1161,7 @@ export class LocalDataService implements LocalDataRepository {
         state.currentChildIdentity = null;
         state.deviceBinding = null;
       }
+      if (state.pendingBindingChildId === childId) state.pendingBindingChildId = null;
       return child;
     });
   }
@@ -1921,9 +1937,11 @@ export class LocalDataService implements LocalDataRepository {
       const familySettings = state.family_settings;
       state.children = [];
       state.child_onboarding_tokens = [];
+      state.deviceBinding = null;
       state.device_child_id = null;
       state.currentChildIdentity = null;
       state.active_child_id = null;
+      state.pendingBindingChildId = null;
       state.tasks = [];
       state.stars = [];
       state.dreams = [];

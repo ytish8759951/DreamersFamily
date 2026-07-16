@@ -113,6 +113,7 @@ function createEmptyState(): LocalDatabaseState {
     currentChildIdentity: null,
     current_user_id: LOCAL_PARENT_USER_ID,
     active_child_id: null,
+    pendingBindingChildId: null,
     parent_bootstrap_summary: [],
     children: [],
     child_onboarding_tokens: [],
@@ -191,11 +192,12 @@ function normalizeState(state: LocalDatabaseState): LocalDatabaseState {
     family_id: state.family_id ?? LOCAL_FAMILY_ID,
     parent_id: state.parent_id ?? state.current_user_id ?? LOCAL_PARENT_USER_ID,
     device_id: state.device_id && state.device_id !== LOCAL_DEVICE_ID ? state.device_id : getBrowserDeviceId(),
-    deviceBinding: state.deviceBinding ?? state.device_child_id ?? state.currentChildIdentity?.childId ?? null,
-    device_child_id: state.deviceBinding ?? state.device_child_id ?? state.currentChildIdentity?.childId ?? null,
+    deviceBinding: state.deviceBinding ?? null,
+    device_child_id: state.device_child_id ?? null,
     currentChildIdentity: state.currentChildIdentity ?? null,
     current_user_id: state.current_user_id ?? state.parent_id ?? LOCAL_PARENT_USER_ID,
-    active_child_id: state.currentChildIdentity?.childId ?? state.deviceBinding ?? state.device_child_id ?? state.active_child_id ?? null,
+    active_child_id: state.active_child_id ?? null,
+    pendingBindingChildId: state.pendingBindingChildId ?? null,
     parent_bootstrap_summary: state.parent_bootstrap_summary ?? buildRepositorySummary({ ...state, children } as LocalDatabaseState),
     children,
     child_onboarding_tokens,
@@ -509,6 +511,7 @@ function applyParentBootstrap(state: LocalDatabaseState, bootstrap: LocalParentB
     ...baseState,
     children,
     active_child_id: null,
+    pendingBindingChildId: null,
     child_onboarding_tokens: children
       .filter((child) => child.status === 'active' && !child.child_token_consumed_at)
       .map((child) => ({
@@ -605,6 +608,7 @@ export class MockDatabase {
         seeded.device_child_id = childBootstrap.deviceBinding;
         seeded.currentChildIdentity = childBootstrap.currentChildIdentity;
         seeded.active_child_id = childBootstrap.deviceBinding;
+        seeded.pendingBindingChildId = null;
         this.write(seeded);
         return clone(seeded);
       }

@@ -10,6 +10,7 @@ import {
   getParentOpenTasks
 } from './taskRules';
 import { getBirthdaySpecialDays } from './specialDays';
+import { hasConfirmedChildDeviceSession } from './childBindingState';
 
 class TestStorage implements KeyValueStorage {
   private values = new Map<string, string>();
@@ -111,7 +112,8 @@ describe('local MVP data flows', () => {
     const first = data.createChild({ display_name: '樂樂', birth_date: '2020-05-01' });
     const second = data.createChild({ display_name: '安安' });
 
-    expect(data.getState().active_child_id).toBe(first.id);
+    expect(data.getState().active_child_id).toBe(second.id);
+    expect(data.getState().pendingBindingChildId).toBe(second.id);
     expect(data.updateChild(first.id, { display_name: '樂樂寶貝' }).display_name).toBe('樂樂寶貝');
     expect(data.switchChild(second.id).id).toBe(second.id);
     expect(data.getState().active_child_id).toBe(second.id);
@@ -159,6 +161,7 @@ describe('local MVP data flows', () => {
       themeColor: 'green',
       childToken: child.child_token
     });
+    expect(childDeviceData.getState().pendingBindingChildId).toBeNull();
     expect(childDeviceData.getState().children[0].child_token_consumed_at).toBeTruthy();
     expect(childDeviceData.getChildByToken(child.child_token)).toBeNull();
     expect(childDeviceData.listDeviceBindings(child.id)[0]).toMatchObject({
@@ -306,6 +309,161 @@ describe('local MVP data flows', () => {
     childDeviceData.bindChildDeviceByToken(child.child_token, child.family_id, bindingRecordForChild(child));
     expect(() => childDeviceData.bindChildDeviceByToken(child.child_token)).toThrowError(LocalDataError);
     expect(childDeviceData.getChildByToken(child.child_token)).toBeNull();
+  });
+
+  it('keeps a newly created child pending when the first binding fails, then retries the same child', () => {
+    const child = data.createChild({ display_name: 'Retry Kid' });
+    expect(data.getState().active_child_id).toBe(child.id);
+    expect(data.getState().pendingBindingChildId).toBe(child.id);
+
+    const childDeviceData = new LocalDataService(new MockDatabase(new TestStorage(), 'retry-child-device-db'));
+    childDeviceData.resetLocalData();
+    const expiredBinding = {
+      ...bindingRecordForChild(child),
+      expires_at: new Date(Date.now() - 1000).toISOString()
+    };
+
+    expect(() => childDeviceData.bindChildDeviceByToken(child.child_token, child.family_id, expiredBinding)).toThrowError(LocalDataError);
+    expect(childDeviceData.getState()).toMatchObject({
+      currentChildIdentity: null,
+      deviceBinding: null,
+      device_child_id: null,
+      active_child_id: null
+    });
+    expect(data.getState().pendingBindingChildId).toBe(child.id);
+
+    const retried = data.regenerateChildToken(child.id);
+    expect(data.getState().pendingBindingChildId).toBe(child.id);
+    const bound = childDeviceData.bindChildDeviceByToken(retried.child_token, retried.family_id, bindingRecordForChild(retried));
+
+    expect(bound.id).toBe(child.id);
+    expect(childDeviceData.getState().currentChildIdentity?.childId).toBe(child.id);
+    expect(childDeviceData.getState().deviceBinding).toBe(child.id);
+    expect(childDeviceData.getState().device_child_id).toBe(child.id);
+    expect(childDeviceData.getState().pendingBindingChildId).toBeNull();
+  });
+
+  it('does not let stale currentChildIdentity change a failed binding target', () => {
+    const oldChild = data.createChild({ display_name: 'Old Kid' });
+    const newChild = data.createChild({ display_name: 'New Kid' });
+    const childDeviceData = new LocalDataService(new MockDatabase(new TestStorage(), 'stale-current-identity-db'));
+    childDeviceData.resetLocalData();
+    childDeviceData.bindChildDeviceByToken(oldChild.child_token, oldChild.family_id, bindingRecordForChild(oldChild));
+
+    const before = childDeviceData.getState();
+    expect(before.currentChildIdentity?.childId).toBe(oldChild.id);
+    const expiredBinding = {
+      ...bindingRecordForChild(newChild),
+      expires_at: new Date(Date.now() - 1000).toISOString()
+    };
+
+    expect(() => childDeviceData.bindChildDeviceByToken(newChild.child_token, newChild.family_id, expiredBinding)).toThrowError(LocalDataError);
+
+    const after = childDeviceData.getState();
+    expect(after.currentChildIdentity?.childId).toBe(oldChild.id);
+    expect(after.deviceBinding).toBe(oldChild.id);
+    expect(after.device_child_id).toBe(oldChild.id);
+    expect(after.children.some((child) => child.id === newChild.id)).toBe(false);
+  });
+
+  it('requires a full confirmed child device session before child home can render', () => {
+    const child = data.createChild({ display_name: 'Guard Kid' });
+    const state = data.getState();
+
+    expect(hasConfirmedChildDeviceSession({
+      ...state,
+      currentChildIdentity: {
+        childId: child.id,
+        displayName: child.display_name,
+        birthDate: child.birth_date,
+        themeColor: child.theme_color,
+        childToken: child.child_token,
+        boundAt: new Date().toISOString()
+      },
+      deviceBinding: null,
+      device_child_id: null
+    })).toBe(false);
+
+    expect(hasConfirmedChildDeviceSession({
+      ...state,
+      currentChildIdentity: null,
+      deviceBinding: child.id,
+      device_child_id: null
+    })).toBe(false);
+
+    expect(hasConfirmedChildDeviceSession({
+      ...state,
+      currentChildIdentity: null,
+      deviceBinding: null,
+      device_child_id: child.id
+    })).toBe(false);
+  });
+
+  it('rejects a token that belongs to a different child than the binding record', () => {
+    const first = data.createChild({ display_name: 'First Token Kid' });
+    const second = data.createChild({ display_name: 'Second Token Kid' });
+    const childDeviceData = new LocalDataService(new MockDatabase(new TestStorage(), 'wrong-child-token-db'));
+    childDeviceData.resetLocalData();
+
+    expect(() =>
+      childDeviceData.bindChildDeviceByToken(first.child_token, first.family_id, bindingRecordForChild(second))
+    ).toThrowError(LocalDataError);
+    expect(childDeviceData.getState().currentChildIdentity).toBeNull();
+  });
+
+  it('rejects a token whose binding belongs to another family', () => {
+    const child = data.createChild({ display_name: 'Family Kid' });
+    const childDeviceData = new LocalDataService(new MockDatabase(new TestStorage(), 'wrong-family-token-db'));
+    childDeviceData.resetLocalData();
+
+    expect(() =>
+      childDeviceData.bindChildDeviceByToken(child.child_token, 'other-family', bindingRecordForChild(child))
+    ).toThrowError(LocalDataError);
+    expect(childDeviceData.getState().currentChildIdentity).toBeNull();
+  });
+
+  it('rejects expired and invalid child binding tokens without changing session state', () => {
+    const child = data.createChild({ display_name: 'Invalid Token Kid' });
+    const childDeviceData = new LocalDataService(new MockDatabase(new TestStorage(), 'invalid-token-db'));
+    childDeviceData.resetLocalData();
+
+    expect(() =>
+      childDeviceData.bindChildDeviceByToken(child.child_token, child.family_id, {
+        ...bindingRecordForChild(child),
+        expires_at: new Date(Date.now() - 1000).toISOString()
+      })
+    ).toThrowError(LocalDataError);
+    expect(() => childDeviceData.bindChildDeviceByToken('not-a-child-token')).toThrowError(LocalDataError);
+    expect(childDeviceData.getState().currentChildIdentity).toBeNull();
+    expect(childDeviceData.getState().deviceBinding).toBeNull();
+    expect(childDeviceData.getState().device_child_id).toBeNull();
+  });
+
+  it('handles duplicate binding attempts by accepting only the first confirmed session', () => {
+    const child = data.createChild({ display_name: 'Double Click Kid' });
+    const childDeviceData = new LocalDataService(new MockDatabase(new TestStorage(), 'double-click-token-db'));
+    childDeviceData.resetLocalData();
+
+    expect(childDeviceData.bindChildDeviceByToken(child.child_token, child.family_id, bindingRecordForChild(child)).id).toBe(child.id);
+    expect(() => childDeviceData.bindChildDeviceByToken(child.child_token, child.family_id, bindingRecordForChild(child))).toThrowError(LocalDataError);
+    expect(childDeviceData.getState().currentChildIdentity?.childId).toBe(child.id);
+  });
+
+  it('does not treat failed binding state as a valid child home session after refresh', () => {
+    const child = data.createChild({ display_name: 'Refresh Failure Kid' });
+    const failedStorage = new TestStorage();
+    const childDeviceData = new LocalDataService(new MockDatabase(failedStorage, 'refresh-failed-binding-db'));
+    childDeviceData.resetLocalData();
+
+    expect(() =>
+      childDeviceData.bindChildDeviceByToken(child.child_token, child.family_id, {
+        ...bindingRecordForChild(child),
+        revoked_at: new Date().toISOString()
+      })
+    ).toThrowError(LocalDataError);
+
+    const refreshedDeviceData = new LocalDataService(new MockDatabase(failedStorage, 'refresh-failed-binding-db'));
+    expect(hasConfirmedChildDeviceSession(refreshedDeviceData.getState(), child.id)).toBe(false);
   });
 
   it('requires a regenerated child token after the original token has been consumed', () => {

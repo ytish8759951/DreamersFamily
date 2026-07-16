@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { Navigate, useLocation, useNavigate } from 'react-router-dom';
 import {
   debugChildBinding,
@@ -164,6 +164,10 @@ export function ChildTokenEntry() {
   const [invalid, setInvalid] = useState(false);
   const [completed, setCompleted] = useState(false);
   const [diagnostics, setDiagnostics] = useState<TokenEntryDiagnostics>(initialDiagnostics);
+  const bindingPromiseRef = useRef<{
+    token: string;
+    promise: Promise<Awaited<ReturnType<typeof deviceBindingRepository.bindChildDeviceByToken>>>;
+  } | null>(null);
   const reservedChildRoute = childRoutes.has(token);
   const childHomeTarget = '/child/home';
 
@@ -259,9 +263,15 @@ export function ChildTokenEntry() {
         });
         console.log('[child-token-entry] received child URL token', { childToken: token });
 
-        const child = await traceAsyncStep('deviceBindingRepository.bindChildDeviceByToken', () =>
-          Promise.resolve(deviceBindingRepository.bindChildDeviceByToken(token))
-        );
+        const child = await traceAsyncStep('deviceBindingRepository.bindChildDeviceByToken', () => {
+          if (!bindingPromiseRef.current || bindingPromiseRef.current.token !== token) {
+            bindingPromiseRef.current = {
+              token,
+              promise: Promise.resolve(deviceBindingRepository.bindChildDeviceByToken(token))
+            };
+          }
+          return bindingPromiseRef.current.promise;
+        });
         if (!child?.id) {
           throw new Error('bindChildDeviceByToken returned no child id');
         }
@@ -330,17 +340,18 @@ export function ChildTokenEntry() {
           receivedPayload: { childId: child.id, familyId: child.family_id }
         });
 
+        const confirmedChildHomeTarget = `${childHomeTarget}?childId=${encodeURIComponent(syncedChild.id)}`;
         updateDiagnostics({
           stage: 'Navigating to child home',
-          details: { navigateTo: childHomeTarget }
+          details: { navigateTo: confirmedChildHomeTarget }
         });
         console.log('[child-token-entry] navigating to child home', {
           childId: syncedChild.id,
           childToken: token,
-          navigateTo: childHomeTarget
+          navigateTo: confirmedChildHomeTarget
         });
         if (!cancelled) setCompleted(true);
-        navigate(childHomeTarget, { replace: true });
+        navigate(confirmedChildHomeTarget, { replace: true });
       } catch (error) {
         debugChildBinding('D.repository.error', {
           method: 'childTokenEntryInitialization',
@@ -376,8 +387,8 @@ export function ChildTokenEntry() {
         <p>{invalid ? diagnostics.errorMessage ?? 'Unknown error' : diagnostics.stage}</p>
         <DiagnosticsPanel diagnostics={diagnostics} />
         {invalid ? (
-          <button type="button" onClick={() => navigate('/child', { replace: true })}>
-            Back to child entry
+          <button type="button" onClick={() => navigate('/parent/children', { replace: true })}>
+            回到孩子管理
           </button>
         ) : null}
       </section>
