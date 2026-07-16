@@ -1,3 +1,5 @@
+import { getErrorMessage, getErrorStack, serializeError } from './errorDiagnostics';
+
 const STARTUP_TIMEOUT_MS = 5000;
 
 type BootTraceWindow = Window & {
@@ -14,8 +16,9 @@ export function startupTrace(label: string, payload: Record<string, unknown> = {
 export function traceStartupError(label: string, error: unknown, payload: Record<string, unknown> = {}) {
   startupTrace(`${label} error`, {
     ...payload,
-    message: error instanceof Error ? error.message : String(error),
-    stack: error instanceof Error ? error.stack ?? null : null
+    message: getErrorMessage(error),
+    stack: getErrorStack(error),
+    error: serializeError(error)
   });
 }
 

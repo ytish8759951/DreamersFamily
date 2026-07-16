@@ -1,3 +1,5 @@
+import { getErrorDiagnostics, getErrorMessage } from './errorDiagnostics';
+
 export interface KeyValueStorage {
   getItem(key: string): string | null;
   setItem(key: string, value: string): void;
@@ -101,9 +103,11 @@ export function getLocalStorageDiagnostics() {
 
 export function logStorageError(error: unknown) {
   const diagnostics = getLocalStorageDiagnostics();
+  const errorDiagnostics = getErrorDiagnostics(error);
   console.error('[localStorage] write failed', {
-    'error.name': error instanceof DOMException || error instanceof Error ? error.name : 'UnknownError',
-    'error.message': error instanceof DOMException || error instanceof Error ? error.message : String(error),
+    'error.name': errorDiagnostics.name ?? errorDiagnostics.type,
+    'error.message': getErrorMessage(error),
+    error: errorDiagnostics,
     'JSON.stringify(localStorage).length': diagnostics.jsonStringifyLength,
     estimatedLocalStorageBytes: diagnostics.estimatedBytes,
     estimatedLocalStorageKb: diagnostics.estimatedKb

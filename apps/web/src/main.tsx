@@ -1,4 +1,5 @@
 import { startupTrace, traceStartupPromise } from './lib/startupTrace';
+import { getErrorMessage, getErrorStack, serializeError } from './lib/errorDiagnostics';
 
 type BootTraceWindow = Window & {
   __DREAMERS_BOOT_TRACE__?: (label: string, payload?: Record<string, unknown>) => void;
@@ -16,10 +17,10 @@ function bootTrace(label: string, payload: Record<string, unknown> = {}) {
 
 function showBootstrapFailed(error: unknown) {
   const root = document.getElementById('root');
-  const message = error instanceof Error ? error.message : String(error);
-  const stack = error instanceof Error ? error.stack ?? '' : '';
+  const message = getErrorMessage(error);
+  const stack = getErrorStack(error) ?? '';
   console.error('BOOTSTRAP FAILED', { message, stack, error });
-  bootTrace('BOOTSTRAP FAILED', { message, stack });
+  bootTrace('BOOTSTRAP FAILED', { message, stack, error: serializeError(error) });
   if (!root) return;
   root.textContent = '';
   const main = document.createElement('main');
@@ -58,8 +59,9 @@ window.addEventListener('error', (event) => {
 
 window.addEventListener('unhandledrejection', (event) => {
   bootTrace('BOOT PROMISE ERROR', {
-    message: event.reason instanceof Error ? event.reason.message : String(event.reason ?? 'Unknown promise error'),
-    stack: event.reason instanceof Error ? event.reason.stack ?? null : null
+    message: getErrorMessage(event.reason, 'Unknown promise error'),
+    stack: getErrorStack(event.reason),
+    error: serializeError(event.reason)
   });
 });
 
@@ -71,8 +73,9 @@ void (async () => {
     startupTrace('main.ts finish');
   } catch (error) {
     startupTrace('main.ts error', {
-      message: error instanceof Error ? error.message : String(error),
-      stack: error instanceof Error ? error.stack ?? null : null
+      message: getErrorMessage(error),
+      stack: getErrorStack(error),
+      error: serializeError(error)
     });
     showBootstrapFailed(error);
   }

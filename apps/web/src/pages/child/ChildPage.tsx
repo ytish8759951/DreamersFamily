@@ -29,6 +29,7 @@ import { LocalTaskMedia } from '../../components/LocalTaskMedia';
 import { resolveCurrentChildId } from '../../lib/childSession';
 import { dataModeBadgeLabel, dataRepository } from '../../lib/dataRepository';
 import { useDreamCoverMigration } from '../../lib/dreamCoverMigration';
+import { getErrorDiagnostics, getErrorMessage } from '../../lib/errorDiagnostics';
 import { growthRepository } from '../../lib/growthRepository';
 import { compressImageFile } from '../../lib/imageCompression';
 import { logVideoStorageDiagnostics } from '../../lib/localVideoStore';
@@ -878,9 +879,11 @@ function SharePage() {
       closeShareForm();
     } catch (caught) {
       const diagnostics = shareRepository.getStorageDiagnostics();
+      const errorDiagnostics = getErrorDiagnostics(caught);
       console.error('[child/share] createShare failed', {
-        'error.name': caught instanceof DOMException || caught instanceof Error ? caught.name : 'UnknownError',
-        'error.message': caught instanceof DOMException || caught instanceof Error ? caught.message : String(caught),
+        'error.name': errorDiagnostics.name ?? errorDiagnostics.type,
+        'error.message': getErrorMessage(caught),
+        error: errorDiagnostics,
         'JSON.stringify(localStorage).length': diagnostics.jsonStringifyLength,
         estimatedLocalStorageBytes: diagnostics.estimatedBytes,
         estimatedLocalStorageKb: diagnostics.estimatedKb,

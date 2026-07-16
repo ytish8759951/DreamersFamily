@@ -1,4 +1,5 @@
 import { createClient, type RealtimeChannel, type SupabaseClient } from '@supabase/supabase-js';
+import { getErrorMessage, getErrorStack, serializeError } from './errorDiagnostics';
 import { startupTrace, traceStartupPromise } from './startupTrace';
 import {
   createChildDeviceToken,
@@ -160,6 +161,21 @@ interface SupabaseDeviceBindingRow {
   qr_token_status: LocalDeviceBinding['qr_token_status'];
   created_at: string;
   updated_at: string;
+}
+
+interface BindChildDeviceWithTokenRow {
+  id: UUID;
+  family_id: UUID;
+  display_name: string;
+  birth_date: string | null;
+  theme_color: string | null;
+  status: LocalChild['status'];
+  child_token: string;
+  child_token_updated_at: string;
+  child_token_consumed_at: string | null;
+  binding_id: string;
+  binding_expires_at: string;
+  binding_used_at: string;
 }
 
 interface SupabaseParentRow {
@@ -457,6 +473,11 @@ export function isSupabaseModeRequested() {
   return import.meta.env.VITE_DATA_MODE !== 'local';
 }
 
+function currentDeviceLabel() {
+  if (typeof navigator === 'undefined') return 'Unknown device';
+  return navigator.userAgent || navigator.platform || 'Unknown device';
+}
+
 class SupabaseAuthStorage implements KeyValueStorage {
   private readonly storage = getSupabaseBrowserStorage();
   private readonly chunkSize = 3000;
@@ -567,8 +588,9 @@ export function createSupabaseClient(config = getSupabaseConfig()): SupabaseClie
     return client;
   } catch (error) {
     startupTrace('createClient error', {
-      message: error instanceof Error ? error.message : String(error),
-      stack: error instanceof Error ? error.stack ?? null : null
+      message: getErrorMessage(error),
+      stack: getErrorStack(error),
+      error: serializeError(error)
     });
     throw error;
   }
@@ -1263,8 +1285,9 @@ export class SupabaseDataRepository implements LocalDataRepository {
     } catch (error) {
       console.warn('[supabase-repository] auth scope failed', error);
       startupTrace('SupabaseDataRepository.refreshAuthScope error', {
-        message: error instanceof Error ? error.message : String(error),
-        stack: error instanceof Error ? error.stack ?? null : null
+        message: getErrorMessage(error),
+        stack: getErrorStack(error),
+        error: serializeError(error)
       });
       this.hasFamilyScope = false;
       setRuntimeInfo({
@@ -1379,12 +1402,11 @@ export class SupabaseDataRepository implements LocalDataRepository {
     });
     console.log('[child-token-entry] bindChildDeviceByToken start', { childToken: normalized });
 
-    const binding = await this.resolveQrBindingByToken(normalized, decodedToken.childId);
-    const childRow = await this.resolveChildForBinding(binding);
+    const binding = await this.resolveQrBindingByRpc(normalized, decodedToken.childId);
     const child = this.cache.bindChildDeviceByToken(normalized, binding.family_id, {
       family_id: binding.family_id,
       child_id: binding.child_id,
-      child_name: binding.child_name || childRow.display_name,
+      child_name: binding.child_name,
       expires_at: binding.expires_at,
       used_at: binding.used_at,
       revoked_at: binding.revoked_at
@@ -1396,13 +1418,58 @@ export class SupabaseDataRepository implements LocalDataRepository {
     });
     console.log('[child-binding-debug] D.repository.schedulePersistence', {
       repositoryName: this.constructor.name,
-      method: 'persistChildDeviceBindingInBackground',
+      method: 'bind_child_device_with_token',
       source: 'bindChildDeviceByToken',
       childId: child.id,
-      familyId: child.family_id
+      familyId: child.family_id,
+      skippedDirectTableWrite: true
     });
-    this.persistChildDeviceBindingInBackground(child, 'active', 'bindChildDeviceByToken');
     return child;
+  }
+
+  private async resolveQrBindingByRpc(token: string, expectedChildId: UUID): Promise<SupabaseDeviceBindingRow> {
+    if (!this.client) throw new LocalDataError('Supabase client is unavailable', 'SUPABASE_UNAVAILABLE');
+    const state = this.cache.getState();
+    const rawDeviceId = state.device_id ?? LOCAL_DEVICE_ID;
+    const deviceId = toSupabaseUuid(rawDeviceId, SUPABASE_DEVICE_FALLBACK_ID);
+    const request = {
+      rpc: 'bind_child_device_with_token',
+      payload: {
+        p_token: token,
+        p_device_id: deviceId,
+        p_last_login_device: currentDeviceLabel()
+      }
+    };
+    console.log('[child-binding-debug] E.supabase.bindChildDeviceWithToken.request', request);
+    const { data, error } = await this.client.rpc('bind_child_device_with_token', request.payload);
+    console.log('[child-binding-debug] E.supabase.bindChildDeviceWithToken.response', {
+      request,
+      response: data,
+      error
+    });
+    if (error) throw error;
+    const rows = data as BindChildDeviceWithTokenRow[] | null;
+    const row = rows?.[0] ?? null;
+    if (!row) throw new LocalDataError('QR binding record not found', 'QR_BINDING_NOT_FOUND');
+    if (row.id !== expectedChildId) throw new LocalDataError('QR token does not match the requested child', 'QR_CHILD_MISMATCH');
+    if (row.family_id !== SUPABASE_FAMILY_ID) throw new LocalDataError('家庭驗證失敗', 'FAMILY_VERIFICATION_FAILED');
+    return {
+      id: row.binding_id,
+      token,
+      family_id: row.family_id,
+      child_id: row.id,
+      child_name: row.display_name,
+      device_id: deviceId,
+      expires_at: row.binding_expires_at,
+      used_at: row.binding_used_at,
+      revoked_at: null,
+      last_login_at: row.binding_used_at,
+      last_login_device: currentDeviceLabel(),
+      binding_status: 'bound',
+      qr_token_status: 'consumed',
+      created_at: row.child_token_updated_at,
+      updated_at: row.binding_used_at
+    };
   }
 
   private async resolveQrBindingByToken(token: string, expectedChildId: UUID): Promise<SupabaseDeviceBindingRow> {

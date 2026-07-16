@@ -30,6 +30,7 @@ import { JoinParentDevicePage } from './pages/auth/JoinParentDevicePage';
 import { dataMode } from './lib/dataRepository';
 import { getLoggedInFamilyLandingPath } from './lib/familyLanding';
 import { hasConfirmedChildDeviceSession } from './lib/childBindingState';
+import { getErrorMessage, getErrorStack } from './lib/errorDiagnostics';
 import { useLocalDataState } from './lib/useLocalData';
 import { useSupabaseRuntimeInfo } from './lib/useSupabaseRuntimeInfo';
 import { restoreDocumentInteractionState } from './lib/touchInteractions';
@@ -56,8 +57,8 @@ function RouteMatchTrace({ name }: { name: string }) {
 
 function RouteErrorFallback({ label }: { label: string }) {
   const error = useRouteError();
-  const message = error instanceof Error ? error.message : String(error);
-  const stack = error instanceof Error ? error.stack ?? '' : '';
+  const message = getErrorMessage(error);
+  const stack = getErrorStack(error) ?? '';
 
   console.error('ROUTE RENDER FAILED', {
     label,

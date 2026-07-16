@@ -1,4 +1,5 @@
 import { getCookieValue, getLocalStorage, setCookieValue } from './storage';
+import { getErrorMessage, getErrorStack, serializeError } from './errorDiagnostics';
 import { startupTrace, traceStartupPromise, traceStartupPromiseAll } from './startupTrace';
 
 export const APP_BUILD_ID = __BUILD_COMMIT__;
@@ -158,8 +159,9 @@ async function disableServiceWorkersAndCaches() {
     } catch (caught) {
       console.warn('[app-runtime] Failed to unregister service workers', caught);
       runtimeTrace('serviceWorker cleanup failed', {
-        message: caught instanceof Error ? caught.message : String(caught),
-        stack: caught instanceof Error ? caught.stack ?? null : null
+        message: getErrorMessage(caught),
+        stack: getErrorStack(caught),
+        error: serializeError(caught)
       });
     }
   } else {
@@ -187,8 +189,9 @@ async function disableServiceWorkersAndCaches() {
     } catch (caught) {
       console.warn('[app-runtime] Failed to clear browser caches', caught);
       runtimeTrace('cache cleanup failed', {
-        message: caught instanceof Error ? caught.message : String(caught),
-        stack: caught instanceof Error ? caught.stack ?? null : null
+        message: getErrorMessage(caught),
+        stack: getErrorStack(caught),
+        error: serializeError(caught)
       });
     }
   } else {
@@ -224,8 +227,9 @@ async function fetchLatestBuildId() {
   } catch (error) {
     console.warn('[app-runtime] Failed to fetch latest build metadata', error);
     runtimeTrace('fetchLatestBuildId failed', {
-      message: error instanceof Error ? error.message : String(error),
-      stack: error instanceof Error ? error.stack ?? null : null
+      message: getErrorMessage(error),
+      stack: getErrorStack(error),
+      error: serializeError(error)
     });
     return APP_BUILD_ID;
   }

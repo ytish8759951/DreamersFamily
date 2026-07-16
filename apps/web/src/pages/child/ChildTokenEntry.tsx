@@ -8,6 +8,12 @@ import {
   getRouteDebugInfo
 } from '../../lib/childBindingDebug';
 import { deviceBindingRepository } from '../../lib/deviceBindingRepository';
+import {
+  getErrorDiagnostics,
+  getErrorMessage as getReadableErrorMessage,
+  getErrorStack,
+  serializeError
+} from '../../lib/errorDiagnostics';
 
 const childRoutes = new Set([
   'home',
@@ -74,11 +80,13 @@ async function traceAsyncStep<T>(step: string, run: () => Promise<T>): Promise<T
     console.log('[child-token-runtime] await resolved', { step, result });
     return result;
   } catch (error) {
+    const diagnostics = getErrorDiagnostics(error);
     console.error('[child-token-runtime] await rejected', {
       step,
       message: getErrorMessage(error),
-      stack: getErrorStack(error),
-      error
+      stack: diagnostics.stack ?? new Error(`${step} rejected`).stack ?? null,
+      error,
+      diagnostics: serializeError(error)
     });
     throw error;
   } finally {
@@ -87,28 +95,13 @@ async function traceAsyncStep<T>(step: string, run: () => Promise<T>): Promise<T
 }
 
 function getErrorMessage(error: unknown) {
-  const message = error instanceof Error ? error.message : String(error);
+  const message = getReadableErrorMessage(error);
   if (message.includes('QR_EXPIRED') || message.includes('QR 已過期')) return 'QR 已過期';
   if (message.includes('QR_USED') || message.includes('QR 已使用')) return 'QR 已使用';
   if (message.includes('CHILD_NOT_FOUND') || message.includes('找不到孩子')) return '找不到孩子';
   if (message.includes('FAMILY_VERIFICATION_FAILED') || message.includes('家庭驗證失敗')) return '家庭驗證失敗';
   if (message.includes('binding') || message.includes('Binding') || message.includes('device')) return '裝置綁定失敗';
   return message;
-}
-
-function getErrorStack(error: unknown) {
-  return error instanceof Error ? error.stack ?? null : null;
-}
-
-function serializeError(error: unknown) {
-  if (error instanceof Error) {
-    return {
-      name: error.name,
-      message: error.message,
-      stack: error.stack ?? null
-    };
-  }
-  return { message: String(error) };
 }
 
 function getStageStatus(currentStage: TokenEntryStage, stage: TokenEntryStage) {
@@ -200,7 +193,7 @@ export function ChildTokenEntry() {
       updateDiagnostics({
         stage: 'Error',
         errorMessage: getErrorMessage(error),
-        stack: getErrorStack(error),
+        stack: getErrorStack(error) ?? new Error('childTokenEntryInitialization failed').stack ?? null,
         details: {
           ...details,
           error: serializeError(error)
@@ -362,7 +355,8 @@ export function ChildTokenEntry() {
         });
         console.warn('[child-token-entry] child URL token initialization failed', {
           childToken: token,
-          error
+          error,
+          diagnostics: serializeError(error)
         });
         fail(error, {
           token,

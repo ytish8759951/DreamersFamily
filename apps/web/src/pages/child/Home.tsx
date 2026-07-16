@@ -7,6 +7,7 @@ import { debugChildBinding, getRepositoryDebugInfo, getRouteDebugInfo } from '..
 import { dataMode } from '../../lib/dataRepository';
 import { deviceBindingRepository } from '../../lib/deviceBindingRepository';
 import { useDreamCoverMigration } from '../../lib/dreamCoverMigration';
+import { getErrorMessage, getErrorStack, serializeError } from '../../lib/errorDiagnostics';
 import { growthRepository } from '../../lib/growthRepository';
 import { piggyRepository } from '../../lib/piggyRepository';
 import { starRepository } from '../../lib/starRepository';
@@ -84,9 +85,10 @@ function traceChildHomeStep<T>(step: string, compute: () => T): T {
   } catch (error) {
     console.error('[child-home-runtime] step error', {
       step,
-      message: error instanceof Error ? error.message : String(error),
-      stack: error instanceof Error ? error.stack : undefined,
-      error
+      message: getErrorMessage(error),
+      stack: getErrorStack(error) ?? undefined,
+      error,
+      diagnostics: serializeError(error)
     });
     throw error;
   }
@@ -170,9 +172,10 @@ function ChildHomeContent() {
     } catch (error) {
       console.error('[child-home-runtime] syncChildDeviceLogin error', {
         sessionChildId,
-        message: error instanceof Error ? error.message : String(error),
-        stack: error instanceof Error ? error.stack : undefined,
-        error
+        message: getErrorMessage(error),
+        stack: getErrorStack(error) ?? undefined,
+        error,
+        diagnostics: serializeError(error)
       });
     }
   }, [deviceBinding, localState.currentChildIdentity?.childId]);

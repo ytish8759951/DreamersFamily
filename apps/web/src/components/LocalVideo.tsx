@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react';
+import { getErrorDiagnostics, getErrorMessage } from '../lib/errorDiagnostics';
 import { shareRepository } from '../lib/shareRepository';
 
 type LocalVideoProps = {
@@ -29,8 +30,9 @@ export function LocalVideo({ mediaId, src, className, controls = true, muted, au
       .catch((error) => {
         console.error('[local-video] failed to load IndexedDB video', {
           mediaId,
-          'error.name': error instanceof Error ? error.name : 'UnknownError',
-          'error.message': error instanceof Error ? error.message : String(error)
+          'error.name': getErrorDiagnostics(error).name ?? getErrorDiagnostics(error).type,
+          'error.message': getErrorMessage(error),
+          error: getErrorDiagnostics(error)
         });
       });
 

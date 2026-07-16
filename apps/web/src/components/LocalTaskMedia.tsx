@@ -1,4 +1,5 @@
 import { useEffect, useState, type ReactNode } from 'react';
+import { getErrorDiagnostics, getErrorMessage } from '../lib/errorDiagnostics';
 import { taskRepository } from '../lib/taskRepository';
 
 type LocalTaskMediaProps = {
@@ -27,8 +28,9 @@ export function LocalTaskMedia({ mediaId, alt, fallback, className = '' }: Local
       .catch((error) => {
         console.error('[local-task-media] failed to load IndexedDB media', {
           mediaId,
-          'error.name': error instanceof Error ? error.name : 'UnknownError',
-          'error.message': error instanceof Error ? error.message : String(error)
+          'error.name': getErrorDiagnostics(error).name ?? getErrorDiagnostics(error).type,
+          'error.message': getErrorMessage(error),
+          error: getErrorDiagnostics(error)
         });
       });
 

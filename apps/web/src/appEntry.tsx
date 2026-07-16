@@ -3,6 +3,7 @@ import ReactDOM from 'react-dom/client';
 import { RouterProvider } from 'react-router-dom';
 import { router } from './routes';
 import { prepareAppRuntime } from './lib/appRuntime';
+import { getErrorMessage, getErrorStack, serializeError } from './lib/errorDiagnostics';
 import { migrateLocalStorageMediaToRepository } from './lib/mediaMigration';
 import { markReactMounted, recordPromiseError, recordWindowError } from './lib/runtimeDebug';
 import { startupTrace, traceStartupPromise } from './lib/startupTrace';
@@ -30,7 +31,7 @@ bootTrace('IMPORT APP', {
 });
 
 window.onerror = (_message, _source, _lineno, _colno, error) => {
-  const text = error instanceof Error ? error.message : typeof _message === 'string' ? _message : 'Unknown window error';
+  const text = error ? getErrorMessage(error, 'Unknown window error') : typeof _message === 'string' ? _message : 'Unknown window error';
   recordWindowError(text);
   console.error('WINDOW ERROR', error, _message);
   bootTrace('WINDOW ERROR', {
@@ -38,27 +39,29 @@ window.onerror = (_message, _source, _lineno, _colno, error) => {
     source: _source ?? null,
     line: _lineno ?? null,
     column: _colno ?? null,
-    stack: error instanceof Error ? error.stack ?? null : null
+    stack: getErrorStack(error),
+    error: error ? serializeError(error) : null
   });
   return false;
 };
 
 window.onunhandledrejection = (event) => {
-  const text = event.reason instanceof Error ? event.reason.message : String(event.reason ?? 'Unknown promise error');
+  const text = getErrorMessage(event.reason, 'Unknown promise error');
   recordPromiseError(text);
   console.error('PROMISE ERROR', event.reason);
   bootTrace('PROMISE ERROR', {
     message: text,
-    stack: event.reason instanceof Error ? event.reason.stack ?? null : null
+    stack: getErrorStack(event.reason),
+    error: serializeError(event.reason)
   });
 };
 
 function showRouterFailed(error: unknown) {
   const root = document.getElementById('root');
-  const message = error instanceof Error ? error.message : String(error);
-  const stack = error instanceof Error ? error.stack ?? '' : '';
+  const message = getErrorMessage(error);
+  const stack = getErrorStack(error) ?? '';
   console.error('ROUTER FAILED', { message, stack, error });
-  bootTrace('ROUTER FAILED', { message, stack });
+  bootTrace('ROUTER FAILED', { message, stack, error: serializeError(error) });
   if (!root) return;
   root.textContent = '';
   const main = document.createElement('main');
@@ -187,8 +190,9 @@ export async function startApp() {
     startupTrace('startApp finish');
   } catch (error) {
     startupTrace('startApp error', {
-      message: error instanceof Error ? error.message : String(error),
-      stack: error instanceof Error ? error.stack ?? null : null
+      message: getErrorMessage(error),
+      stack: getErrorStack(error),
+      error: serializeError(error)
     });
     showRouterFailed(error);
   }

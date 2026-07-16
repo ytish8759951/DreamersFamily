@@ -1,5 +1,6 @@
 import { parseChildDeviceToken } from './childDeviceToken';
 import { dataMode, dataRepository } from './dataRepository';
+import { getErrorMessage } from './errorDiagnostics';
 
 export const CHILD_BINDING_DEBUG_PREFIX = '[child-binding-debug]';
 
@@ -104,8 +105,4 @@ async function testIndexedDB() {
       resolve({ available: false, error: getErrorMessage(error) });
     }
   });
-}
-
-function getErrorMessage(error: unknown) {
-  return error instanceof Error ? error.message : String(error);
 }

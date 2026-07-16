@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react';
+import { getErrorDiagnostics, getErrorMessage } from '../lib/errorDiagnostics';
 import { memoryRepository } from '../lib/memoryRepository';
 
 export function useLocalDreamCoverUrl(mediaId?: string | null, fallbackSrc?: string) {
@@ -20,8 +21,9 @@ export function useLocalDreamCoverUrl(mediaId?: string | null, fallbackSrc?: str
       .catch((error) => {
         console.error('[local-dream-cover] failed to load IndexedDB dream cover', {
           mediaId,
-          'error.name': error instanceof Error ? error.name : 'UnknownError',
-          'error.message': error instanceof Error ? error.message : String(error)
+          'error.name': getErrorDiagnostics(error).name ?? getErrorDiagnostics(error).type,
+          'error.message': getErrorMessage(error),
+          error: getErrorDiagnostics(error)
         });
       });
 

@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react';
+import { getErrorDiagnostics, getErrorMessage } from '../lib/errorDiagnostics';
 import { shareRepository } from '../lib/shareRepository';
 
 type LocalShareMediaProps = {
@@ -35,8 +36,9 @@ export function LocalShareMedia({
         console.error('[local-share-media] failed to load IndexedDB media', {
           mediaId,
           mediaType,
-          'error.name': error instanceof Error ? error.name : 'UnknownError',
-          'error.message': error instanceof Error ? error.message : String(error)
+          'error.name': getErrorDiagnostics(error).name ?? getErrorDiagnostics(error).type,
+          'error.message': getErrorMessage(error),
+          error: getErrorDiagnostics(error)
         });
       });
 
