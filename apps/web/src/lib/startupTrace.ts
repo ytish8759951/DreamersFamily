@@ -27,6 +27,7 @@ export async function traceStartupPromise<T>(
   promiseFactory: () => Promise<T>,
   payload: Record<string, unknown> = {}
 ): Promise<T> {
+  const startedAt = Date.now();
   startupTrace(`${label} start`, payload);
   let handle = 0;
   try {
@@ -36,16 +37,16 @@ export async function traceStartupPromise<T>(
         if (typeof window === 'undefined') return;
         handle = window.setTimeout(() => {
           const error = new Error(`Timeout waiting... ${label}`);
-          startupTrace(`${label} timeout`, payload);
-          startupTrace('Timeout waiting...', { promise: label, ...payload });
+          startupTrace(`${label} timeout`, { ...payload, durationMs: Date.now() - startedAt });
+          startupTrace('Timeout waiting...', { promise: label, durationMs: Date.now() - startedAt, ...payload });
           reject(error);
         }, STARTUP_TIMEOUT_MS);
       })
     ]);
-    startupTrace(`${label} finish`, payload);
+    startupTrace(`${label} finish`, { ...payload, durationMs: Date.now() - startedAt });
     return result;
   } catch (error) {
-    traceStartupError(label, error, payload);
+    traceStartupError(label, error, { ...payload, durationMs: Date.now() - startedAt });
     throw error;
   } finally {
     if (typeof window !== 'undefined') window.clearTimeout(handle);

@@ -1,6 +1,6 @@
 import { getCookieValue, getLocalStorage, setCookieValue } from './storage';
 import { getErrorMessage, getErrorStack, serializeError } from './errorDiagnostics';
-import { startupTrace, traceStartupPromise, traceStartupPromiseAll } from './startupTrace';
+import { startupTrace, traceStartupPromise } from './startupTrace';
 
 export const APP_BUILD_ID = __BUILD_COMMIT__;
 export const APP_BUILD_TIME = __BUILD_TIME__;
@@ -9,6 +9,7 @@ export const APP_CACHE_CLEAR_MARKER_KEY = 'little-dreamers-family:last-cache-cle
 export const APP_BUILD_ID_KEY = 'little-dreamers-family:build-id';
 const APP_BUILD_REFRESH_GUARD_KEY = 'little-dreamers-family:build-refresh-guard';
 const BUILD_META_URL = '/build-meta.json';
+const STARTUP_CLEANUP_TIMEOUT_MS = 1200;
 
 export async function prepareAppRuntime() {
   runtimeTrace('prepareAppRuntime start');
@@ -79,6 +80,43 @@ export async function prepareAppRuntime() {
 
 const runtimeTrace = startupTrace;
 
+async function bestEffortRuntimeStep<T>(
+  label: string,
+  action: () => Promise<T>,
+  fallback: T,
+  payload: Record<string, unknown> = {},
+  timeoutMs = STARTUP_CLEANUP_TIMEOUT_MS
+): Promise<T> {
+  const startedAt = Date.now();
+  runtimeTrace(`${label} START`, { ...payload, timeoutMs });
+  let timeoutHandle = 0;
+  try {
+    const result = await Promise.race([
+      action(),
+      new Promise<T>((resolve) => {
+        if (typeof window === 'undefined') return;
+        timeoutHandle = window.setTimeout(() => {
+          runtimeTrace(`${label} TIMEOUT`, { ...payload, timeoutMs, durationMs: Date.now() - startedAt });
+          resolve(fallback);
+        }, timeoutMs);
+      })
+    ]);
+    runtimeTrace(`${label} END`, { ...payload, durationMs: Date.now() - startedAt });
+    return result;
+  } catch (error) {
+    runtimeTrace(`${label} ERROR`, {
+      ...payload,
+      durationMs: Date.now() - startedAt,
+      message: getErrorMessage(error),
+      stack: getErrorStack(error),
+      error: serializeError(error)
+    });
+    return fallback;
+  } finally {
+    if (typeof window !== 'undefined') window.clearTimeout(timeoutHandle);
+  }
+}
+
 function publishAppVersion() {
   if (typeof window === 'undefined') return;
   const bundleHash = getCurrentBundleHash();
@@ -140,21 +178,17 @@ async function disableServiceWorkersAndCaches() {
 
   if ('serviceWorker' in navigator) {
     try {
-      runtimeTrace('serviceWorker.getRegistrations start');
-      const registrations = await traceStartupPromise(
-        'navigator.serviceWorker.getRegistrations',
-        () => navigator.serviceWorker.getRegistrations()
+      const registrations = await bestEffortRuntimeStep(
+        'serviceWorker.getRegistrations',
+        () => navigator.serviceWorker.getRegistrations(),
+        []
       );
-      runtimeTrace('serviceWorker.getRegistrations finish', { count: registrations.length });
-      runtimeTrace('serviceWorker.unregisterAll start', { count: registrations.length });
-      await traceStartupPromiseAll(
+      await bestEffortRuntimeStep(
         'serviceWorker.unregisterAll',
-        registrations.map((registration, index) => ({
-          label: `registration-${index}:${registration.scope}`,
-          promise: registration.unregister()
-        }))
+        () => Promise.all(registrations.map((registration) => registration.unregister())),
+        [],
+        { count: registrations.length, scopes: registrations.map((registration) => registration.scope) }
       );
-      runtimeTrace('serviceWorker.unregisterAll finish', { count: registrations.length });
       console.info('[app-runtime] Unregistered service workers', { count: registrations.length });
     } catch (caught) {
       console.warn('[app-runtime] Failed to unregister service workers', caught);
@@ -170,18 +204,13 @@ async function disableServiceWorkersAndCaches() {
 
   if ('caches' in window) {
     try {
-      runtimeTrace('caches.keys start');
-      const cacheNames = await traceStartupPromise('window.caches.keys', () => window.caches.keys());
-      runtimeTrace('caches.keys finish', { count: cacheNames.length, cacheNames });
-      runtimeTrace('caches.deleteAll start', { count: cacheNames.length, cacheNames });
-      await traceStartupPromiseAll(
+      const cacheNames = await bestEffortRuntimeStep('caches.keys', () => window.caches.keys(), []);
+      await bestEffortRuntimeStep(
         'caches.deleteAll',
-        cacheNames.map((name) => ({
-          label: name,
-          promise: window.caches.delete(name)
-        }))
+        () => Promise.all(cacheNames.map((name) => window.caches.delete(name))),
+        [],
+        { count: cacheNames.length, cacheNames }
       );
-      runtimeTrace('caches.deleteAll finish', { count: cacheNames.length, cacheNames });
       console.info('[app-runtime] Cleared browser caches while PWA is disabled', {
         bundleVersion: APP_BUILD_ID,
         cacheNames
