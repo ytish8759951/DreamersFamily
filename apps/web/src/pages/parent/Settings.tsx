@@ -37,12 +37,15 @@ export function Settings() {
   const [cleanupResult, setCleanupResult] = useState<TestDataCleanupResult | null>(null);
   const [cleanupRemoveFamily, setCleanupRemoveFamily] = useState(false);
   const [cleanupConfirmText, setCleanupConfirmText] = useState('');
-  const [cleanupBusy, setCleanupBusy] = useState(false);
+  const [isPreviewLoading, setIsPreviewLoading] = useState(false);
+  const [isDeleting, setIsDeleting] = useState(false);
   const [cleanupError, setCleanupError] = useState('');
   const usage = useMemo(() => estimateStorageUsage(), [state]);
   const familyName = settings.family_name || '小小夢想家 Family';
   const parentRoleLabel = runtimeInfo.parentRole === 'owner' ? 'Owner' : runtimeInfo.parentRole ? 'Parent' : '-';
   const canManageTestData = dataMode !== 'supabase' || runtimeInfo.parentRole === 'owner';
+  const cleanupBusy = isPreviewLoading || isDeleting;
+  const canExecuteCleanup = Boolean(cleanupPreview) && cleanupConfirmText === CLEANUP_CONFIRM_TEXT && !isDeleting;
 
   useEffect(() => {
     let cancelled = false;
@@ -120,7 +123,7 @@ export function Settings() {
     setCleanupResult(null);
     setCleanupConfirmText('');
     setCleanupError('');
-    setCleanupBusy(true);
+    setIsPreviewLoading(true);
     try {
       const preview = await settingsRepository.previewTestDataCleanup(runtimeInfo.familyId ?? null);
       setCleanupPreview(preview);
@@ -128,13 +131,13 @@ export function Settings() {
     } catch (caught) {
       setCleanupError(getErrorMessage(caught, '無法讀取清理預覽'));
     } finally {
-      setCleanupBusy(false);
+      setIsPreviewLoading(false);
     }
   };
 
   const executeCleanup = async () => {
-    if (cleanupConfirmText !== CLEANUP_CONFIRM_TEXT || cleanupBusy) return;
-    setCleanupBusy(true);
+    if (isDeleting || cleanupConfirmText !== CLEANUP_CONFIRM_TEXT || !cleanupPreview) return;
+    setIsDeleting(true);
     setCleanupError('');
     setCleanupResult(null);
     try {
@@ -151,7 +154,7 @@ export function Settings() {
     } catch (caught) {
       setCleanupError(getErrorMessage(caught, '清空測試資料失敗'));
     } finally {
-      setCleanupBusy(false);
+      setIsDeleting(false);
     }
   };
 
@@ -276,7 +279,8 @@ export function Settings() {
             </header>
             <div className="settings-cleanup-body">
               <p className="settings-cleanup-warning">此操作會永久刪除目前家庭的測試資料，無法從介面復原。Supabase Auth 家長帳號、schema、migration、RLS、RPC 與部署設定會保留。</p>
-              {cleanupBusy && !cleanupPreview ? <p className="settings-operation-summary">正在讀取即將刪除的資料數量...</p> : null}
+              {isPreviewLoading ? <p className="settings-operation-summary">正在讀取即將刪除的資料數量...</p> : null}
+              {isDeleting ? <p className="settings-operation-summary"><span className="settings-inline-spinner" aria-hidden="true" /> 正在清空測試資料，請勿關閉視窗。</p> : null}
               {cleanupError ? <p className="settings-cleanup-error">{cleanupError}</p> : null}
               {cleanupPreview ? (
                 <>
@@ -301,8 +305,8 @@ export function Settings() {
             </div>
             <footer>
               <button type="button" onClick={() => setCleanupOpen(false)} disabled={cleanupBusy}>取消</button>
-              <button type="button" className="is-danger" onClick={() => void executeCleanup()} disabled={!cleanupPreview || cleanupConfirmText !== CLEANUP_CONFIRM_TEXT || cleanupBusy}>
-                {cleanupBusy ? '執行中...' : '永久清空測試資料'}
+              <button type="button" className="is-danger" onClick={() => void executeCleanup()} disabled={!canExecuteCleanup}>
+                {isDeleting ? <><span className="settings-inline-spinner" aria-hidden="true" /> 正在清空</> : '永久清空測試資料'}
               </button>
             </footer>
           </section>
@@ -314,7 +318,7 @@ export function Settings() {
         <div className="settings-data-actions">
           <button type="button" onClick={exportData}><Download size={18} /> 匯出備份 JSON</button>
           <label><Upload size={18} /> 匯入 JSON<input type="file" accept="application/json,.json" onChange={importData} /></label>
-          <button type="button" className="is-danger" onClick={() => void openCleanupPreview()} disabled={!canManageTestData || cleanupBusy}><Trash2 size={18} /> 清空所有測試資料</button>
+          <button type="button" className="is-danger" onClick={() => void openCleanupPreview()} disabled={!canManageTestData || cleanupBusy}><Trash2 size={18} /> {isPreviewLoading ? '讀取中...' : '清空所有測試資料'}</button>
         </div>
         {!canManageTestData ? <p className="settings-cleanup-error">只有目前家庭的 Owner 可以管理測試資料。</p> : null}
         <dl>

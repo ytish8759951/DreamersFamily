@@ -20708,6 +20708,13 @@ body.modal-open {
   opacity: .58;
 }
 
+.settings-data-actions button:disabled,
+.settings-cleanup-dialog button:disabled,
+.settings-cleanup-dialog > footer .is-danger:disabled {
+  background: #e8e4dc;
+  color: #8a8177;
+}
+
 .settings-operation-summary {
   margin: 0;
   border-radius: 14px;
@@ -20748,15 +20755,38 @@ body.modal-open {
   bottom: 0;
   display: flex;
   justify-content: space-between;
+  align-items: center;
   border-top: 1px solid #eee3d4;
   background: #fff;
   padding-top: 12px;
   gap: 10px;
 }
 
+.settings-cleanup-dialog > footer button {
+  min-height: 44px;
+  white-space: nowrap;
+}
+
 .settings-cleanup-dialog > footer .is-danger {
+  min-width: 180px;
   background: #ffe8e6;
   color: #a65c58;
+}
+
+.settings-inline-spinner {
+  display: inline-block;
+  width: 1em;
+  height: 1em;
+  border: 2px solid currentColor;
+  border-right-color: transparent;
+  border-radius: 50%;
+  animation: settings-spin .7s linear infinite;
+}
+
+@keyframes settings-spin {
+  to {
+    transform: rotate(360deg);
+  }
 }
 
 .settings-cleanup-warning,
@@ -20943,6 +20973,24 @@ body.modal-open {
   .settings-cleanup-counts,
   .settings-invite-card {
     grid-template-columns: 1fr;
+  }
+
+  .settings-cleanup-dialog {
+    width: min(100%, calc(100vw - 20px));
+    max-height: calc(100vh - 20px);
+  }
+
+  .settings-cleanup-dialog > footer {
+    align-items: stretch;
+    flex-direction: column-reverse;
+  }
+
+  .settings-cleanup-dialog > footer button,
+  .settings-cleanup-dialog > footer .is-danger {
+    width: 100%;
+    min-width: 0;
+    justify-content: center;
+    white-space: normal;
   }
 
   .settings-hero {
