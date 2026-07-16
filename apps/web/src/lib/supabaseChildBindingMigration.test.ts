@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import migration from '../../../../supabase/migrations/017_atomic_child_device_token_binding.sql?raw';
 import hardeningMigration from '../../../../supabase/migrations/018_harden_child_binding_anon_table_access.sql?raw';
+import ambiguousColumnFixMigration from '../../../../supabase/migrations/019_fix_child_binding_rpc_ambiguous_columns.sql?raw';
 
 describe('Supabase child binding migration', () => {
   it('adds the production-missing token binding columns', () => {
@@ -29,5 +30,12 @@ describe('Supabase child binding migration', () => {
     expect(hardeningMigration).toContain('drop policy if exists repository_foundation_all on public.device_bindings');
     expect(hardeningMigration).toContain('drop policy if exists repository_foundation_all on public.children');
     expect(hardeningMigration).toContain('grant execute on function public.bind_child_device_with_token(text, uuid, text) to anon, authenticated');
+  });
+
+  it('qualifies child token columns that overlap with RPC output names', () => {
+    expect(ambiguousColumnFixMigration).toContain('from public.children as child_row');
+    expect(ambiguousColumnFixMigration).toContain('update public.children as child_row');
+    expect(ambiguousColumnFixMigration).toContain('coalesce(child_row.child_token_consumed_at, v_now)');
+    expect(ambiguousColumnFixMigration).not.toContain('coalesce(child_token_consumed_at, v_now)');
   });
 });
