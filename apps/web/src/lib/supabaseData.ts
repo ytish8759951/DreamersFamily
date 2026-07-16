@@ -1436,16 +1436,23 @@ export class SupabaseDataRepository implements LocalDataRepository {
       revoked_at: binding.revoked_at
     });
     const state = this.cache.getState();
-    childBindingTrace('Create Session', {
+    childBindingTrace('create child session', {
       tokenHash: bindCall.tokenHash,
       childId: child.id,
       createdChildSession: state.device_child_id === child.id && state.deviceBinding === child.id
     });
-    childBindingTrace('Set currentChildIdentity', {
+    childBindingTrace('currentChildIdentity', {
       tokenHash: bindCall.tokenHash,
       childId: child.id,
       currentChildIdentityChildId: state.currentChildIdentity?.childId ?? null,
       currentChildIdentitySet: state.currentChildIdentity?.childId === child.id
+    });
+    childBindingTrace('save deviceBinding', {
+      tokenHash: bindCall.tokenHash,
+      childId: child.id,
+      deviceBinding: state.deviceBinding,
+      deviceChildId: state.device_child_id,
+      saved: state.deviceBinding === child.id && state.device_child_id === child.id
     });
     childBindingTrace('bindChildDeviceByToken() 是否 navigate', {
       tokenHash: bindCall.tokenHash,
@@ -1490,6 +1497,12 @@ export class SupabaseDataRepository implements LocalDataRepository {
       childId: expectedChildId,
       deviceId
     });
+    childBindingTrace('RPC request sent', {
+      tokenHash,
+      rpc: request.rpc,
+      childId: expectedChildId,
+      deviceId
+    });
     const { data, error } = await this.client.rpc('bind_child_device_with_token', request.payload);
     childBindingTrace('RPC End', {
       tokenHash,
@@ -1503,6 +1516,24 @@ export class SupabaseDataRepository implements LocalDataRepository {
       } : null,
       rowCount: Array.isArray(data) ? data.length : null
     });
+    childBindingTrace('RPC response received', {
+      tokenHash,
+      rpc: request.rpc,
+      childId: expectedChildId,
+      rowCount: Array.isArray(data) ? data.length : null,
+      hasError: Boolean(error)
+    });
+    if (error) {
+      childBindingTrace('RPC error', {
+        tokenHash,
+        rpc: request.rpc,
+        childId: expectedChildId,
+        errorCode: error.code ?? null,
+        errorMessage: error.message ?? null,
+        errorDetails: error.details ?? null,
+        errorHint: error.hint ?? null
+      });
+    }
     console.log('[child-binding-debug] E.supabase.bindChildDeviceWithToken.response', {
       request,
       response: data,
@@ -1511,6 +1542,24 @@ export class SupabaseDataRepository implements LocalDataRepository {
     if (error) throw error;
     const rows = data as BindChildDeviceWithTokenRow[] | null;
     const row = requireBackendVerifiedChildBindingRow(rows?.[0] ?? null, expectedChildId);
+    childBindingTrace('RPC success', {
+      tokenHash,
+      childId: row.id,
+      bindingId: row.binding_id,
+      tokenStatus: 'consumed',
+      used_at: row.binding_used_at
+    });
+    childBindingTrace('binding record', {
+      tokenHash,
+      childId: row.id,
+      bindingId: row.binding_id,
+      familyId: row.family_id,
+      childName: row.display_name,
+      tokenStatus: 'consumed',
+      bindingStatus: 'bound',
+      expires_at: row.binding_expires_at,
+      used_at: row.binding_used_at
+    });
     return {
       id: row.binding_id,
       token,

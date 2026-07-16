@@ -1113,7 +1113,7 @@ export class LocalDataService implements LocalDataRepository {
         lastLoginAt: boundAt,
         lastLoginDevice
       });
-      childBindingTrace('Create Session', {
+      childBindingTrace('create child session', {
         tokenHash,
         childId: child.id,
         createdChildSession: state.device_child_id === child.id && state.deviceBinding === child.id,
@@ -1121,11 +1121,18 @@ export class LocalDataService implements LocalDataRepository {
         deviceChildId: state.device_child_id,
         deviceBinding: state.deviceBinding
       });
-      childBindingTrace('Set currentChildIdentity', {
+      childBindingTrace('currentChildIdentity', {
         tokenHash,
         childId: child.id,
         currentChildIdentityChildId: state.currentChildIdentity?.childId ?? null,
         currentChildIdentitySet: state.currentChildIdentity?.childId === child.id
+      });
+      childBindingTrace('save deviceBinding', {
+        tokenHash,
+        childId: child.id,
+        deviceBinding: state.deviceBinding,
+        deviceChildId: state.device_child_id,
+        saved: state.deviceBinding === child.id && state.device_child_id === child.id
       });
       childBindingTrace('LocalDataService.bindChildDeviceByToken() 是否 navigate', {
         tokenHash,

@@ -120,6 +120,69 @@ function getStageStatus(currentStage: TokenEntryStage, stage: TokenEntryStage) {
   return 'pending';
 }
 
+const deviceBindingSteps = [
+  { label: 'RPC request sent', aliases: ['RPC request sent', 'RPC Start'] },
+  { label: 'RPC response received', aliases: ['RPC response received', 'RPC End'] },
+  { label: 'RPC success / RPC error', aliases: ['RPC success', 'RPC error'] },
+  { label: 'binding record', aliases: ['binding record'] },
+  { label: 'currentChildIdentity', aliases: ['currentChildIdentity', 'Set currentChildIdentity'] },
+  { label: 'create child session', aliases: ['create child session', 'Create Session'] },
+  { label: 'save deviceBinding', aliases: ['save deviceBinding'] },
+  { label: 'navigate', aliases: ['navigate', 'Navigate'] }
+];
+
+function findTraceEntry(traceEntries: ChildBindingTraceEntry[], aliases: string[]) {
+  for (let index = traceEntries.length - 1; index >= 0; index -= 1) {
+    if (aliases.includes(traceEntries[index].label)) return traceEntries[index];
+  }
+  return null;
+}
+
+function DeviceBindingDetails({ traceEntries }: { traceEntries: ChildBindingTraceEntry[] }) {
+  return (
+    <div style={{ marginTop: 16 }}>
+      <strong>Device binding</strong>
+      <div style={{ display: 'grid', gap: 8, marginTop: 8 }}>
+        {deviceBindingSteps.map((step) => {
+          const entry = findTraceEntry(traceEntries, step.aliases);
+          const isError = entry?.label === 'RPC error';
+          return (
+            <div
+              key={step.label}
+              style={{
+                border: isError ? '2px solid #b91c1c' : '1px solid rgba(255,255,255,0.18)',
+                borderRadius: 6,
+                padding: 8,
+                background: isError ? 'rgba(185,28,28,0.16)' : 'rgba(255,255,255,0.06)'
+              }}
+            >
+              <div style={{ display: 'flex', justifyContent: 'space-between', gap: 8, fontSize: 12 }}>
+                <span>- {step.label}</span>
+                <strong>{entry ? (isError ? 'error' : 'complete') : 'pending'}</strong>
+              </div>
+              {entry ? (
+                <pre
+                  style={{
+                    margin: '6px 0 0',
+                    maxHeight: 150,
+                    overflow: 'auto',
+                    whiteSpace: 'pre-wrap',
+                    wordBreak: 'break-word',
+                    fontSize: 11,
+                    lineHeight: 1.45
+                  }}
+                >
+                  {JSON.stringify(entry.payload, null, 2)}
+                </pre>
+              ) : null}
+            </div>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
 function DiagnosticsPanel({
   diagnostics,
   traceEntries
@@ -158,6 +221,7 @@ function DiagnosticsPanel({
       >
         {JSON.stringify(diagnostics, null, 2)}
       </pre>
+      <DeviceBindingDetails traceEntries={traceEntries} />
       <div style={{ marginTop: 16 }}>
         <strong>Child Binding Trace</strong>
         <div style={{ display: 'grid', gap: 8, marginTop: 8 }}>
@@ -415,7 +479,7 @@ export function ChildTokenEntry() {
         });
 
         const confirmedChildHomeTarget = `${childHomeTarget}?childId=${encodeURIComponent(syncedChild.id)}`;
-        childBindingTrace('Navigate', {
+        childBindingTrace('navigate', {
           tokenHash,
           childId: syncedChild.id,
           target: confirmedChildHomeTarget
