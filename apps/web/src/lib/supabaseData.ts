@@ -6,6 +6,7 @@ import {
   createChildDeviceTokenForChild,
   parseChildDeviceToken
 } from './childDeviceToken';
+import { requireBackendVerifiedChildBindingRow } from './childBindingRpcValidation';
 import {
   LOCAL_DEVICE_ID,
   MockDatabase
@@ -1449,10 +1450,7 @@ export class SupabaseDataRepository implements LocalDataRepository {
     });
     if (error) throw error;
     const rows = data as BindChildDeviceWithTokenRow[] | null;
-    const row = rows?.[0] ?? null;
-    if (!row) throw new LocalDataError('QR binding record not found', 'QR_BINDING_NOT_FOUND');
-    if (row.id !== expectedChildId) throw new LocalDataError('QR token does not match the requested child', 'QR_CHILD_MISMATCH');
-    if (row.family_id !== SUPABASE_FAMILY_ID) throw new LocalDataError('家庭驗證失敗', 'FAMILY_VERIFICATION_FAILED');
+    const row = requireBackendVerifiedChildBindingRow(rows?.[0] ?? null, expectedChildId);
     return {
       id: row.binding_id,
       token,
