@@ -13,7 +13,7 @@ import {
 } from '../../lib/supabaseData';
 import { createParentInviteToken, getParentInviteUrl } from '../../lib/parentDeviceBinding';
 import { settingsRepository } from '../../lib/settingsRepository';
-import type { LocalFamilySettings } from '../../lib/localTypes';
+import type { LocalDatabaseState, LocalFamilySettings } from '../../lib/localTypes';
 import type { TestDataCleanupCounts, TestDataCleanupPreview, TestDataCleanupResult } from '../../lib/localData';
 import { useLocalDataState } from '../../lib/useLocalData';
 import { useSupabaseRuntimeInfo } from '../../lib/useSupabaseRuntimeInfo';
@@ -24,6 +24,72 @@ import { restoreDocumentInteractionState } from '../../lib/touchInteractions';
 type SettingsForm = Omit<LocalFamilySettings, 'family_created_at' | 'updated_at'>;
 const CLEANUP_CONFIRM_TEXT = '清空測試資料';
 const CLEANUP_OPERATION_TIMEOUT_MS = 30000;
+
+type SettingsTraceWindow = Window & {
+  __settingsRenderCount?: number;
+  __settingsRenderWindowStartedAt?: number;
+  __settingsTraceStopped?: boolean;
+};
+
+function timestamp() {
+  const now = new Date();
+  const hours = String(now.getHours()).padStart(2, '0');
+  const minutes = String(now.getMinutes()).padStart(2, '0');
+  const seconds = String(now.getSeconds()).padStart(2, '0');
+  const millis = String(now.getMilliseconds()).padStart(3, '0');
+  return `[${hours}:${minutes}:${seconds}.${millis}]`;
+}
+
+function traceSettings(label: string, payload: Record<string, unknown> = {}) {
+  if (typeof window !== 'undefined' && (window as SettingsTraceWindow).__settingsTraceStopped) return;
+  console.log(`${timestamp()} ${label}`, payload);
+}
+
+function trackSettingsRenderLoop(): boolean {
+  if (typeof window === 'undefined') return false;
+  const traceWindow = window as SettingsTraceWindow;
+  if (traceWindow.__settingsTraceStopped) return true;
+  if (!traceWindow.__settingsRenderWindowStartedAt) {
+    traceWindow.__settingsRenderWindowStartedAt = Date.now();
+    traceWindow.__settingsRenderCount = 0;
+  }
+  traceWindow.__settingsRenderCount = (traceWindow.__settingsRenderCount ?? 0) + 1;
+  if (traceWindow.__settingsRenderCount > 10) {
+    traceWindow.__settingsTraceStopped = true;
+    console.error(`${timestamp()} SETTINGS INFINITE RENDER`, {
+      renderCount: traceWindow.__settingsRenderCount
+    });
+    return true;
+  }
+  return false;
+}
+
+async function traceSettingsAwait<T>(label: string, operation: () => T | Promise<T>) {
+  const startedAt = Date.now();
+  traceSettings(`before await ${label}`);
+  try {
+    const result = await Promise.resolve(operation());
+    traceSettings(`after await ${label}`, { durationMs: Date.now() - startedAt });
+    return result;
+  } catch (error) {
+    traceSettings(`catch ${label}`, {
+      durationMs: Date.now() - startedAt,
+      message: getErrorMessage(error)
+    });
+    throw error;
+  } finally {
+    traceSettings(`finally ${label}`, { durationMs: Date.now() - startedAt });
+  }
+}
+
+function useLoggedState<T>(name: string, initialState: T | (() => T)) {
+  const [value, setValue] = useState(initialState);
+  const loggedSetValue: typeof setValue = (next) => {
+    traceSettings(`setState ${name}`);
+    setValue(next);
+  };
+  return [value, loggedSetValue] as const;
+}
 
 function restoreCleanupModalInteractionState() {
   if (typeof document === 'undefined') return;
@@ -70,25 +136,27 @@ function withCleanupTimeout<T>(operation: Promise<T>) {
 }
 
 export function Settings() {
+  trackSettingsRenderLoop();
+  traceSettings('Settings render start');
   const renderTrace = beginTimingTrace('Settings render', {}, 'span');
   const navigate = useNavigate();
   const state = useLocalDataState();
   const runtimeInfo = useSupabaseRuntimeInfo();
   const settings = state.family_settings;
-  const [form, setForm] = useState<SettingsForm>(() => toForm(settings));
-  const [message, setMessage] = useState('');
-  const [inviteLink, setInviteLink] = useState('');
-  const [inviteCode, setInviteCode] = useState('');
-  const [members, setMembers] = useState<ProductionFamilyParent[]>([]);
-  const [cleanupOpen, setCleanupOpen] = useState(false);
-  const [cleanupPreview, setCleanupPreview] = useState<TestDataCleanupPreview | null>(null);
-  const [cleanupResult, setCleanupResult] = useState<TestDataCleanupResult | null>(null);
-  const [cleanupRemoveFamily, setCleanupRemoveFamily] = useState(false);
-  const [cleanupConfirmText, setCleanupConfirmText] = useState('');
-  const [isPreviewLoading, setIsPreviewLoading] = useState(false);
-  const [isDeleting, setIsDeleting] = useState(false);
-  const [cleanupError, setCleanupError] = useState('');
-  const usage = useMemo(() => estimateStorageUsage(), [state]);
+  const [form, setForm] = useLoggedState<SettingsForm>('form', () => toForm(settings));
+  const [message, setMessage] = useLoggedState('message', '');
+  const [inviteLink, setInviteLink] = useLoggedState('inviteLink', '');
+  const [inviteCode, setInviteCode] = useLoggedState('inviteCode', '');
+  const [members, setMembers] = useLoggedState<ProductionFamilyParent[]>('members', []);
+  const [cleanupOpen, setCleanupOpen] = useLoggedState('cleanupOpen', false);
+  const [cleanupPreview, setCleanupPreview] = useLoggedState<TestDataCleanupPreview | null>('cleanupPreview', null);
+  const [cleanupResult, setCleanupResult] = useLoggedState<TestDataCleanupResult | null>('cleanupResult', null);
+  const [cleanupRemoveFamily, setCleanupRemoveFamily] = useLoggedState('cleanupRemoveFamily', false);
+  const [cleanupConfirmText, setCleanupConfirmText] = useLoggedState('cleanupConfirmText', '');
+  const [isPreviewLoading, setIsPreviewLoading] = useLoggedState('isPreviewLoading', false);
+  const [isDeleting, setIsDeleting] = useLoggedState('isDeleting', false);
+  const [cleanupError, setCleanupError] = useLoggedState('cleanupError', '');
+  const usage = useMemo(() => estimateStorageUsage(state), [state]);
   const familyName = settings.family_name || '小小夢想家 Family';
   const parentRoleLabel = runtimeInfo.parentRole === 'owner' ? 'Owner' : runtimeInfo.parentRole ? 'Parent' : '-';
   const canManageTestData = dataMode !== 'supabase' || runtimeInfo.parentRole === 'owner';
@@ -103,16 +171,21 @@ export function Settings() {
   };
 
   useEffect(() => {
+    traceSettings('effect cleanupOpen start', { cleanupOpen });
     if (!cleanupOpen) restoreCleanupModalInteractionState();
+    traceSettings('effect cleanupOpen end', { cleanupOpen });
     return restoreCleanupModalInteractionState;
   }, [cleanupOpen]);
 
   useEffect(() => {
+    traceSettings('effect mountInteractionRestore start');
     restoreCleanupModalInteractionState();
+    traceSettings('effect mountInteractionRestore end');
     return restoreCleanupModalInteractionState;
   }, []);
 
   useEffect(() => {
+    traceSettings('effect settingsMountTrace start');
     const mountTrace = beginTimingTrace('Settings mount', {
       familyId: runtimeInfo.familyId,
       parentRole: runtimeInfo.parentRole
@@ -121,9 +194,14 @@ export function Settings() {
       familyId: runtimeInfo.familyId,
       parentRole: runtimeInfo.parentRole
     });
+    traceSettings('effect settingsMountTrace end');
   }, []);
 
   useEffect(() => {
+    traceSettings('effect runtimeTrace start', {
+      familyId: runtimeInfo.familyId,
+      parentRole: runtimeInfo.parentRole
+    });
     startupTrace('SETTINGS START', {
       familyId: runtimeInfo.familyId,
       parentRole: runtimeInfo.parentRole
@@ -132,20 +210,28 @@ export function Settings() {
       familyId: runtimeInfo.familyId,
       parentRole: runtimeInfo.parentRole
     });
+    traceSettings('effect runtimeTrace end', {
+      familyId: runtimeInfo.familyId,
+      parentRole: runtimeInfo.parentRole
+    });
   }, [runtimeInfo.familyId, runtimeInfo.parentRole]);
 
   useEffect(() => {
+    traceSettings('effect membersHydrate start', { familyId: runtimeInfo.familyId, dataMode });
     let cancelled = false;
     if (dataMode !== 'supabase' || !runtimeInfo.familyId) {
       setMembers([]);
+      traceSettings('effect membersHydrate end', { reason: 'no family scope' });
       return;
     }
-    void listProductionFamilyParents(runtimeInfo.familyId)
+    void traceSettingsAwait('listProductionFamilyParents', () => listProductionFamilyParents(runtimeInfo.familyId!))
       .then((parents) => {
         if (!cancelled) setMembers(parents);
+        traceSettings('effect membersHydrate end', { cancelled, count: parents.length });
       })
       .catch(() => {
         if (!cancelled) setMembers([]);
+        traceSettings('effect membersHydrate end', { cancelled, error: true });
       });
     return () => {
       cancelled = true;
@@ -176,10 +262,12 @@ export function Settings() {
   const readImage = async (event: ChangeEvent<HTMLInputElement>, key: 'family_avatar_media_id' | 'parent_avatar_media_id') => {
     const file = event.currentTarget.files?.[0];
     if (!file) return;
-    const mediaId = await settingsRepository.saveAvatarFile({
-      ownerId: key === 'family_avatar_media_id' ? 'family-avatar' : 'parent-avatar',
-      file
-    });
+    const mediaId = await traceSettingsAwait('settingsRepository.saveAvatarFile', () =>
+      settingsRepository.saveAvatarFile({
+        ownerId: key === 'family_avatar_media_id' ? 'family-avatar' : 'parent-avatar',
+        file
+      })
+    );
     update(key, mediaId);
   };
 
@@ -193,7 +281,8 @@ export function Settings() {
     const file = event.currentTarget.files?.[0];
     if (!file) return;
     try {
-      settingsRepository.importData(await file.text());
+      const raw = await traceSettingsAwait('file.text', () => file.text());
+      settingsRepository.importData(raw);
       setForm(toForm(settingsRepository.getSettings()));
       setMessage('資料已匯入');
     } catch (caught) {
@@ -211,7 +300,9 @@ export function Settings() {
     setCleanupError('');
     setIsPreviewLoading(true);
     try {
-      const preview = await settingsRepository.previewTestDataCleanup(runtimeInfo.familyId ?? null);
+      const preview = await traceSettingsAwait('settingsRepository.previewTestDataCleanup', () =>
+        settingsRepository.previewTestDataCleanup(runtimeInfo.familyId ?? null)
+      );
       setCleanupPreview(preview);
       setCleanupRemoveFamily(false);
     } catch (caught) {
@@ -227,15 +318,18 @@ export function Settings() {
     setCleanupError('');
     setCleanupResult(null);
     try {
-      const result = await withCleanupTimeout(settingsRepository.executeTestDataCleanup({
-        familyId: cleanupPreview?.familyId ?? runtimeInfo.familyId ?? null,
-        removeFamily: cleanupRemoveFamily
-      }));
+      const result = await traceSettingsAwait('settingsRepository.executeTestDataCleanup', () =>
+        withCleanupTimeout(settingsRepository.executeTestDataCleanup({
+          familyId: cleanupPreview?.familyId ?? runtimeInfo.familyId ?? null,
+          removeFamily: cleanupRemoveFamily
+        }))
+      );
       setCleanupResult(result);
       setForm(toForm(settingsRepository.getSettings()));
       setMessage(cleanupRemoveFamily ? '已清空測試資料並移除目前家庭，請重新建立家庭。' : '已清空目前家庭的測試資料。');
       closeCleanupDialog();
       if (result.removedFamily) {
+        traceSettings('navigate', { to: '/create-family', from: 'executeCleanup' });
         navigate('/create-family', { replace: true });
       }
     } catch (caught) {
@@ -252,7 +346,7 @@ export function Settings() {
   const createInvite = async () => {
     setMessage('');
     try {
-      const invite = await createProductionFamilyInvite('guardian');
+      const invite = await traceSettingsAwait('createProductionFamilyInvite', () => createProductionFamilyInvite('guardian'));
       const expiresAt = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString();
       const token = createParentInviteToken({
         familyId: invite?.family_id ?? runtimeInfo.familyId ?? '',
@@ -274,7 +368,7 @@ export function Settings() {
   const copyInviteLink = async () => {
     if (!inviteLink) return;
     try {
-      await navigator.clipboard.writeText(inviteLink);
+      await traceSettingsAwait('navigator.clipboard.writeText', () => navigator.clipboard.writeText(inviteLink));
       setMessage('邀請連結已複製');
     } catch {
       setMessage('無法複製邀請連結，請手動選取連結。');
@@ -284,9 +378,10 @@ export function Settings() {
   const leaveFamily = async () => {
     if (!window.confirm('確定要退出目前家庭嗎？這只會移除你的家長關聯，不會刪除家庭資料。')) return;
     try {
-      if (runtimeInfo.userId) await leaveProductionFamily();
+      if (runtimeInfo.userId) await traceSettingsAwait('leaveProductionFamily', () => leaveProductionFamily());
       else unbindParentDeviceFromFamily();
       setMessage('已退出家庭');
+      traceSettings('navigate', { to: '/login', from: 'leaveFamily' });
       navigate('/login', { replace: true });
     } catch (caught) {
       setMessage(caught instanceof Error ? caught.message : '退出家庭失敗');
@@ -294,9 +389,10 @@ export function Settings() {
   };
 
   const revokeMember = async (member: ProductionFamilyParent) => {
-    if (!runtimeInfo.familyId || !window.confirm(`確定解除 ${member.display_name} 的家長裝置綁定嗎？`)) return;
+    const familyId = runtimeInfo.familyId;
+    if (!familyId || !window.confirm(`確定解除 ${member.display_name} 的家長裝置綁定嗎？`)) return;
     try {
-      await revokeDeviceBoundParent(member.id, runtimeInfo.familyId);
+      await traceSettingsAwait('revokeDeviceBoundParent', () => revokeDeviceBoundParent(member.id, familyId));
       setMembers((current) => current.filter((item) => item.id !== member.id));
       setMessage('已解除家長裝置綁定');
     } catch (caught) {
@@ -305,6 +401,11 @@ export function Settings() {
   };
 
   renderTrace.end({
+    familyId: runtimeInfo.familyId,
+    parentRole: runtimeInfo.parentRole,
+    childrenCount: state.children.length
+  });
+  traceSettings('Settings render end', {
     familyId: runtimeInfo.familyId,
     parentRole: runtimeInfo.parentRole,
     childrenCount: state.children.length
@@ -657,14 +758,19 @@ function AvatarPreview({ mediaId, fallback, alt }: { mediaId?: string | null; fa
   const [url, setUrl] = useState<string | null>(null);
 
   useEffect(() => {
+    traceSettings('effect AvatarPreview start', { mediaId });
     let cancelled = false;
     setUrl(null);
-    if (!mediaId) return () => {
-      cancelled = true;
-    };
-    void settingsRepository.getAvatarUrl(mediaId).then((value) => {
+    if (!mediaId) {
+      traceSettings('effect AvatarPreview end', { mediaId, reason: 'no mediaId' });
+      return () => {
+        cancelled = true;
+      };
+    }
+    void traceSettingsAwait('settingsRepository.getAvatarUrl', () => settingsRepository.getAvatarUrl(mediaId)).then((value) => {
       if (!cancelled) setUrl(value);
       else settingsRepository.releaseAvatarUrl(mediaId);
+      traceSettings('effect AvatarPreview end', { mediaId, cancelled, hasUrl: Boolean(value) });
     });
     return () => {
       cancelled = true;
@@ -699,25 +805,38 @@ function toForm(settings: LocalFamilySettings): SettingsForm {
   };
 }
 
-function estimateStorageUsage() {
-  const raw = settingsRepository.exportData();
-  const parsed = settingsRepository.getState();
+function estimateStorageUsage(state: LocalDatabaseState) {
   const records =
-    parsed.children.length +
-    parsed.tasks.length +
-    parsed.stars.length +
-    parsed.dreams.length +
-    parsed.dream_funds.length +
-    parsed.shares.length +
-    parsed.share_media.length +
-    parsed.encouragement_cards.length +
-    parsed.badges.length +
-    parsed.child_badges.length +
-    parsed.special_days.length +
-    parsed.screen_time_logs.length +
-    parsed.growth_records.length;
+    state.children.length +
+    state.tasks.length +
+    state.stars.length +
+    state.dreams.length +
+    state.dream_funds.length +
+    state.shares.length +
+    state.share_media.length +
+    state.encouragement_cards.length +
+    state.badges.length +
+    state.child_badges.length +
+    state.special_days.length +
+    state.screen_time_logs.length +
+    state.growth_records.length;
+  const estimatedBytes =
+    2048 +
+    state.children.length * 768 +
+    state.tasks.length * 768 +
+    state.stars.length * 256 +
+    state.dreams.length * 768 +
+    state.dream_funds.length * 512 +
+    state.shares.length * 768 +
+    state.share_media.length * 512 +
+    state.encouragement_cards.length * 512 +
+    state.badges.length * 256 +
+    state.child_badges.length * 256 +
+    state.special_days.length * 512 +
+    state.screen_time_logs.length * 384 +
+    state.growth_records.length * 384;
   return {
-    kb: settingsRepository.estimateJsonKb(raw),
+    kb: (estimatedBytes / 1024).toFixed(1),
     records
   };
 }

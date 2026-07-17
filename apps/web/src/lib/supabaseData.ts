@@ -1294,6 +1294,15 @@ function sum(values: number[]) {
   return values.reduce((total, value) => total + value, 0);
 }
 
+function runtimeTimestamp() {
+  const now = new Date();
+  const hours = String(now.getHours()).padStart(2, '0');
+  const minutes = String(now.getMinutes()).padStart(2, '0');
+  const seconds = String(now.getSeconds()).padStart(2, '0');
+  const millis = String(now.getMilliseconds()).padStart(3, '0');
+  return `[${hours}:${minutes}:${seconds}.${millis}]`;
+}
+
 function todayIsoDate() {
   return new Date().toISOString().slice(0, 10);
 }
@@ -3236,6 +3245,11 @@ export class SupabaseDataRepository implements LocalDataRepository {
 
   private emit() {
     const state = scopeStateToCurrentFamily(this.cache.getState());
+    console.log(`${runtimeTimestamp()} repository emit`, {
+      children: state.children.length,
+      updatedAt: state.updated_at,
+      listeners: this.listeners.size
+    });
     this.listeners.forEach((listener) => listener(state));
   }
 }

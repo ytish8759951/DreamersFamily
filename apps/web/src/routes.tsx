@@ -140,6 +140,19 @@ function isRuntimeAuthBlocked(runtimeInfo: ReturnType<typeof useSupabaseRuntimeI
   return dataMode === 'supabase' && (runtimeInfo.authStatus === 'initializing' || runtimeInfo.authStatus === 'error');
 }
 
+function runtimeTimestamp() {
+  const now = new Date();
+  const hours = String(now.getHours()).padStart(2, '0');
+  const minutes = String(now.getMinutes()).padStart(2, '0');
+  const seconds = String(now.getSeconds()).padStart(2, '0');
+  const millis = String(now.getMilliseconds()).padStart(3, '0');
+  return `[${hours}:${minutes}:${seconds}.${millis}]`;
+}
+
+function traceNavigate(from: string, to: string, payload: Record<string, unknown> = {}) {
+  console.log(`${runtimeTimestamp()} navigate`, { from, to, ...payload });
+}
+
 function RequireChildBinding() {
   const location = useLocation();
   const state = useLocalDataState();
@@ -254,17 +267,17 @@ function RootRedirect() {
 
   if (dataMode === 'supabase' && runtimeInfo.authStatus !== 'ready') {
     const path = runtimeInfo.authStatus === 'needs_family' ? '/create-family' : '/login';
-    console.log('[auth trace] navigate()', { from: 'RootRedirect', to: path, runtimeInfo });
+    traceNavigate('RootRedirect', path, { runtimeInfo });
     return <Navigate to={path} replace />;
   }
 
   if (dataMode === 'supabase' && !hasParentAccess(runtimeInfo)) {
-    console.log('[auth trace] navigate()', { from: 'RootRedirect', to: '/login', runtimeInfo });
+    traceNavigate('RootRedirect', '/login', { runtimeInfo });
     return <Navigate to="/login" replace />;
   }
 
   const path = getLoggedInFamilyLandingPath(state, runtimeInfo);
-  console.log('[auth trace] navigate()', { from: 'RootRedirect', to: path, runtimeInfo });
+  traceNavigate('RootRedirect', path, { runtimeInfo });
   return <Navigate to={path} replace />;
 }
 
@@ -290,7 +303,7 @@ function RequireFamilyAccess() {
   }
   if (dataMode === 'supabase' && runtimeInfo.authStatus !== 'ready' && !hasParentAccess(runtimeInfo)) {
     const path = runtimeInfo.authStatus === 'needs_family' ? '/create-family' : '/login';
-    console.log('[auth trace] navigate()', { from: 'RequireFamilyAccess', to: path, runtimeInfo });
+    traceNavigate('RequireFamilyAccess', path, { runtimeInfo });
     renderTrace.end({
       authStatus: runtimeInfo.authStatus,
       familyId: runtimeInfo.familyId,
@@ -323,11 +336,11 @@ function ParentIndexRedirect() {
 
   if (dataMode === 'supabase' && runtimeInfo.authStatus !== 'ready' && !hasParentAccess(runtimeInfo)) {
     const path = runtimeInfo.authStatus === 'needs_family' ? '/create-family' : '/login';
-    console.log('[auth trace] navigate()', { from: 'ParentIndexRedirect', to: path, runtimeInfo });
+    traceNavigate('ParentIndexRedirect', path, { runtimeInfo });
     return <Navigate to={path} replace />;
   }
 
-  console.log('[auth trace] navigate()', { from: 'ParentIndexRedirect', to: '/parent/share', runtimeInfo });
+  traceNavigate('ParentIndexRedirect', '/parent/share', { runtimeInfo });
   return <Navigate to="/parent/share" replace />;
 }
 
@@ -339,11 +352,11 @@ function RequireCreateFamilyAccess() {
   }
   if (dataMode === 'supabase' && hasParentAccess(runtimeInfo)) {
     const path = getLoggedInFamilyLandingPath(state, runtimeInfo);
-    console.log('[auth trace] navigate()', { from: 'RequireCreateFamilyAccess', to: path, runtimeInfo });
+    traceNavigate('RequireCreateFamilyAccess', path, { runtimeInfo });
     return <Navigate to={path} replace />;
   }
   if (dataMode === 'supabase' && runtimeInfo.authStatus === 'signed_out') {
-    console.log('[auth trace] navigate()', { from: 'RequireCreateFamilyAccess', to: '/login', runtimeInfo });
+    traceNavigate('RequireCreateFamilyAccess', '/login', { runtimeInfo });
     return <Navigate to="/login" replace />;
   }
   return <CreateFamilyPage />;
