@@ -131,6 +131,24 @@ function RouterRenderTrace() {
   return null;
 }
 
+function onReactProfilerRender(
+  id: string,
+  phase: 'mount' | 'update' | 'nested-update',
+  actualDuration: number,
+  baseDuration: number,
+  startTime: number,
+  commitTime: number
+) {
+  startupTrace('React Profiler', {
+    id,
+    phase,
+    actualDuration,
+    baseDuration,
+    startTime,
+    commitTime
+  });
+}
+
 export async function startApp() {
   try {
     startupTrace('startApp start', {
@@ -181,9 +199,11 @@ export async function startApp() {
     ReactDOM.createRoot(rootElement).render(
       <React.StrictMode>
         <AppErrorBoundary>
-          <RouterRenderTrace />
-          <div>Build: {__BUILD_COMMIT__.slice(0, 8)}</div>
-          <RouterProvider router={router} />
+          <React.Profiler id="DreamersApp" onRender={onReactProfilerRender}>
+            <RouterRenderTrace />
+            <div>Build: {__BUILD_COMMIT__.slice(0, 8)}</div>
+            <RouterProvider router={router} />
+          </React.Profiler>
         </AppErrorBoundary>
       </React.StrictMode>
     );

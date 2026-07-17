@@ -1,6 +1,6 @@
 import { createClient, type RealtimeChannel, type SupabaseClient } from '@supabase/supabase-js';
 import { getErrorMessage, getErrorStack, serializeError } from './errorDiagnostics';
-import { startupTrace, traceStartupPromise } from './startupTrace';
+import { beginTimingTrace, startupTrace, traceStartupPromise, traceTimingPromise } from './startupTrace';
 import {
   createChildDeviceToken,
   createChildDeviceTokenForChild,
@@ -779,8 +779,8 @@ async function waitForAuthSession(client: SupabaseClient, timeoutMs = 5000) {
   let attempt = 0;
   while (Date.now() < deadline) {
     attempt += 1;
-    const { data, error } = await traceStartupPromise(
-      `Auth.getSession attempt ${attempt}`,
+    const { data, error } = await traceTimingPromise(
+      'getSession',
       () => client.auth.getSession(),
       { attempt }
     );
@@ -803,7 +803,7 @@ async function resolveAndPublishProductionAuthScope() {
   if (!supabaseClient) throw new Error('Supabase is not configured.');
   startupTrace('resolveAndPublishProductionAuthScope start');
   await traceStartupPromise('waitForAuthSession', () => waitForAuthSession(supabaseClient));
-  const scope = await traceStartupPromise('resolveProductionAuthScope', () => resolveProductionAuthScope(supabaseClient));
+  const scope = await resolveProductionAuthScope(supabaseClient);
   if (!scope) {
     setRuntimeInfo({
       userId: null,
@@ -1170,71 +1170,81 @@ export async function leaveProductionFamily() {
 }
 
 async function resolveProductionAuthScope(client: SupabaseClient): Promise<ProductionAuthScope | null> {
+  const trace = beginTimingTrace('resolveProductionAuthScope', {}, 'promise');
   startupTrace('AUTH START');
-  const { data: sessionData, error: sessionError } = await traceStartupPromise(
-    'AUTH getSession',
-    () => client.auth.getSession()
-  );
-  if (sessionError) throw sessionError;
-  const user = sessionData.session?.user;
-  if (!user) {
-    const deviceBinding = readParentDeviceBinding();
-    startupTrace('AUTH END', { status: deviceBinding ? 'device_bound_parent' : 'signed_out' });
-    if (!deviceBinding) return null;
-    void touchDeviceBoundParent();
-    return {
-      userId: deviceBinding.parentId,
-      parentId: deviceBinding.parentId,
-      familyId: deviceBinding.familyId,
-      role: deviceBinding.parentRole
-    };
-  }
-
-  await traceStartupPromise(
-    'AUTH ensureProfileForUser',
-    () => ensureProfileForUser(client, user.id, user.user_metadata?.display_name, user.email),
-    { userId: user.id }
-  );
-
-  const parentProfile = await traceStartupPromise('AUTH getCurrentParentProfile', () => getCurrentParentProfile(client), {
-    userId: user.id
-  });
-  const savedBinding = readSavedFamilyBinding(user.id);
-  const preferredFamilyId = parentProfile?.familyId ?? savedBinding?.familyId ?? null;
-  const familyScope = await traceStartupPromise('FAMILY getCurrentFamily', () => getCurrentFamily(client, preferredFamilyId), {
-    userId: user.id,
-    preferredFamilyId
-  });
-
-  if (familyScope?.familyId) {
-    saveFamilyBinding(user.id, familyScope.familyId);
-    await traceStartupPromise(
-      'FAMILY ensureParentForUser',
-      () => ensureParentForUser(client, user.id, familyScope.familyId, user.user_metadata?.display_name, user.email),
-      { userId: user.id, familyId: familyScope.familyId }
+  try {
+    const { data: sessionData, error: sessionError } = await traceTimingPromise(
+      'getSession',
+      () => client.auth.getSession()
     );
-    startupTrace('AUTH END', { status: 'ready', userId: user.id, familyId: familyScope.familyId });
-    return {
-      userId: user.id,
-      parentId: parentProfile?.parentId ?? user.id,
-      familyId: familyScope.familyId,
-      role: familyScope.role ?? parentProfile?.role ?? null
-    };
-  }
+    if (sessionError) throw sessionError;
+    const user = sessionData.session?.user;
+    if (!user) {
+      const deviceBinding = readParentDeviceBinding();
+      startupTrace('AUTH END', { status: deviceBinding ? 'device_bound_parent' : 'signed_out' });
+      trace.end({ status: deviceBinding ? 'device_bound_parent' : 'signed_out' });
+      if (!deviceBinding) return null;
+      void touchDeviceBoundParent();
+      return {
+        userId: deviceBinding.parentId,
+        parentId: deviceBinding.parentId,
+        familyId: deviceBinding.familyId,
+        role: deviceBinding.parentRole
+      };
+    }
 
-  if (parentProfile) {
-    if (parentProfile.familyId) saveFamilyBinding(user.id, parentProfile.familyId);
-    startupTrace('AUTH END', { status: parentProfile.familyId ? 'ready' : 'needs_family', userId: user.id, familyId: parentProfile.familyId });
-    return {
-      userId: user.id,
-      parentId: parentProfile.parentId,
-      familyId: parentProfile.familyId,
-      role: parentProfile.role
-    };
-  }
+    await traceTimingPromise(
+      'ensureProfile',
+      () => ensureProfileForUser(client, user.id, user.user_metadata?.display_name, user.email),
+      { userId: user.id }
+    );
 
-  startupTrace('AUTH END', { status: 'needs_family', userId: user.id });
-  return { userId: user.id, parentId: null, familyId: null, role: null };
+    const parentProfile = await traceTimingPromise('getCurrentParentProfile', () => getCurrentParentProfile(client), {
+      userId: user.id
+    });
+    const savedBinding = readSavedFamilyBinding(user.id);
+    const preferredFamilyId = parentProfile?.familyId ?? savedBinding?.familyId ?? null;
+    const familyScope = await traceTimingPromise('getCurrentFamily', () => getCurrentFamily(client, preferredFamilyId), {
+      userId: user.id,
+      preferredFamilyId
+    });
+
+    if (familyScope?.familyId) {
+      saveFamilyBinding(user.id, familyScope.familyId);
+      await traceTimingPromise(
+        'ensureParentForUser',
+        () => ensureParentForUser(client, user.id, familyScope.familyId, user.user_metadata?.display_name, user.email),
+        { userId: user.id, familyId: familyScope.familyId }
+      );
+      startupTrace('AUTH END', { status: 'ready', userId: user.id, familyId: familyScope.familyId });
+      trace.end({ status: 'ready', userId: user.id, familyId: familyScope.familyId });
+      return {
+        userId: user.id,
+        parentId: parentProfile?.parentId ?? user.id,
+        familyId: familyScope.familyId,
+        role: familyScope.role ?? parentProfile?.role ?? null
+      };
+    }
+
+    if (parentProfile) {
+      if (parentProfile.familyId) saveFamilyBinding(user.id, parentProfile.familyId);
+      startupTrace('AUTH END', { status: parentProfile.familyId ? 'ready' : 'needs_family', userId: user.id, familyId: parentProfile.familyId });
+      trace.end({ status: parentProfile.familyId ? 'ready' : 'needs_family', userId: user.id, familyId: parentProfile.familyId });
+      return {
+        userId: user.id,
+        parentId: parentProfile.parentId,
+        familyId: parentProfile.familyId,
+        role: parentProfile.role
+      };
+    }
+
+    startupTrace('AUTH END', { status: 'needs_family', userId: user.id });
+    trace.end({ status: 'needs_family', userId: user.id });
+    return { userId: user.id, parentId: null, familyId: null, role: null };
+  } catch (error) {
+    trace.error(error);
+    throw error;
+  }
 }
 
 async function ensureProfileForUser(client: SupabaseClient, userId: string, displayName?: unknown, email?: string) {
@@ -1338,31 +1348,37 @@ export class SupabaseDataRepository implements LocalDataRepository {
   }
 
   private async initializeAuthScope() {
+    const trace = beginTimingTrace('initializeAuthScope', { hasClient: Boolean(this.client) }, 'promise');
     startupTrace('SupabaseDataRepository.initializeAuthScope start', { hasClient: Boolean(this.client) });
-    if (!this.client) {
-      startupTrace('SupabaseDataRepository.initializeAuthScope finish', { reason: 'no client' });
-      return;
-    }
-    await traceStartupPromise('SupabaseDataRepository.refreshAuthScope initial', () => this.refreshAuthScope());
-    this.client.auth.onAuthStateChange((event, session) => {
-      console.log('[auth trace] auth callback', {
-        event,
-        userId: session?.user?.id ?? null
+    try {
+      if (!this.client) {
+        startupTrace('SupabaseDataRepository.initializeAuthScope finish', { reason: 'no client' });
+        trace.end({ reason: 'no client' });
+        return;
+      }
+      await this.refreshAuthScope();
+      this.client.auth.onAuthStateChange((event, session) => {
+        console.log('[auth trace] auth callback', {
+          event,
+          userId: session?.user?.id ?? null
+        });
+        void this.refreshAuthScope();
       });
-      void this.refreshAuthScope();
-    });
-    startupTrace('SupabaseDataRepository.initializeAuthScope finish');
+      startupTrace('SupabaseDataRepository.initializeAuthScope finish');
+      trace.end();
+    } catch (error) {
+      trace.error(error);
+      throw error;
+    }
   }
 
   private async refreshAuthScope() {
     const client = this.client;
     if (!client) return;
+    const trace = beginTimingTrace('refreshAuthScope', {}, 'promise');
     startupTrace('SupabaseDataRepository.refreshAuthScope start');
     try {
-      const scope = await traceStartupPromise(
-        'SupabaseDataRepository.resolveProductionAuthScope',
-        () => resolveProductionAuthScope(client)
-      );
+      const scope = await resolveProductionAuthScope(client);
       if (!scope) {
         this.hasFamilyScope = false;
         setRuntimeInfo({
@@ -1373,6 +1389,7 @@ export class SupabaseDataRepository implements LocalDataRepository {
           authStatus: 'signed_out'
         });
         startupTrace('SupabaseDataRepository.refreshAuthScope finish', { scope: null });
+        trace.end({ scope: null });
         return;
       }
       this.hasFamilyScope = Boolean(scope.familyId);
@@ -1393,6 +1410,11 @@ export class SupabaseDataRepository implements LocalDataRepository {
         parentId: scope.parentId,
         familyId: scope.familyId
       });
+      trace.end({
+        userId: scope.userId,
+        parentId: scope.parentId,
+        familyId: scope.familyId
+      });
     } catch (error) {
       console.warn('[supabase-repository] auth scope failed', error);
       startupTrace('SupabaseDataRepository.refreshAuthScope error', {
@@ -1405,6 +1427,7 @@ export class SupabaseDataRepository implements LocalDataRepository {
         message: getErrorMessage(error),
         stack: getErrorStack(error)
       });
+      trace.error(error);
       this.hasFamilyScope = false;
       setRuntimeInfo({
         userId: null,
@@ -2437,7 +2460,11 @@ export class SupabaseDataRepository implements LocalDataRepository {
 
   private hydrateFromSupabase() {
     if (!this.client || !runtimeInfo.familyId || this.hydratePromise) return;
-    this.hydratePromise = this.fetchSupabaseState()
+    this.hydratePromise = traceTimingPromise(
+      'Repository hydrate',
+      () => this.fetchSupabaseState(),
+      { familyId: runtimeInfo.familyId }
+    )
       .then((remoteState) => {
         if (!remoteState) return;
         const currentState = scopeStateToCurrentFamily(this.cache.getState());
@@ -2475,7 +2502,11 @@ export class SupabaseDataRepository implements LocalDataRepository {
       tabletTimeResult
     ] = await Promise.all([
       this.client.from('parents').select('*').eq('id', SUPABASE_PARENT_ID).maybeSingle(),
-      this.client.from('children').select('*').eq('family_id', SUPABASE_FAMILY_ID).order('created_at'),
+      traceTimingPromise(
+        'Children hydrate',
+        () => this.client!.from('children').select('*').eq('family_id', SUPABASE_FAMILY_ID).order('created_at'),
+        { familyId: SUPABASE_FAMILY_ID }
+      ),
       this.client.from('device_bindings').select('*').eq('family_id', SUPABASE_FAMILY_ID).order('updated_at', { ascending: false }),
       Promise.all([
         this.client.from('tasks').select('*').eq('family_id', SUPABASE_FAMILY_ID).order('updated_at', { ascending: false }),

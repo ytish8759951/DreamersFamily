@@ -33,7 +33,7 @@ import { getLoggedInFamilyLandingPath } from './lib/familyLanding';
 import { hasConfirmedChildDeviceSession } from './lib/childBindingState';
 import { getChildSession } from './lib/childSessionRepository';
 import { getErrorMessage, getErrorStack } from './lib/errorDiagnostics';
-import { STARTUP_TIMEOUT_MS, startupTrace } from './lib/startupTrace';
+import { STARTUP_TIMEOUT_MS, beginTimingTrace, startupTrace } from './lib/startupTrace';
 import { useLocalDataState } from './lib/useLocalData';
 import { useSupabaseRuntimeInfo } from './lib/useSupabaseRuntimeInfo';
 import { restoreDocumentInteractionState } from './lib/touchInteractions';
@@ -269,6 +269,7 @@ function RootRedirect() {
 }
 
 function RequireFamilyAccess() {
+  const renderTrace = beginTimingTrace('RequireFamilyAccess', {}, 'span');
   const runtimeInfo = useSupabaseRuntimeInfo();
   useEffect(() => {
     startupTrace('FAMILY START', {
@@ -279,17 +280,36 @@ function RequireFamilyAccess() {
   }, [runtimeInfo.authStatus, runtimeInfo.familyId, runtimeInfo.parentId]);
 
   if (isRuntimeAuthBlocked(runtimeInfo)) {
+    renderTrace.end({
+      authStatus: runtimeInfo.authStatus,
+      familyId: runtimeInfo.familyId,
+      parentId: runtimeInfo.parentId,
+      result: 'blocked'
+    });
     return <StartupBlocker stage="AUTH" runtimeInfo={runtimeInfo} />;
   }
   if (dataMode === 'supabase' && runtimeInfo.authStatus !== 'ready' && !hasParentAccess(runtimeInfo)) {
     const path = runtimeInfo.authStatus === 'needs_family' ? '/create-family' : '/login';
     console.log('[auth trace] navigate()', { from: 'RequireFamilyAccess', to: path, runtimeInfo });
+    renderTrace.end({
+      authStatus: runtimeInfo.authStatus,
+      familyId: runtimeInfo.familyId,
+      parentId: runtimeInfo.parentId,
+      result: 'navigate',
+      path
+    });
     return <Navigate to={path} replace />;
   }
   startupTrace('FAMILY END', {
     authStatus: runtimeInfo.authStatus,
     familyId: runtimeInfo.familyId,
     parentId: runtimeInfo.parentId
+  });
+  renderTrace.end({
+    authStatus: runtimeInfo.authStatus,
+    familyId: runtimeInfo.familyId,
+    parentId: runtimeInfo.parentId,
+    result: 'outlet'
   });
   return <Outlet />;
 }

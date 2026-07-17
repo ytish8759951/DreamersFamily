@@ -18,7 +18,7 @@ import type { TestDataCleanupCounts, TestDataCleanupPreview, TestDataCleanupResu
 import { useLocalDataState } from '../../lib/useLocalData';
 import { useSupabaseRuntimeInfo } from '../../lib/useSupabaseRuntimeInfo';
 import { getErrorMessage } from '../../lib/errorDiagnostics';
-import { startupTrace } from '../../lib/startupTrace';
+import { beginTimingTrace, startupTrace } from '../../lib/startupTrace';
 import { restoreDocumentInteractionState } from '../../lib/touchInteractions';
 
 type SettingsForm = Omit<LocalFamilySettings, 'family_created_at' | 'updated_at'>;
@@ -47,50 +47,6 @@ function restoreCleanupModalInteractionState() {
   });
 }
 
-function getSettingsInteractionDiagnostics() {
-  if (typeof document === 'undefined' || typeof window === 'undefined') return {};
-  const centerElement = document.elementFromPoint(window.innerWidth / 2, window.innerHeight / 2);
-  const describeElement = (element: Element | null) => {
-    if (!element) return null;
-    return {
-      tagName: element.tagName,
-      id: element.id || null,
-      className: typeof element.className === 'string' ? element.className : String(element.className || ''),
-      role: element.getAttribute('role')
-    };
-  };
-  const fixedOverlays = Array.from(document.body.querySelectorAll<HTMLElement>('*'))
-    .filter((element) => {
-      const style = window.getComputedStyle(element);
-      const rect = element.getBoundingClientRect();
-      return (
-        style.position === 'fixed' &&
-        style.display !== 'none' &&
-        style.visibility !== 'hidden' &&
-        style.pointerEvents !== 'none' &&
-        rect.width >= window.innerWidth * 0.8 &&
-        rect.height >= window.innerHeight * 0.8
-      );
-    })
-    .map((element) => ({
-      tagName: element.tagName,
-      id: element.id || null,
-      className: typeof element.className === 'string' ? element.className : String(element.className || ''),
-      zIndex: window.getComputedStyle(element).zIndex
-    }));
-
-  return {
-    centerElement: describeElement(centerElement),
-    settingsBackdropCount: document.querySelectorAll('.settings-modal-backdrop').length,
-    inertCount: document.querySelectorAll('[inert]').length,
-    bodyPointerEvents: window.getComputedStyle(document.body).pointerEvents,
-    documentPointerEvents: window.getComputedStyle(document.documentElement).pointerEvents,
-    bodyClassName: document.body.className,
-    bodyOverflow: document.body.style.overflow,
-    fixedOverlays
-  };
-}
-
 function withCleanupTimeout<T>(operation: Promise<T>) {
   return new Promise<T>((resolve, reject) => {
     if (typeof window === 'undefined') {
@@ -114,6 +70,7 @@ function withCleanupTimeout<T>(operation: Promise<T>) {
 }
 
 export function Settings() {
+  const renderTrace = beginTimingTrace('Settings render', {}, 'span');
   const navigate = useNavigate();
   const state = useLocalDataState();
   const runtimeInfo = useSupabaseRuntimeInfo();
@@ -152,8 +109,18 @@ export function Settings() {
 
   useEffect(() => {
     restoreCleanupModalInteractionState();
-    startupTrace('SETTINGS INTERACTION DIAGNOSTICS', getSettingsInteractionDiagnostics());
     return restoreCleanupModalInteractionState;
+  }, []);
+
+  useEffect(() => {
+    const mountTrace = beginTimingTrace('Settings mount', {
+      familyId: runtimeInfo.familyId,
+      parentRole: runtimeInfo.parentRole
+    });
+    mountTrace.end({
+      familyId: runtimeInfo.familyId,
+      parentRole: runtimeInfo.parentRole
+    });
   }, []);
 
   useEffect(() => {
@@ -336,6 +303,12 @@ export function Settings() {
       setMessage(caught instanceof Error ? caught.message : '解除綁定失敗');
     }
   };
+
+  renderTrace.end({
+    familyId: runtimeInfo.familyId,
+    parentRole: runtimeInfo.parentRole,
+    childrenCount: state.children.length
+  });
 
   return (
     <div className="settings-page">
