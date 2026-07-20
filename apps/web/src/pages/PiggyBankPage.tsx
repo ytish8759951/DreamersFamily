@@ -4,6 +4,7 @@ import { ArrowLeft, ArrowRight, Check, Plus, Trash2, Upload } from 'lucide-react
 import { PiggySceneV2, type PiggySceneV2ShelfSlot } from '../components/piggy/PiggySceneV2';
 import type { PiggyCoinValue } from '../components/piggy/PiggyUiAssets';
 import { dataModeBadgeLabel } from '../lib/dataRepository';
+import { resolveCurrentChildId } from '../lib/childSession';
 import { compressImageFile } from '../lib/imageCompression';
 import { piggyRepository } from '../lib/piggyRepository';
 import { purchaseRepository } from '../lib/purchaseRepository';
@@ -20,7 +21,10 @@ type FallingCoin = {
 
 export function ChildPiggyBankPage() {
   const state = useLocalDataState();
-  const selectedChild = state.children.find((child) => child.id === state.active_child_id && child.status === 'active');
+  const currentChildId = resolveCurrentChildId(state);
+  const selectedChild = currentChildId
+    ? state.children.find((child) => child.id === currentChildId && child.status === 'active')
+    : null;
   const summary = selectedChild ? piggyRepository.getPiggyBankSummary(selectedChild.id) : null;
   const incomes = selectedChild ? piggyRepository.getPiggyIncomeRecords(selectedChild.id) : [];
   const bankLogs = selectedChild ? piggyRepository.getPiggyBankLogs(selectedChild.id) : [];

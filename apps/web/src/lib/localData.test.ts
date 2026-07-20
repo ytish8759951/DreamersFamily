@@ -572,7 +572,7 @@ describe('local MVP data flows', () => {
     ).toThrowError(LocalDataError);
 
     const refreshedDeviceData = new LocalDataService(new MockDatabase(failedStorage, 'refresh-failed-binding-db'));
-    expect(hasConfirmedChildDeviceSession(refreshedDeviceData.getState(), child.id)).toBe(false);
+    expect(hasConfirmedChildDeviceSession(refreshedDeviceData.getState())).toBe(false);
   });
 
   it('requires a regenerated child token after the original token has been consumed', () => {

@@ -3,6 +3,7 @@ import migration from '../../../../supabase/migrations/017_atomic_child_device_t
 import hardeningMigration from '../../../../supabase/migrations/018_harden_child_binding_anon_table_access.sql?raw';
 import ambiguousColumnFixMigration from '../../../../supabase/migrations/019_fix_child_binding_rpc_ambiguous_columns.sql?raw';
 import childLoginConflictFixMigration from '../../../../supabase/migrations/024_fix_child_login_challenge_conflict_ambiguity.sql?raw';
+import childScopedRepositorySyncMigration from '../../../../supabase/migrations/025_child_scoped_repository_sync.sql?raw';
 
 describe('Supabase child binding migration', () => {
   it('adds the production-missing token binding columns', () => {
@@ -46,5 +47,23 @@ describe('Supabase child binding migration', () => {
     expect(childLoginConflictFixMigration).toContain('returning public.device_bindings.id into v_binding_id');
     expect(childLoginConflictFixMigration).not.toMatch(/\bon conflict\s*\(\s*child_id\s*,\s*device_id\s*\)/i);
     expect(childLoginConflictFixMigration).not.toMatch(/\bwhere\s+(child_id|device_id|family_id|status)\s*=/i);
+  });
+
+  it('hydrates and syncs repository data through an active child device binding', () => {
+    expect(childScopedRepositorySyncMigration).toContain('create or replace function public.get_child_scoped_repository_state');
+    expect(childScopedRepositorySyncMigration).toContain('create or replace function public.sync_child_scoped_repository_delta');
+    expect(childScopedRepositorySyncMigration).toContain('security definer');
+    expect(childScopedRepositorySyncMigration).toContain("binding_row.child_id = p_child_id");
+    expect(childScopedRepositorySyncMigration).toContain("binding_row.device_id = p_device_id");
+    expect(childScopedRepositorySyncMigration).toContain("binding_row.binding_status = 'bound'");
+    expect(childScopedRepositorySyncMigration).toContain("coalesce(binding_row.device_binding_status, 'active') = 'active'");
+    expect(childScopedRepositorySyncMigration).toContain('binding_row.revoked_at is null');
+    expect(childScopedRepositorySyncMigration).toContain('binding_row.replaced_at is null');
+    expect(childScopedRepositorySyncMigration).toContain('task_row.family_id = v_child.family_id and task_row.child_id = v_child.id');
+    expect(childScopedRepositorySyncMigration).toContain('store_row.family_id = v_child.family_id and store_row.child_id = v_child.id');
+    expect(childScopedRepositorySyncMigration).toContain('purchase_row.family_id = v_child.family_id and purchase_row.child_id = v_child.id');
+    expect(childScopedRepositorySyncMigration).toContain('where task_row.family_id = v_family_id and task_row.child_id = p_child_id');
+    expect(childScopedRepositorySyncMigration).toContain('grant execute on function public.get_child_scoped_repository_state(uuid, text, uuid) to anon, authenticated');
+    expect(childScopedRepositorySyncMigration).toContain('grant execute on function public.sync_child_scoped_repository_delta(uuid, text, uuid, jsonb) to anon, authenticated');
   });
 });

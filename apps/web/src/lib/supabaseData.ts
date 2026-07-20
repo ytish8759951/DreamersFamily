@@ -38,6 +38,8 @@ import {
 } from './localData';
 import type {
   AnnualParentNote,
+  LocalBadge,
+  LocalChildBadge,
   LocalChild,
   LocalDatabaseState,
   LocalDeviceBinding,
@@ -81,6 +83,7 @@ const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3
 const SYNC_RETRY_DELAYS_MS = [1000, 3000, 8000, 15000, 30000];
 
 type Listener = (state: LocalDatabaseState) => void;
+type ValidChildSession = NonNullable<ReturnType<typeof getChildSession>>;
 export type ParentRole = 'owner' | 'admin' | 'guardian' | 'viewer';
 export type ParentRuntimeRole = ParentRole | 'parent';
 
@@ -526,6 +529,57 @@ interface SupabaseTabletTimeRow {
   } | null;
   created_at: string;
   updated_at: string;
+}
+
+interface SupabaseBadgeRow {
+  id: UUID;
+  family_id: UUID;
+  code: string;
+  name: string;
+  description: string | null;
+  icon: string | null;
+  image_media_id: UUID | null;
+  is_system: boolean;
+  created_at: string;
+  updated_at?: string | null;
+}
+
+interface SupabaseChildBadgeRow {
+  id: UUID;
+  family_id: UUID;
+  child_id: UUID;
+  badge_id: UUID;
+  awarded_by: UUID | null;
+  source_entity_type: string | null;
+  source_entity_id: UUID | null;
+  note: string | null;
+  awarded_at: string;
+}
+
+interface ChildScopedRepositorySnapshot {
+  family_id: UUID;
+  parent_id?: UUID | null;
+  child_id: UUID;
+  child: SupabaseChildRow | null;
+  device_binding: SupabaseDeviceBindingRow | null;
+  device_bindings?: SupabaseDeviceBindingRow[];
+  tasks?: SupabaseTaskRow[];
+  task_records?: SupabaseTaskRecordRow[];
+  stars?: SupabaseStarRow[];
+  piggy_bank_records?: SupabasePiggyBankRecordRow[];
+  store_items?: SupabaseStoreItemRow[];
+  purchases?: SupabasePurchaseRow[];
+  dreams?: SupabaseDreamRow[];
+  dream_funds?: SupabaseDreamFundRow[];
+  shares?: SupabaseShareRow[];
+  share_media?: SupabaseShareMediaRow[];
+  encouragement_cards?: SupabaseMailboxRow[];
+  special_days?: SupabaseSpecialDayRow[];
+  growth_records?: SupabaseGrowthRecordRow[];
+  tablet_time?: SupabaseTabletTimeRow[];
+  badges?: SupabaseBadgeRow[];
+  child_badges?: SupabaseChildBadgeRow[];
+  updated_at?: string | null;
 }
 
 export function getSupabaseConfig(): SupabaseConfig | null {
@@ -1326,6 +1380,8 @@ export class SupabaseDataRepository implements LocalDataRepository {
   private realtimeChannel: RealtimeChannel | null = null;
   private pendingPush = false;
   private pushPromise: Promise<void> | null = null;
+  private pendingChildPush = false;
+  private childPushPromise: Promise<void> | null = null;
   private retryTimer: ReturnType<typeof setTimeout> | null = null;
   private retryAttempt = 0;
   private lastRemoteUpdatedAt: string | null = null;
@@ -1351,6 +1407,12 @@ export class SupabaseDataRepository implements LocalDataRepository {
     if (typeof window !== 'undefined') {
       window.addEventListener('online', () => {
         this.hydrateFromSupabase();
+      });
+      window.addEventListener('focus', () => {
+        this.hydrateFromSupabase();
+      });
+      if (typeof document !== 'undefined' && typeof document.addEventListener === 'function') document.addEventListener('visibilitychange', () => {
+        if (document.visibilityState === 'visible') this.hydrateFromSupabase();
       });
     }
     startupTrace('SupabaseDataRepository constructor finish', { hasClient: Boolean(client) });
@@ -1465,6 +1527,7 @@ export class SupabaseDataRepository implements LocalDataRepository {
     return ((...args: unknown[]) => {
       const result = (target as (...values: unknown[]) => unknown).apply(this.cache, args);
       this.queuePush();
+      this.queueChildScopedPush();
       return result;
     }) as LocalDataRepository[K];
   }
@@ -1485,11 +1548,19 @@ export class SupabaseDataRepository implements LocalDataRepository {
     if (!this.canUseChildScopedSession(childId) && !runtimeInfo.familyId) {
       this.requireChildScopedSession(childId);
     }
+    const session = getChildSession();
+    if (!runtimeInfo.familyId && isChildSessionValid(session, childId)) {
+      return scopeStateToChildSession(this.cache.getState(), session);
+    }
     return scopeStateToCurrentFamily(this.cache.getState());
   }
 
   getState(): LocalDatabaseState {
     this.hydrateFromSupabase();
+    const session = getChildSession();
+    if (!runtimeInfo.familyId && isChildSessionValid(session)) {
+      return scopeStateToChildSession(this.cache.getState(), session);
+    }
     return scopeStateToCurrentFamily(this.cache.getState());
   }
 
@@ -1503,7 +1574,12 @@ export class SupabaseDataRepository implements LocalDataRepository {
 
   subscribe(listener: Listener): () => void {
     this.listeners.add(listener);
-    const scopedListener: Listener = (state) => listener(scopeStateToCurrentFamily(state));
+    const scopedListener: Listener = (state) => {
+      const session = getChildSession();
+      listener(!runtimeInfo.familyId && isChildSessionValid(session)
+        ? scopeStateToChildSession(state, session)
+        : scopeStateToCurrentFamily(state));
+    };
     const unsubscribeCache = this.cache.subscribe(scopedListener);
     this.hydrateFromSupabase();
     return () => {
@@ -2283,13 +2359,45 @@ export class SupabaseDataRepository implements LocalDataRepository {
   createBadge = this.delegateWrite('createBadge');
   deleteBadge = this.delegateWrite('deleteBadge');
   awardBadge = this.delegateWrite('awardBadge');
-  getBadges = this.delegate('getBadges');
-  getChildBadges = this.delegate('getChildBadges');
+  getBadges(includeDeleted = false): LocalBadge[] {
+    const session = getChildSession();
+    if (!runtimeInfo.familyId && isChildSessionValid(session)) {
+      return scopeStateToChildSession(this.cache.getState(), session).badges
+        .filter((badge) => includeDeleted || !badge.deleted_at)
+        .sort((a, b) => a.name.localeCompare(b.name));
+    }
+    return this.cache.getBadges(includeDeleted);
+  }
+
+  getChildBadges(childId?: UUID): LocalChildBadge[] {
+    if (childId && this.canUseChildScopedSession(childId)) {
+      return this.getChildScopedState(childId).child_badges
+        .filter((badge) => badge.child_id === childId)
+        .sort((a, b) => b.awarded_at.localeCompare(a.awarded_at));
+    }
+    return this.cache.getChildBadges(childId);
+  }
   createSpecialDay = this.delegateWrite('createSpecialDay');
   updateSpecialDay = this.delegateWrite('updateSpecialDay');
   deleteSpecialDay = this.delegateWrite('deleteSpecialDay');
-  getSpecialDays = this.delegate('getSpecialDays');
-  getUpcomingSpecialDays = this.delegate('getUpcomingSpecialDays');
+  getSpecialDays(childId?: UUID | null, includeDeleted = false): LocalSpecialDay[] {
+    if (childId && this.canUseChildScopedSession(childId)) {
+      return this.getChildScopedState(childId).special_days
+        .filter((day) => (includeDeleted || !day.deleted_at) && (!day.child_id || day.child_id === childId))
+        .sort((a, b) => a.date.localeCompare(b.date));
+    }
+    return this.cache.getSpecialDays(childId, includeDeleted);
+  }
+
+  getUpcomingSpecialDays(childId?: UUID | null, limit = 5): LocalSpecialDay[] {
+    if (childId && this.canUseChildScopedSession(childId)) {
+      const today = todayIsoDate();
+      return this.getSpecialDays(childId)
+        .filter((day) => day.date >= today)
+        .slice(0, limit);
+    }
+    return this.cache.getUpcomingSpecialDays(childId, limit);
+  }
   getSettings = this.delegate('getSettings');
   updateSettings = this.delegateWrite('updateSettings');
   exportData = this.delegate('exportData');
@@ -2346,8 +2454,14 @@ export class SupabaseDataRepository implements LocalDataRepository {
   createScreenTimeRequest = this.delegateWrite('createScreenTimeRequest');
   reviewScreenTimeRequest = this.delegateWrite('reviewScreenTimeRequest');
   listScreenTimeRequests = this.delegate('listScreenTimeRequests');
-  getScreenTimeBalance = this.delegate('getScreenTimeBalance');
-  listScreenTimeLogs = this.delegate('listScreenTimeLogs');
+  getScreenTimeBalance(childId: UUID): number {
+    const state = this.getChildScopedState(childId);
+    return getScreenTimeLedgerBalance(state, childId);
+  }
+
+  listScreenTimeLogs(childId: UUID): LocalScreenTimeLog[] {
+    return this.getScreenTimeLogsByChild(childId);
+  }
   getWeeklyScreenTime = this.delegate('getWeeklyScreenTime');
   updatePlannedScreenTime = this.delegateWrite('updatePlannedScreenTime');
   redeemStarsForScreenTime = this.delegateWrite('redeemStarsForScreenTime');
@@ -2447,17 +2561,41 @@ export class SupabaseDataRepository implements LocalDataRepository {
   createPiggyProduct = this.delegateWrite('createPiggyProduct');
   updatePiggyProduct = this.delegateWrite('updatePiggyProduct');
   deletePiggyProduct = this.delegateWrite('deletePiggyProduct');
-  listPiggyProducts = this.delegate('listPiggyProducts');
+  listPiggyProducts(childId?: UUID, includeDeleted = false): LocalPiggyProduct[] {
+    if (childId && this.canUseChildScopedSession(childId)) {
+      return this.getChildScopedState(childId).piggy_products
+        .filter((product) => product.child_id === childId && (includeDeleted || !product.deleted_at))
+        .sort((a, b) => b.updated_at.localeCompare(a.updated_at));
+    }
+    return this.cache.listPiggyProducts(childId, includeDeleted);
+  }
   setPiggyProductShelfStatus = this.delegateWrite('setPiggyProductShelfStatus');
   savePiggyShelfOrder = this.delegateWrite('savePiggyShelfOrder');
-  getPiggyShelfProducts = this.delegate('getPiggyShelfProducts');
-  getPiggyProductDisplaySettings = this.delegate('getPiggyProductDisplaySettings');
+  getPiggyShelfProducts(childId: UUID): LocalPiggyProduct[] {
+    return this.listPiggyProducts(childId).filter((product) => product.shelf_status === 'shelf');
+  }
+
+  getPiggyProductDisplaySettings(childId: UUID): LocalPiggyProductDisplaySettings | null {
+    if (this.canUseChildScopedSession(childId)) {
+      return this.getChildScopedState(childId).piggyProductDisplaySettings
+        .filter((settings) => settings.child_id === childId)
+        .sort((a, b) => b.updated_at.localeCompare(a.updated_at))[0] ?? null;
+    }
+    return this.cache.getPiggyProductDisplaySettings(childId);
+  }
   savePiggyProductDisplaySettings = this.delegateWrite('savePiggyProductDisplaySettings');
   requestPiggyPurchase = this.delegateWrite('requestPiggyPurchase');
   cancelPiggyPurchase = this.delegateWrite('cancelPiggyPurchase');
   completePiggyPurchase = this.delegateWrite('completePiggyPurchase');
   confirmPiggyPurchaseArrived = this.delegateWrite('confirmPiggyPurchaseArrived');
-  listPiggyPurchases = this.delegate('listPiggyPurchases');
+  listPiggyPurchases(childId?: UUID): LocalPiggyPurchase[] {
+    if (childId && this.canUseChildScopedSession(childId)) {
+      return this.getChildScopedState(childId).piggy_purchases
+        .filter((purchase) => purchase.child_id === childId)
+        .sort((a, b) => (b.purchased_at ?? b.cancelled_at ?? b.requested_at).localeCompare(a.purchased_at ?? a.cancelled_at ?? a.requested_at));
+    }
+    return this.cache.listPiggyPurchases(childId);
+  }
   getAnnualParentNote = this.delegate('getAnnualParentNote');
   saveAnnualParentNote = this.delegateWrite('saveAnnualParentNote');
   listAnnualParentNotes = this.delegate('listAnnualParentNotes');
@@ -2468,7 +2606,32 @@ export class SupabaseDataRepository implements LocalDataRepository {
   listMemoryPacks = this.delegate('listMemoryPacks');
 
   private hydrateFromSupabase() {
-    if (!this.client || !runtimeInfo.familyId || this.hydratePromise) return;
+    if (!this.client || this.hydratePromise) return;
+    const childSession = getChildSession();
+    if (!runtimeInfo.familyId && isChildSessionValid(childSession)) {
+      this.hydratePromise = traceTimingPromise(
+        'Child repository hydrate',
+        () => this.fetchChildScopedSupabaseState(childSession),
+        { childId: childSession.childId, familyId: childSession.familyId }
+      )
+        .then((remoteState) => {
+          if (!remoteState) return;
+          const currentState = scopeStateToChildSession(this.cache.getState(), childSession);
+          this.cache.importData(JSON.stringify(mergeRemoteState(currentState, remoteState)));
+          this.emit();
+          this.subscribeToChildScopedSupabaseChanges(childSession);
+        })
+        .catch((error) => {
+          console.warn('[supabase-repository] child hydrate failed', error);
+          this.scheduleChildScopedRetry();
+        })
+        .finally(() => {
+          this.hydratePromise = null;
+        });
+      return;
+    }
+
+    if (!runtimeInfo.familyId) return;
     this.hydratePromise = traceTimingPromise(
       'Repository hydrate',
       () => this.fetchSupabaseState(),
@@ -2487,6 +2650,21 @@ export class SupabaseDataRepository implements LocalDataRepository {
       .finally(() => {
         this.hydratePromise = null;
       });
+  }
+
+  private async fetchChildScopedSupabaseState(session: NonNullable<ReturnType<typeof getChildSession>>): Promise<LocalDatabaseState | null> {
+    if (!this.client || !isChildSessionValid(session)) return null;
+    const { data, error } = await this.client.rpc('get_child_scoped_repository_state', {
+      p_child_id: session.childId,
+      p_device_binding_id: session.deviceBindingId,
+      p_device_id: session.deviceId
+    });
+    if (error) throw error;
+    const snapshot = data as ChildScopedRepositorySnapshot | null;
+    if (!snapshot?.family_id || snapshot.child_id !== session.childId || !snapshot.child) {
+      throw new LocalDataError('Child scoped repository response is invalid', 'CHILD_SYNC_RESPONSE_INVALID');
+    }
+    return fromChildScopedSupabaseSnapshot(snapshot, scopeStateToChildSession(this.cache.getState(), session), session);
   }
 
   private async fetchSupabaseState(): Promise<LocalDatabaseState | null> {
@@ -2720,6 +2898,42 @@ export class SupabaseDataRepository implements LocalDataRepository {
       });
   }
 
+  private queueChildScopedPush() {
+    const session = getChildSession();
+    if (!this.client || runtimeInfo.familyId || !isChildSessionValid(session)) return;
+    this.pendingChildPush = true;
+    if (this.retryTimer) {
+      clearTimeout(this.retryTimer);
+      this.retryTimer = null;
+    }
+    if (this.childPushPromise) return;
+    this.childPushPromise = this.flushChildScopedPush(session)
+      .catch((error) => {
+        console.warn('[supabase-repository] child sync failed', error);
+        this.scheduleChildScopedRetry();
+      })
+      .finally(() => {
+        this.childPushPromise = null;
+        if (this.pendingChildPush && !this.retryTimer) this.queueChildScopedPush();
+      });
+  }
+
+  private async flushChildScopedPush(session: NonNullable<ReturnType<typeof getChildSession>>) {
+    if (!this.client || runtimeInfo.familyId || !this.pendingChildPush || !isChildSessionValid(session)) return;
+    this.pendingChildPush = false;
+    const state = toChildScopedSupabasePayload(scopeStateToChildSession(this.cache.getState(), session), session);
+    const { error } = await this.client.rpc('sync_child_scoped_repository_delta', {
+      p_child_id: session.childId,
+      p_device_binding_id: session.deviceBindingId,
+      p_device_id: session.deviceId,
+      p_payload: state
+    });
+    if (error) throw error;
+    this.lastRemoteUpdatedAt = new Date().toISOString();
+    this.retryAttempt = 0;
+    this.hydrateFromSupabase();
+  }
+
   private async flushPush() {
     if (!this.client || !runtimeInfo.familyId || !this.pendingPush) return;
     this.pendingPush = false;
@@ -2937,6 +3151,18 @@ export class SupabaseDataRepository implements LocalDataRepository {
     }, delay);
   }
 
+  private scheduleChildScopedRetry() {
+    const session = getChildSession();
+    if (!this.client || runtimeInfo.familyId || !isChildSessionValid(session) || this.retryTimer) return;
+    const delay = SYNC_RETRY_DELAYS_MS[Math.min(this.retryAttempt, SYNC_RETRY_DELAYS_MS.length - 1)];
+    this.retryAttempt += 1;
+    this.retryTimer = setTimeout(() => {
+      this.retryTimer = null;
+      this.hydrateFromSupabase();
+      if (this.pendingChildPush) this.queueChildScopedPush();
+    }, delay);
+  }
+
   private subscribeToSupabaseChanges() {
     if (!this.client || !runtimeInfo.familyId || this.realtimeChannel) return;
     this.realtimeChannel = this.client
@@ -3025,6 +3251,32 @@ export class SupabaseDataRepository implements LocalDataRepository {
         if (status === 'SUBSCRIBED') {
           this.hydrateFromSupabase();
         }
+      });
+  }
+
+  private subscribeToChildScopedSupabaseChanges(session: NonNullable<ReturnType<typeof getChildSession>>) {
+    if (!this.client || runtimeInfo.familyId || this.realtimeChannel || !isChildSessionValid(session)) return;
+    const childFilter = `child_id=eq.${session.childId}`;
+    this.realtimeChannel = this.client
+      .channel(`little-dreamers-child-repository:${session.childId}`)
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'device_bindings', filter: childFilter }, () => this.hydrateFromSupabase())
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'tasks', filter: childFilter }, () => this.hydrateFromSupabase())
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'task_records', filter: childFilter }, () => this.hydrateFromSupabase())
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'stars', filter: childFilter }, () => this.hydrateFromSupabase())
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'piggy_bank_records', filter: childFilter }, () => this.hydrateFromSupabase())
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'store_items', filter: childFilter }, () => this.hydrateFromSupabase())
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'purchases', filter: childFilter }, () => this.hydrateFromSupabase())
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'dreams', filter: childFilter }, () => this.hydrateFromSupabase())
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'dream_funds', filter: childFilter }, () => this.hydrateFromSupabase())
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'shares', filter: childFilter }, () => this.hydrateFromSupabase())
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'share_media', filter: childFilter }, () => this.hydrateFromSupabase())
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'encouragement_cards', filter: childFilter }, () => this.hydrateFromSupabase())
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'special_days', filter: childFilter }, () => this.hydrateFromSupabase())
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'growth_records', filter: childFilter }, () => this.hydrateFromSupabase())
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'tablet_time', filter: childFilter }, () => this.hydrateFromSupabase())
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'child_badges', filter: childFilter }, () => this.hydrateFromSupabase())
+      .subscribe((status) => {
+        if (status === 'SUBSCRIBED') this.hydrateFromSupabase();
       });
   }
 
@@ -3268,6 +3520,66 @@ function childDeviceUrlFromToken(token: string) {
   return `${origin}/child/${token}`;
 }
 
+function scopeStateToChildSession(state: LocalDatabaseState, session: ValidChildSession): LocalDatabaseState {
+  const familyId = session.familyId;
+  const childId = session.childId;
+  const keepChild = <T extends { family_id: UUID; child_id: UUID }>(items: T[]) =>
+    items.filter((item) => item.family_id === familyId && item.child_id === childId);
+  const keepOptionalChild = <T extends { family_id: UUID; child_id: UUID | null }>(items: T[]) =>
+    items.filter((item) => item.family_id === familyId && (!item.child_id || item.child_id === childId));
+  const keepChildId = <T extends { childId: UUID }>(items: T[]) => items.filter((item) => item.childId === childId);
+  const child = state.children.find((item) => item.id === childId && item.family_id === familyId) ?? null;
+
+  return {
+    ...state,
+    family_id: familyId,
+    parent_id: state.parent_id,
+    current_user_id: childId,
+    active_child_id: childId,
+    pendingBindingChildId: null,
+    deviceBinding: childId,
+    device_child_id: childId,
+    currentChildIdentity: {
+      childId,
+      displayName: child?.display_name ?? session.childName,
+      boundAt: session.boundAt,
+      childToken: session.childToken ?? '',
+      birthDate: child?.birth_date ?? session.birthDate ?? null,
+      themeColor: child?.theme_color ?? session.themeColor ?? null
+    },
+    children: child ? [child] : [],
+    child_onboarding_tokens: [],
+    child_login_challenges: [],
+    parent_bootstrap_summary: [],
+    tasks: keepChild(state.tasks),
+    stars: keepChild(state.stars),
+    dreams: keepChild(state.dreams),
+    dream_funds: keepChild(state.dream_funds),
+    shares: keepChild(state.shares),
+    share_media: keepChild(state.share_media),
+    encouragement_cards: keepChild(state.encouragement_cards),
+    badges: state.badges.filter((badge) => badge.family_id === familyId),
+    child_badges: keepChild(state.child_badges),
+    special_days: keepOptionalChild(state.special_days),
+    screen_time_schedules: keepChild(state.screen_time_schedules),
+    screen_time_requests: keepChild(state.screen_time_requests),
+    screen_time_logs: keepChild(state.screen_time_logs),
+    growth_records: keepChild(state.growth_records),
+    notifications: keepChild(state.notifications),
+    device_bindings: state.device_bindings.filter(
+      (binding) => binding.family_id === familyId && binding.child_id === childId && binding.id === session.deviceBindingId
+    ),
+    piggy_incomes: keepChild(state.piggy_incomes),
+    piggy_bank_logs: keepChild(state.piggy_bank_logs),
+    piggy_products: keepChild(state.piggy_products),
+    piggy_shelf_orders: keepChild(state.piggy_shelf_orders),
+    piggyProductDisplaySettings: keepChild(state.piggyProductDisplaySettings),
+    piggy_purchases: keepChild(state.piggy_purchases),
+    annual_parent_notes: keepChildId(state.annual_parent_notes),
+    memory_packs: keepChildId(state.memory_packs)
+  };
+}
+
 function scopeStateToCurrentFamily(state: LocalDatabaseState): LocalDatabaseState {
   if (!runtimeInfo.familyId) return state;
 
@@ -3350,6 +3662,132 @@ function mergeRemoteState(current: LocalDatabaseState, remote: LocalDatabaseStat
     currentChildIdentity: current.currentChildIdentity,
     pendingBindingChildId,
     active_child_id: activeChildId
+  };
+}
+
+function fromChildScopedSupabaseSnapshot(
+  snapshot: ChildScopedRepositorySnapshot,
+  baseState: LocalDatabaseState,
+  session: ValidChildSession
+): LocalDatabaseState {
+  SUPABASE_FAMILY_ID = snapshot.family_id;
+  SUPABASE_PARENT_ID = snapshot.parent_id ?? baseState.parent_id ?? SUPABASE_FALLBACK_PARENT_ID;
+  const child = snapshot.child ? fromSupabaseChild(snapshot.child) : null;
+  const childId = snapshot.child_id;
+  const deviceBindings = ((snapshot.device_bindings?.length ? snapshot.device_bindings : snapshot.device_binding ? [snapshot.device_binding] : []) as SupabaseDeviceBindingRow[])
+    .map(fromSupabaseDeviceBinding);
+  const taskRecords = snapshot.task_records ?? [];
+  const remoteTasks = mergeTasks(
+    baseState.tasks,
+    (snapshot.tasks ?? []).map(fromSupabaseTask),
+    taskRecords.map(fromSupabaseTaskRecord).filter((task): task is LocalTask => Boolean(task))
+  );
+  const piggyState = fromSupabasePiggyRows({
+    baseState,
+    records: snapshot.piggy_bank_records ?? [],
+    products: snapshot.store_items ?? [],
+    purchases: snapshot.purchases ?? []
+  });
+  const tabletTimeState = fromSupabaseTabletTimeRows({
+    baseState,
+    records: snapshot.tablet_time ?? []
+  });
+  const remoteState: LocalDatabaseState = {
+    ...baseState,
+    family_id: snapshot.family_id,
+    parent_id: snapshot.parent_id ?? baseState.parent_id,
+    current_user_id: childId,
+    active_child_id: childId,
+    deviceBinding: childId,
+    device_child_id: childId,
+    currentChildIdentity: {
+      childId,
+      displayName: child?.display_name ?? session.childName,
+      boundAt: session.boundAt,
+      childToken: session.childToken ?? '',
+      birthDate: child?.birth_date ?? session.birthDate ?? null,
+      themeColor: child?.theme_color ?? session.themeColor ?? null
+    },
+    children: child ? [child] : [],
+    device_bindings: mergeDeviceBindings(baseState.device_bindings, deviceBindings),
+    tasks: remoteTasks,
+    stars: mergeStars(baseState.stars, (snapshot.stars ?? []).map(fromSupabaseStar)),
+    dreams: mergeById(baseState.dreams, (snapshot.dreams ?? []).map(fromSupabaseDream), (dream) => dream.updated_at),
+    dream_funds: mergeById(baseState.dream_funds, (snapshot.dream_funds ?? []).map(fromSupabaseDreamFund), (fund) => fund.created_at),
+    shares: mergeById(baseState.shares, (snapshot.shares ?? []).map(fromSupabaseShare), (share) => share.updated_at),
+    share_media: mergeById(baseState.share_media, (snapshot.share_media ?? []).map(fromSupabaseShareMedia), (media) => media.created_at),
+    encouragement_cards: mergeById(baseState.encouragement_cards, (snapshot.encouragement_cards ?? []).map(fromSupabaseMailbox), (message) => message.updated_at),
+    special_days: mergeById(baseState.special_days, (snapshot.special_days ?? []).map(fromSupabaseSpecialDay), (day) => day.updated_at),
+    growth_records: mergeById(
+      baseState.growth_records,
+      (snapshot.growth_records ?? []).map((row) =>
+        fromSupabaseGrowthRecord(row, baseState.growth_records.find((record) => record.id === row.id))
+      ),
+      (record) => record.updated_at
+    ),
+    screen_time_schedules: tabletTimeState.screen_time_schedules,
+    screen_time_requests: tabletTimeState.screen_time_requests,
+    screen_time_logs: tabletTimeState.screen_time_logs,
+    piggy_incomes: piggyState.piggy_incomes,
+    piggy_bank_logs: piggyState.piggy_bank_logs,
+    piggy_products: piggyState.piggy_products,
+    piggy_shelf_orders: piggyState.piggy_shelf_orders,
+    piggyProductDisplaySettings: piggyState.piggyProductDisplaySettings,
+    piggy_purchases: piggyState.piggy_purchases,
+    badges: mergeById(baseState.badges, (snapshot.badges ?? []).map(fromSupabaseBadge), (badge) => badge.updated_at),
+    child_badges: mergeById(baseState.child_badges, (snapshot.child_badges ?? []).map(fromSupabaseChildBadge), (badge) => badge.awarded_at),
+    updated_at: snapshot.updated_at ?? new Date().toISOString()
+  };
+  return scopeStateToChildSession(remoteState, session);
+}
+
+function toChildScopedSupabasePayload(state: LocalDatabaseState, session: ValidChildSession) {
+  SUPABASE_FAMILY_ID = session.familyId;
+  SUPABASE_PARENT_ID = state.parent_id ?? SUPABASE_FALLBACK_PARENT_ID;
+  const childId = session.childId;
+  const childRows = <T extends { child_id: UUID }>(items: T[]) => items.filter((item) => item.child_id === childId);
+  const tasks = childRows(state.tasks);
+  const shares = childRows(state.shares);
+  const dreams = childRows(state.dreams);
+  const piggyProducts = childRows(state.piggy_products);
+  const tabletRows = [
+    ...childRows(state.screen_time_logs).map(toSupabaseTabletTimeLog),
+    ...childRows(state.screen_time_requests).map(toSupabaseTabletTimeRequest),
+    ...childRows(state.screen_time_schedules).map(toSupabaseTabletTimeSchedule)
+  ];
+  return {
+    tasks: tasks.map(toSupabaseTask),
+    task_records: tasks.map(toSupabaseTaskRecord),
+    stars: childRows(state.stars)
+      .filter((star) =>
+        (!star.task_id || tasks.some((task) => task.id === star.task_id)) &&
+        (!star.share_id || shares.some((share) => share.id === star.share_id)) &&
+        (!star.dream_id || dreams.some((dream) => dream.id === star.dream_id))
+      )
+      .map(toSupabaseStar),
+    piggy_bank_records: [
+      ...childRows(state.piggy_incomes).map(toSupabasePiggyIncomeRecord),
+      ...childRows(state.piggy_bank_logs).map(toSupabasePiggyBankLogRecord),
+      ...childRows(state.piggy_shelf_orders).map(toSupabasePiggyShelfOrderRecord),
+      ...childRows(state.piggyProductDisplaySettings).map(toSupabasePiggyDisplaySettingsRecord)
+    ],
+    store_items: piggyProducts.map(toSupabaseStoreItem),
+    purchases: childRows(state.piggy_purchases)
+      .filter((purchase) => piggyProducts.some((product) => product.id === purchase.product_id))
+      .map(toSupabasePurchase),
+    dreams: dreams.map(toSupabaseDream),
+    dream_funds: childRows(state.dream_funds)
+      .filter((fund) => dreams.some((dream) => dream.id === fund.dream_id))
+      .map(toSupabaseDreamFund),
+    shares: shares.map(toSupabaseShare),
+    share_media: childRows(state.share_media)
+      .filter((media) => shares.some((share) => share.id === media.share_id))
+      .map(toSupabaseShareMedia),
+    encouragement_cards: childRows(state.encouragement_cards).map(toSupabaseMailbox),
+    special_days: childRows(state.special_days).map(toSupabaseSpecialDay),
+    growth_records: childRows(state.growth_records).map(toSupabaseGrowthRecord),
+    tablet_time: tabletRows,
+    child_badges: childRows(state.child_badges).map(toSupabaseChildBadge)
   };
 }
 
@@ -3980,6 +4418,47 @@ function mergeStars(localStars: LocalStarTransaction[], remoteStars: LocalStarTr
     if (!existing || normalized.created_at >= existing.created_at) byId.set(star.id, normalized);
   });
   return [...byId.values()].sort((first, second) => second.created_at.localeCompare(first.created_at));
+}
+
+function fromSupabaseBadge(row: SupabaseBadgeRow): LocalBadge {
+  return {
+    id: row.id,
+    family_id: SUPABASE_FAMILY_ID,
+    name: row.name,
+    icon: row.icon || '★',
+    description: row.description,
+    reward_stars: 0,
+    created_by: SUPABASE_PARENT_ID,
+    created_at: row.created_at,
+    updated_at: row.updated_at ?? row.created_at,
+    deleted_at: null
+  };
+}
+
+function fromSupabaseChildBadge(row: SupabaseChildBadgeRow): LocalChildBadge {
+  return {
+    id: row.id,
+    family_id: SUPABASE_FAMILY_ID,
+    child_id: row.child_id,
+    badge_id: row.badge_id,
+    note: row.note,
+    awarded_by: row.awarded_by ?? SUPABASE_PARENT_ID,
+    awarded_at: row.awarded_at
+  };
+}
+
+function toSupabaseChildBadge(badge: LocalChildBadge): SupabaseChildBadgeRow {
+  return {
+    id: badge.id,
+    family_id: SUPABASE_FAMILY_ID,
+    child_id: badge.child_id,
+    badge_id: badge.badge_id,
+    awarded_by: badge.awarded_by || SUPABASE_PARENT_ID,
+    source_entity_type: null,
+    source_entity_id: null,
+    note: badge.note,
+    awarded_at: badge.awarded_at
+  };
 }
 
 function toSupabasePiggyIncomeRecord(income: LocalPiggyIncome): SupabasePiggyBankRecordRow {

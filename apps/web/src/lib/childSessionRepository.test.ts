@@ -10,6 +10,7 @@ import {
 import { LocalDataService } from './localData';
 import { MockDatabase } from './mockDatabase';
 import { hasConfirmedChildDeviceSession } from './childBindingState';
+import { resolveCurrentChildId } from './childSession';
 import type { KeyValueStorage } from './storage';
 
 class TestStorage implements KeyValueStorage {
@@ -63,7 +64,9 @@ function installBrowserStorage() {
     localStorage: storage,
     dispatchEvent: vi.fn(),
     addEventListener: vi.fn(),
-    removeEventListener: vi.fn()
+    removeEventListener: vi.fn(),
+    setTimeout: globalThis.setTimeout,
+    clearTimeout: globalThis.clearTimeout
   });
   vi.stubGlobal('CustomEvent', class {
     constructor(
@@ -121,6 +124,19 @@ describe('child session repository', () => {
     expect(isChildSessionValid(stored, '00000000-0000-4000-8000-000000000999')).toBe(false);
   });
 
+  it('does not fall back to parent active_child_id unless legacy fallback is explicitly requested', () => {
+    const fallbackChildId = '00000000-0000-4000-8000-000000000999';
+    const state = {
+      currentChildIdentity: null,
+      deviceBinding: null,
+      device_child_id: null,
+      active_child_id: fallbackChildId
+    };
+
+    expect(resolveCurrentChildId(state)).toBeNull();
+    expect(resolveCurrentChildId(state, { allowLegacyFallback: true })).toBe(fallbackChildId);
+  });
+
   it('bootstraps the local cache from ChildSession after refresh', () => {
     saveChildSession(session());
     const data = new LocalDataService(new MockDatabase(undefined, 'little-dreamers-family:supabase-cache:v1'));
@@ -166,7 +182,7 @@ describe('child session repository', () => {
       deviceBinding: null,
       device_child_id: null,
       device_bindings: []
-    }, childId)).toBe(true);
+    })).toBe(true);
   });
 
   it('does not let an unconfirmed child session pass the route guard', () => {
@@ -181,6 +197,6 @@ describe('child session repository', () => {
       deviceBinding: null,
       device_child_id: null,
       device_bindings: []
-    }, childId)).toBe(false);
+    })).toBe(false);
   });
 });

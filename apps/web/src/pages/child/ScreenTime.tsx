@@ -56,7 +56,7 @@ export function ChildScreenTime() {
   const [page, setPage] = useState(1);
   const activeChildren = state.children.filter((child) => child.status === 'active');
   const currentChildId = resolveCurrentChildId(state);
-  const activeChild = activeChildren.find((child) => child.id === currentChildId) ?? activeChildren[0] ?? null;
+  const activeChild = activeChildren.find((child) => child.id === currentChildId) ?? null;
   const logs = activeChild ? tabletRepository.getScreenTimeLogsByChild(activeChild.id) : [];
   const ledger = useMemo(() => buildLedger(logs), [logs]);
   const balance = activeChild ? tabletRepository.getScreenTimeBalance(activeChild.id) : 0;

@@ -4,6 +4,7 @@ import { Component, useEffect, useMemo, type ErrorInfo, type ReactNode } from 'r
 import { Link, useLocation } from 'react-router-dom';
 import { LocalShareMedia as LocalShareMediaView } from '../../components/LocalShareMedia';
 import { debugChildBinding, getRepositoryDebugInfo, getRouteDebugInfo } from '../../lib/childBindingDebug';
+import { resolveCurrentChildId } from '../../lib/childSession';
 import { clearChildSession, getChildSession, isChildSessionValid } from '../../lib/childSessionRepository';
 import { dataMode } from '../../lib/dataRepository';
 import { deviceBindingRepository } from '../../lib/deviceBindingRepository';
@@ -112,10 +113,10 @@ function ChildHomeContent() {
   const deviceBinding = localState.deviceBinding;
   const hasChildDeviceSession = Boolean(localState.currentChildIdentity || deviceBinding);
   const selectedChildId = useMemo(() => {
-    const childId = new URLSearchParams(location.search).get('childId');
-    if (isChildSessionValid(childSession, childId)) return childSession.childId;
-    return childId || localState.currentChildIdentity?.childId || deviceBinding || null;
-  }, [childSession, deviceBinding, location.search, localState.currentChildIdentity?.childId]);
+    return dataMode === 'supabase'
+      ? resolveCurrentChildId(localState)
+      : resolveCurrentChildId(localState, { allowLegacyFallback: true });
+  }, [childSession, deviceBinding, localState]);
   const hasValidChildSession = dataMode === 'supabase'
     ? isChildSessionValid(childSession, selectedChildId)
     : true;

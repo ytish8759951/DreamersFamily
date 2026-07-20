@@ -170,10 +170,9 @@ function RequireChildBinding() {
     'growth'
   ]);
   const isTokenRoute = pathSegment && !reservedChildRoutes.has(pathSegment);
-  const requestedChildId = new URLSearchParams(location.search).get('childId');
   const childSession = getChildSession();
   const sessionChildId = childSession?.childId ?? null;
-  const hasCoherentChildSession = hasConfirmedChildDeviceSession(state, requestedChildId);
+  const hasCoherentChildSession = hasConfirmedChildDeviceSession(state);
 
   useEffect(() => {
     startupTrace('CHILD START', {
@@ -185,7 +184,7 @@ function RequireChildBinding() {
   console.log('Binding check start', {
     pathname: location.pathname,
     isTokenRoute,
-    requestedChildId
+    urlChildIdIgnored: new URLSearchParams(location.search).get('childId')
   });
   console.log('Session loaded', {
     activeChildId: state.active_child_id ?? null,
@@ -202,7 +201,7 @@ function RequireChildBinding() {
   if (!hasCoherentChildSession) {
     console.warn('[child-binding] blocked child route without confirmed session', {
       pathname: location.pathname,
-      requestedChildId,
+      urlChildIdIgnored: new URLSearchParams(location.search).get('childId'),
       childSession,
       currentChildIdentity: state.currentChildIdentity ?? null,
       deviceBinding: state.deviceBinding ?? null,
