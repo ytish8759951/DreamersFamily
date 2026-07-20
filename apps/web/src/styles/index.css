@@ -1847,9 +1847,9 @@ body.piggy-v2-scroll-locked {
 .piggy-v2-shelf-grid {
   top: 58px;
   grid-template-columns: repeat(2, 129px);
-  grid-template-rows: repeat(3, 156px);
+  grid-template-rows: repeat(3, 172px);
   column-gap: var(--v2-shelf-grid-column-gap);
-  row-gap: var(--v2-shelf-grid-row-gap);
+  row-gap: 6px;
   width: var(--v2-shelf-grid-w);
   height: var(--v2-shelf-grid-h);
 }
@@ -1857,9 +1857,9 @@ body.piggy-v2-scroll-locked {
 .piggy-v2-product-card,
 .piggy-v2-product-empty {
   width: 129px;
-  height: 156px;
+  height: 172px;
   max-width: 129px;
-  max-height: 156px;
+  max-height: 172px;
   border: 0;
   border-radius: 14px;
   box-shadow: 0 10px 22px rgba(85, 55, 22, .11);

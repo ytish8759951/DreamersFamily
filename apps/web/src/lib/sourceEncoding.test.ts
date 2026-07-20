@@ -5,8 +5,8 @@ import { dirname, extname, join, relative, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 const repoRoot = resolve(dirname(fileURLToPath(import.meta.url)), '../../../..');
-const scanRoots = ['apps/web/src', 'docs', 'supabase'];
-const textExtensions = new Set(['.ts', '.tsx', '.css', '.json', '.sql', '.md', '.html']);
+const scanRoots = ['apps/web/src', 'apps/web/scripts', 'docs', 'supabase'];
+const textExtensions = new Set(['.ts', '.tsx', '.css', '.json', '.sql', '.md', '.html', '.mjs']);
 const mojibakeFragments = [
   0x56d9,
   0x856d,
