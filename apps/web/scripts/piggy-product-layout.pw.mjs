@@ -8,6 +8,19 @@ const appRoot = resolve(scriptDir, '..');
 const repoRoot = resolve(appRoot, '..', '..');
 const artifactDir = resolve(repoRoot, 'artifacts', 'piggy-product-layout');
 
+const t = {
+  longName: '\u8d85\u9577\u5546\u54c1\u540d\u7a31\u6e2c\u8a66\u5169\u884c\u7701\u7565\u4e0d\u63a8\u64e0\u72c0\u614b\u5217',
+  shortName: '222',
+  pendingName: '\u7b49\u5f85\u5230\u8ca8\u5546\u54c1',
+  arrivedName: '\u5df2\u5230\u8ca8\u5546\u54c1',
+  buy: '\u8cfc\u8cb7',
+  insufficient: '\u5b58\u6b3e\u4e0d\u8db3',
+  pending: '\u7b49\u5f85\u5230\u8ca8',
+  arrived: '\u5df2\u5230\u8ca8',
+  shelf: '\u5546\u54c1\u67b6',
+  shelfList: '\u5546\u54c1\u67b6\u6e05\u55ae'
+};
+
 const familyId = '00000000-0000-4000-8000-000000000101';
 const childId = '00000000-0000-4000-8000-000000000202';
 
@@ -18,9 +31,9 @@ const products = [
     child_id: childId,
     status: 'available',
     affordable: true,
-    name: '超長商品名稱測試兩行省略不推擠狀態列',
+    name: t.longName,
     price: '$100',
-    statusLabel: '購買',
+    statusLabel: t.buy,
     actionStatus: 'available',
     canClick: true,
     imageRatio: 'wide'
@@ -31,9 +44,9 @@ const products = [
     child_id: childId,
     status: 'available',
     affordable: false,
-    name: '222',
+    name: t.shortName,
     price: '$999',
-    statusLabel: '存款不足',
+    statusLabel: t.insufficient,
     actionStatus: 'insufficient',
     canClick: false,
     imageRatio: 'tall'
@@ -44,9 +57,9 @@ const products = [
     child_id: childId,
     status: 'pendingPurchase',
     affordable: true,
-    name: '等待到貨商品',
+    name: t.pendingName,
     price: '$50',
-    statusLabel: '等待到貨',
+    statusLabel: t.pending,
     actionStatus: 'pending',
     canClick: false,
     imageRatio: 'square'
@@ -57,12 +70,38 @@ const products = [
     child_id: childId,
     status: 'arrived',
     affordable: true,
-    name: '已到貨商品',
+    name: t.arrivedName,
     price: '$80',
-    statusLabel: '已到貨',
+    statusLabel: t.arrived,
     actionStatus: 'arrived',
     canClick: true,
     imageRatio: 'wide'
+  },
+  {
+    id: '00000000-0000-4000-8000-000000000305',
+    family_id: familyId,
+    child_id: childId,
+    status: 'available',
+    affordable: true,
+    name: '\u7b2c\u4e94\u500b\u5546\u54c1',
+    price: '$30',
+    statusLabel: t.buy,
+    actionStatus: 'available',
+    canClick: true,
+    imageRatio: 'tall'
+  },
+  {
+    id: '00000000-0000-4000-8000-000000000306',
+    family_id: familyId,
+    child_id: childId,
+    status: 'available',
+    affordable: false,
+    name: '\u7b2c\u516d\u500b\u5546\u54c1',
+    price: '$300',
+    statusLabel: t.insufficient,
+    actionStatus: 'insufficient',
+    canClick: false,
+    imageRatio: 'square'
   }
 ];
 
@@ -71,7 +110,7 @@ test.describe('piggy product card layout', () => {
     { name: 'ipad-landscape', width: 1024, height: 768 },
     { name: 'ipad-portrait', width: 768, height: 1024 }
   ]) {
-    test(`${viewport.name} keeps visible status label inside product card`, async ({ page }) => {
+    test(`${viewport.name} enlarges the two-column shelf without cropping product images`, async ({ page }) => {
       await page.setViewportSize(viewport);
       await mkdir(artifactDir, { recursive: true });
       const css = await readFile(resolve(appRoot, 'src', 'styles', 'index.css'), 'utf8');
@@ -81,81 +120,116 @@ test.describe('piggy product card layout', () => {
       await page.goto(pathToFileURL(fixturePath).href);
       await page.screenshot({ path: resolve(artifactDir, `${viewport.name}.png`), fullPage: true });
 
-      const measurements = await page.$$eval('.piggy-v2-product-card', (cards) =>
-        cards.map((card) => {
-          const round = (value) => Math.round(value * 100) / 100;
-          const rect = (domRect) => ({
-            top: round(domRect.top),
-            right: round(domRect.right),
-            bottom: round(domRect.bottom),
-            left: round(domRect.left),
-            width: round(domRect.width),
-            height: round(domRect.height)
-          });
-          const action = card.querySelector('.piggy-v2-product-action');
-          const image = card.querySelector('img');
-          const name = card.querySelector('strong');
-          const price = card.querySelector('span:not(.piggy-v2-product-status-label)');
-          const label = action?.querySelector('.piggy-v2-product-status-label');
-          const button = action?.querySelector('.piggy-v2-product-action-button');
-          const cardRect = card.getBoundingClientRect();
-          const imageRect = image?.getBoundingClientRect();
-          const nameRect = name?.getBoundingClientRect();
-          const priceRect = price?.getBoundingClientRect();
-          const actionRect = action?.getBoundingClientRect();
-          const labelRect = label?.getBoundingClientRect();
-          const buttonRect = button?.getBoundingClientRect();
-          const imageStyle = image ? getComputedStyle(image) : null;
-          const actionStyle = action ? getComputedStyle(action) : null;
-          const labelStyle = label ? getComputedStyle(label) : null;
-          const buttonStyle = button ? getComputedStyle(button) : null;
-          return {
-            label: label?.textContent?.trim() ?? '',
-            status: action?.getAttribute('data-status') ?? '',
-            hasButton: Boolean(button),
-            card: rect(cardRect),
-            image: imageRect ? rect(imageRect) : null,
-            name: nameRect ? rect(nameRect) : null,
-            price: priceRect ? rect(priceRect) : null,
-            action: actionRect ? rect(actionRect) : null,
-            labelRect: labelRect ? rect(labelRect) : null,
-            button: buttonRect ? rect(buttonRect) : null,
-            imageStyle: imageStyle ? {
-              display: imageStyle.display,
-              width: imageStyle.width,
-              height: imageStyle.height,
-              objectFit: imageStyle.objectFit,
-              objectPosition: imageStyle.objectPosition,
-              backgroundColor: imageStyle.backgroundColor
-            } : null,
-            actionStyle: actionStyle ? {
-              display: actionStyle.display,
-              visibility: actionStyle.visibility,
-              opacity: actionStyle.opacity,
-              color: actionStyle.color,
-              fontSize: actionStyle.fontSize
-            } : null,
-            labelStyle: labelStyle ? {
-              display: labelStyle.display,
-              visibility: labelStyle.visibility,
-              opacity: labelStyle.opacity,
-              color: labelStyle.color,
-              fontSize: labelStyle.fontSize
-            } : null,
-            buttonStyle: buttonStyle ? {
-              display: buttonStyle.display,
-              visibility: buttonStyle.visibility,
-              opacity: buttonStyle.opacity
-            } : null
-          };
-        })
-      );
+      const measurements = await page.evaluate(() => {
+        const round = (value) => Math.round(value * 100) / 100;
+        const rect = (domRect) => ({
+          top: round(domRect.top),
+          right: round(domRect.right),
+          bottom: round(domRect.bottom),
+          left: round(domRect.left),
+          width: round(domRect.width),
+          height: round(domRect.height)
+        });
+        const scene = document.querySelector('.piggy-v2-scene');
+        const shelf = document.querySelector('.piggy-v2-shelf');
+        const shelfGrid = document.querySelector('.piggy-v2-shelf-grid');
+        const bank = document.querySelector('.piggy-v2-bank');
+        const coinDock = document.querySelector('.piggy-v2-coin-dock');
+        return {
+          scene: rect(scene.getBoundingClientRect()),
+          shelf: rect(shelf.getBoundingClientRect()),
+          shelfGrid: rect(shelfGrid.getBoundingClientRect()),
+          bank: rect(bank.getBoundingClientRect()),
+          coinDock: rect(coinDock.getBoundingClientRect()),
+          products: [...document.querySelectorAll('.piggy-v2-product-card')].map((card) => {
+            const action = card.querySelector('.piggy-v2-product-action');
+            const image = card.querySelector('img');
+            const name = card.querySelector('strong');
+            const price = card.querySelector('span:not(.piggy-v2-product-status-label)');
+            const label = action?.querySelector('.piggy-v2-product-status-label');
+            const button = action?.querySelector('.piggy-v2-product-action-button');
+            const cardRect = card.getBoundingClientRect();
+            const imageRect = image?.getBoundingClientRect();
+            const nameRect = name?.getBoundingClientRect();
+            const priceRect = price?.getBoundingClientRect();
+            const actionRect = action?.getBoundingClientRect();
+            const labelRect = label?.getBoundingClientRect();
+            const buttonRect = button?.getBoundingClientRect();
+            const imageStyle = image ? getComputedStyle(image) : null;
+            const actionStyle = action ? getComputedStyle(action) : null;
+            const labelStyle = label ? getComputedStyle(label) : null;
+            const buttonStyle = button ? getComputedStyle(button) : null;
+            return {
+              label: label?.textContent?.trim() ?? '',
+              status: action?.getAttribute('data-status') ?? '',
+              hasButton: Boolean(button),
+              card: rect(cardRect),
+              image: imageRect ? rect(imageRect) : null,
+              name: nameRect ? rect(nameRect) : null,
+              price: priceRect ? rect(priceRect) : null,
+              action: actionRect ? rect(actionRect) : null,
+              labelRect: labelRect ? rect(labelRect) : null,
+              button: buttonRect ? rect(buttonRect) : null,
+              imageStyle: imageStyle ? {
+                display: imageStyle.display,
+                width: imageStyle.width,
+                height: imageStyle.height,
+                objectFit: imageStyle.objectFit,
+                objectPosition: imageStyle.objectPosition,
+                backgroundColor: imageStyle.backgroundColor
+              } : null,
+              actionStyle: actionStyle ? {
+                display: actionStyle.display,
+                visibility: actionStyle.visibility,
+                opacity: actionStyle.opacity,
+                color: actionStyle.color,
+                fontSize: actionStyle.fontSize
+              } : null,
+              labelStyle: labelStyle ? {
+                display: labelStyle.display,
+                visibility: labelStyle.visibility,
+                opacity: labelStyle.opacity,
+                color: labelStyle.color,
+                fontSize: labelStyle.fontSize
+              } : null,
+              buttonStyle: buttonStyle ? {
+                display: buttonStyle.display,
+                visibility: buttonStyle.visibility,
+                opacity: buttonStyle.opacity
+              } : null
+            };
+          })
+        };
+      });
 
       await writeFile(resolve(artifactDir, `${viewport.name}-measurements.json`), JSON.stringify(measurements, null, 2), 'utf8');
-      expect(measurements.map((item) => item.label)).toEqual(['購買', '存款不足', '等待到貨', '已到貨']);
-      expect(measurements.map((item) => item.status)).toEqual(['available', 'insufficient', 'pending', 'arrived']);
+      expect(measurements.products).toHaveLength(6);
+      expect(measurements.products.map((item) => item.label)).toEqual([
+        t.buy,
+        t.insufficient,
+        t.pending,
+        t.arrived,
+        t.buy,
+        t.insufficient
+      ]);
+      expect(measurements.products.map((item) => item.status)).toEqual([
+        'available',
+        'insufficient',
+        'pending',
+        'arrived',
+        'available',
+        'insufficient'
+      ]);
 
-      for (const item of measurements) {
+      expect(measurements.shelf.left).toBeGreaterThanOrEqual(measurements.bank.right);
+      expect(measurements.shelf.right).toBeLessThanOrEqual(measurements.scene.right);
+      expect(measurements.shelfGrid.bottom).toBeLessThanOrEqual(measurements.coinDock.top);
+      expect(measurements.shelfGrid.width).toBeGreaterThanOrEqual(334);
+      expect(measurements.shelfGrid.height).toBeGreaterThanOrEqual(620);
+
+      for (const item of measurements.products) {
+        expect(item.card.width, item.label).toBeGreaterThanOrEqual(158);
+        expect(item.card.height, item.label).toBeGreaterThanOrEqual(204);
         expect(item.image, item.label).not.toBeNull();
         expect(item.name, item.label).not.toBeNull();
         expect(item.price, item.label).not.toBeNull();
@@ -163,8 +237,8 @@ test.describe('piggy product card layout', () => {
         expect(item.labelRect, item.label).not.toBeNull();
         expect(item.image.top, item.label).toBeGreaterThanOrEqual(item.card.top);
         expect(item.image.bottom, item.label).toBeLessThanOrEqual(item.card.bottom);
-        expect(item.image.width, item.label).toBeGreaterThan(0);
-        expect(item.image.height, item.label).toBe(68);
+        expect(item.image.width, item.label).toBeGreaterThanOrEqual(142);
+        expect(item.image.height, item.label).toBeGreaterThanOrEqual(84);
         expect(item.imageStyle.objectFit, item.label).toBe('contain');
         expect(item.imageStyle.objectPosition, item.label).toBe('50% 50%');
         expect(item.imageStyle.backgroundColor, item.label).toBe('rgb(255, 248, 234)');
@@ -173,7 +247,7 @@ test.describe('piggy product card layout', () => {
         expect(item.action.top, item.label).toBeGreaterThanOrEqual(item.card.top);
         expect(item.action.bottom, item.label).toBeLessThanOrEqual(item.card.bottom);
         expect(item.action.width, item.label).toBeGreaterThan(0);
-        expect(item.action.height, item.label).toBeGreaterThanOrEqual(32);
+        expect(item.action.height, item.label).toBeGreaterThanOrEqual(38);
         expect(item.labelRect.top, item.label).toBeGreaterThanOrEqual(item.card.top);
         expect(item.labelRect.bottom, item.label).toBeLessThanOrEqual(item.card.bottom);
         expect(item.labelRect.width, item.label).toBeGreaterThan(0);
@@ -185,19 +259,19 @@ test.describe('piggy product card layout', () => {
         expect(Number(item.labelStyle.opacity), item.label).toBe(1);
         expect(item.labelStyle.color, item.label).not.toBe('transparent');
         expect(item.labelStyle.color, item.label).not.toBe('rgba(0, 0, 0, 0)');
-        expect(parseFloat(item.labelStyle.fontSize), item.label).toBeGreaterThan(0);
+        expect(parseFloat(item.labelStyle.fontSize), item.label).toBeGreaterThanOrEqual(15);
       }
 
-      expect(measurements[0].labelStyle.color).toBe('rgb(255, 255, 255)');
-      expect(measurements[1].labelStyle.color).toBe('rgb(116, 106, 95)');
-      expect(measurements[2].labelStyle.color).toBe('rgb(138, 87, 37)');
-      expect(measurements[3].labelStyle.color).toBe('rgb(255, 255, 255)');
+      expect(measurements.products[0].labelStyle.color).toBe('rgb(255, 255, 255)');
+      expect(measurements.products[1].labelStyle.color).toBe('rgb(116, 106, 95)');
+      expect(measurements.products[2].labelStyle.color).toBe('rgb(138, 87, 37)');
+      expect(measurements.products[3].labelStyle.color).toBe('rgb(255, 255, 255)');
 
-      expect(measurements[0].hasButton).toBe(true);
-      expect(measurements[1].hasButton).toBe(false);
-      expect(measurements[2].hasButton).toBe(false);
-      expect(measurements[3].hasButton).toBe(true);
-      for (const item of [measurements[0], measurements[3]]) {
+      expect(measurements.products[0].hasButton).toBe(true);
+      expect(measurements.products[1].hasButton).toBe(false);
+      expect(measurements.products[2].hasButton).toBe(false);
+      expect(measurements.products[3].hasButton).toBe(true);
+      for (const item of [measurements.products[0], measurements.products[3], measurements.products[4]]) {
         expect(item.button, item.label).not.toBeNull();
         expect(item.button.top, item.label).toBeGreaterThanOrEqual(item.action.top);
         expect(item.button.bottom, item.label).toBeLessThanOrEqual(item.action.bottom);
@@ -220,17 +294,42 @@ function buildFixture(appCss) {
   <style>${appCss}</style>
   <style>
     body { margin: 0; background: #fff7ed; }
-    .piggy-v2-page { --piggy-v2-scale: 1; --v2-shelf-grid-column-gap: 28px; --v2-shelf-grid-row-gap: 6px; --v2-shelf-grid-w: 286px; --v2-shelf-grid-h: 528px; --piggy-v2-white: #fff; --piggy-v2-line: #eee3d4; --piggy-v2-text: #2e2e2e; --piggy-v2-radius-pill: 999px; --piggy-v2-shadow-hover: 0 14px 30px rgba(77, 59, 35, .1); min-height: 100dvh; }
-    .piggy-v2-shelf { position: relative; width: 286px; height: 588px; margin: 32px auto; }
-    .piggy-v2-shelf-grid { position: absolute; left: 0; top: 58px; }
+    .piggy-v2-page {
+      --piggy-v2-scale: 1;
+      --piggy-v2-scene-w: 1440px;
+      --piggy-v2-scene-h: 1024px;
+      --piggy-v2-white: #fff;
+      --piggy-v2-line: #eee3d4;
+      --piggy-v2-text: #2e2e2e;
+      --piggy-v2-radius-pill: 999px;
+      --piggy-v2-shadow-hover: 0 14px 30px rgba(77, 59, 35, .1);
+      --v2-piggy-x: 470px;
+      --v2-piggy-y: 168px;
+      --v2-piggy-w: 548px;
+      --v2-piggy-h: 632px;
+      --v2-piggy-z: 14;
+      --v2-coin-dock-x: 282px;
+      --v2-coin-dock-y: 798px;
+      --v2-coin-dock-w: 875px;
+      --v2-coin-dock-h: 118px;
+      --v2-coin-dock-z: 12;
+      min-height: 100dvh;
+    }
+    .piggy-v2-scene { margin: 0 auto; }
+    .piggy-v2-bank { background: rgba(117, 168, 107, .12); }
+    .piggy-v2-coin-dock { background: rgba(244, 119, 115, .12); }
   </style>
 </head>
 <body>
   <section class="piggy-v2-page">
-    <section class="piggy-v2-shelf" aria-label="商品架">
-      <div class="piggy-v2-shelf-grid" aria-label="商品架清單">
-        ${products.map(productCard).join('')}
-      </div>
+    <section class="piggy-v2-scene">
+      <div class="piggy-v2-bank"></div>
+      <div class="piggy-v2-coin-dock"></div>
+      <section class="piggy-v2-shelf" aria-label="${t.shelf}">
+        <div class="piggy-v2-shelf-grid" aria-label="${t.shelfList}">
+          ${products.map(productCard).join('')}
+        </div>
+      </section>
     </section>
   </section>
 </body>

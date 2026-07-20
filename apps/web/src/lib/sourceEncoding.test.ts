@@ -105,7 +105,9 @@ describe('source text encoding', () => {
     expect(piggyScene).toContain('className="piggy-v2-product-action"');
     expect(piggyScene).toContain('className="piggy-v2-product-status-label"');
     expect(piggyScene).toContain('className="piggy-v2-product-action-button"');
-    expect(styles).toContain('grid-template-rows: 68px minmax(18px, 32px) 16px 32px');
+    expect(styles).toContain('--piggy-v2-shelf-card-w: clamp(158px, 15.8vw, 162px)');
+    expect(styles).toContain('grid-template-columns: repeat(2, var(--piggy-v2-shelf-card-w))');
+    expect(styles).toContain('grid-template-rows: var(--piggy-v2-product-image-h) var(--piggy-v2-product-name-h) var(--piggy-v2-product-price-h) var(--piggy-v2-product-action-h)');
     expect(styles).toContain('object-fit: contain');
     expect(styles).toContain('background: #fff8ea');
     expect(styles).toContain('.piggy-v2-product-action');
