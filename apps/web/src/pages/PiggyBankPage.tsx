@@ -271,12 +271,8 @@ export function ChildPiggyBankPage() {
         onPiggyDrop={(event) => {
           event.preventDefault();
           const value = Number(event.dataTransfer.getData('text/piggy-coin') || draggedCoin || 0);
-          depositCoin(value);
+          if (value > 0) depositCoin(value);
           setDraggedCoin(null);
-        }}
-        onCoinDragStart={(value, event) => {
-          setDraggedCoin(value);
-          event.dataTransfer.setData('text/piggy-coin', String(value));
         }}
         onCoinDragEnd={() => setDraggedCoin(null)}
         onCoinPointerDeposit={(value) => depositCoin(value)}

@@ -1565,6 +1565,13 @@ body.piggy-v2-scroll-locked {
   cursor: grabbing;
 }
 
+.piggy-v2-coin-dock button.is-source-hidden {
+  opacity: 0;
+  transform: none;
+  filter: none;
+  transition: none;
+}
+
 .piggy-v2-coin-dock button.is-bouncing-back { animation: piggy-v2-bounce-back 420ms ease; }
 
 .piggy-v2-coin-dock img {
@@ -1579,19 +1586,20 @@ body.piggy-v2-scroll-locked {
 .piggy-v2-floating-coin {
   position: fixed;
   z-index: 2147483000;
-  width: calc(92px * var(--piggy-v2-scale));
-  height: calc(92px * var(--piggy-v2-scale));
+  left: 0;
+  top: 0;
   pointer-events: none;
-  transform: translate(-50%, -50%) scale(1.08);
-  filter: drop-shadow(0 20px 18px rgba(77, 59, 35, .28));
+  filter: drop-shadow(0 14px 10px rgba(77, 59, 35, .22));
+  contain: layout paint style;
+  will-change: transform;
   transition: none;
   -webkit-user-select: none;
   user-select: none;
+  -webkit-user-drag: none;
 }
 
 .piggy-v2-floating-coin.is-returning {
-  transition: left 220ms ease, top 220ms ease, transform 220ms ease, opacity 220ms ease;
-  transform: translate(-50%, -50%) scale(.98);
+  transition: transform 180ms ease, opacity 180ms ease;
   opacity: .88;
 }
 

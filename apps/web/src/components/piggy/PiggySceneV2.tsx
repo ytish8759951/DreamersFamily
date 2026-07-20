@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState, type CSSProperties, type DragEvent, type PointerEvent, type RefObject } from 'react';
+import { createPortal } from 'react-dom';
 import { ArrowLeft, ArrowRight, GripVertical } from 'lucide-react';
 import { piggySceneV2Vars } from './blueprint/v2Layout';
 import { piggyUiAssets, type CoinPileItem, type DepositRecordView, type PiggyCoinValue } from './PiggyUiAssets';
@@ -26,12 +27,14 @@ type FallingCoinView = {
 type CoinPointerDrag = {
   value: PiggyCoinValue;
   pointerId: number;
+  sourceElement: HTMLButtonElement | null;
   startX: number;
   startY: number;
   x: number;
   y: number;
   originX: number;
   originY: number;
+  size: number;
   moved: boolean;
   returning: boolean;
 };
@@ -61,7 +64,6 @@ type PiggySceneV2Props = {
   onPiggyClick: () => void;
   onPiggyDragOver: (event: DragEvent<HTMLButtonElement>) => void;
   onPiggyDrop: (event: DragEvent<HTMLButtonElement>) => void;
-  onCoinDragStart: (value: PiggyCoinValue, event: DragEvent<HTMLButtonElement>) => void;
   onCoinDragEnd: () => void;
   onCoinPointerDeposit: (value: PiggyCoinValue) => boolean;
   onProductDragStart: (productId: string, event: DragEvent<HTMLElement>) => void;
@@ -79,24 +81,65 @@ export function PiggySceneV2(props: PiggySceneV2Props) {
   const depositSlotRef = useRef<HTMLSpanElement>(null);
   const unlockScrollRef = useRef<(() => void) | null>(null);
   const returnTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const rafRef = useRef<number | null>(null);
+  const pendingPointRef = useRef<{ x: number; y: number; moved: boolean; overDeposit: boolean } | null>(null);
+  const pointerDragRef = useRef<CoinPointerDrag | null>(null);
+  const ignoredLostPointerRef = useRef<number | null>(null);
   const lastTapRef = useRef<{ value: PiggyCoinValue; at: number } | null>(null);
   const [pointerDrag, setPointerDrag] = useState<CoinPointerDrag | null>(null);
   const [selectedCoin, setSelectedCoin] = useState<PiggyCoinValue | null>(null);
   const [isOverDeposit, setIsOverDeposit] = useState(false);
 
+  const setPointerDragState = (next: CoinPointerDrag | null | ((current: CoinPointerDrag | null) => CoinPointerDrag | null)) => {
+    setPointerDrag((current) => {
+      const resolved = typeof next === 'function' ? next(current) : next;
+      pointerDragRef.current = resolved;
+      return resolved;
+    });
+  };
+
+  const cleanupPointerDrag = (current: CoinPointerDrag) => {
+    ignoredLostPointerRef.current = current.pointerId;
+    cleanupActiveDrag(current);
+    unlockScrollRef.current?.();
+    unlockScrollRef.current = null;
+    pendingPointRef.current = null;
+    if (rafRef.current !== null) {
+      window.cancelAnimationFrame(rafRef.current);
+      rafRef.current = null;
+    }
+  };
+
   useEffect(() => {
+    const cancelActiveDrag = () => {
+      const current = pointerDragRef.current;
+      if (!current) return;
+      cleanupPointerDrag(current);
+      setPointerDragState(null);
+      setIsOverDeposit(false);
+    };
+    const cancelActiveDragWhenHidden = () => {
+      if (document.visibilityState !== 'visible') cancelActiveDrag();
+    };
+    window.addEventListener('blur', cancelActiveDrag);
+    window.addEventListener('pagehide', cancelActiveDrag);
+    document.addEventListener('visibilitychange', cancelActiveDragWhenHidden);
     return () => {
-      unlockScrollRef.current?.();
-      unlockScrollRef.current = null;
+      window.removeEventListener('blur', cancelActiveDrag);
+      window.removeEventListener('pagehide', cancelActiveDrag);
+      document.removeEventListener('visibilitychange', cancelActiveDragWhenHidden);
+      cancelActiveDrag();
       if (returnTimerRef.current) window.clearTimeout(returnTimerRef.current);
+      if (rafRef.current !== null) window.cancelAnimationFrame(rafRef.current);
     };
   }, []);
 
   const bounceCoinBack = (current: CoinPointerDrag) => {
     setIsOverDeposit(false);
-    setPointerDrag({ ...current, x: current.originX, y: current.originY, returning: true });
+    setPointerDragState({ ...current, x: current.originX, y: current.originY, returning: true });
     returnTimerRef.current = window.setTimeout(() => {
-      setPointerDrag(null);
+      cleanupActiveDrag(current);
+      setPointerDragState(null);
     }, 220);
   };
 
@@ -104,6 +147,11 @@ export function PiggySceneV2(props: PiggySceneV2Props) {
     if (props.availableToDeposit <= 0 || event.button > 0) return;
     event.preventDefault();
     if (returnTimerRef.current) window.clearTimeout(returnTimerRef.current);
+    const previous = pointerDragRef.current;
+    if (previous) cleanupPointerDrag(previous);
+    if (rafRef.current !== null) window.cancelAnimationFrame(rafRef.current);
+    rafRef.current = null;
+    pendingPointRef.current = null;
     const rect = event.currentTarget.getBoundingClientRect();
     event.currentTarget.setPointerCapture?.(event.pointerId);
     unlockScrollRef.current?.();
@@ -111,41 +159,55 @@ export function PiggySceneV2(props: PiggySceneV2Props) {
     props.onCoinDragEnd();
     setSelectedCoin(value);
     setIsOverDeposit(false);
-    setPointerDrag({
+    setPointerDragState({
       value,
       pointerId: event.pointerId,
+      sourceElement: event.currentTarget,
       startX: event.clientX,
       startY: event.clientY,
       x: event.clientX,
       y: event.clientY,
       originX: rect.left + rect.width / 2,
       originY: rect.top + rect.height / 2,
+      size: Math.max(rect.width, rect.height),
       moved: false,
       returning: false
     });
   };
 
   const moveCoinPointerDrag = (event: PointerEvent<HTMLButtonElement>) => {
-    setPointerDrag((current) => {
-      if (!current || current.pointerId !== event.pointerId || current.returning) return current;
-      event.preventDefault();
-      const moved =
+    const current = pointerDragRef.current;
+    if (!current || current.pointerId !== event.pointerId || current.returning) return;
+    event.preventDefault();
+    pendingPointRef.current = {
+      x: event.clientX,
+      y: event.clientY,
+      moved:
         current.moved ||
         Math.abs(event.clientX - current.startX) > TAP_MOVE_TOLERANCE_PX ||
-        Math.abs(event.clientY - current.startY) > TAP_MOVE_TOLERANCE_PX;
-      const overDeposit = isPointerDepositHit(depositSlotRef.current, event.clientX, event.clientY);
-      setIsOverDeposit(overDeposit);
-      return { ...current, x: event.clientX, y: event.clientY, moved };
+        Math.abs(event.clientY - current.startY) > TAP_MOVE_TOLERANCE_PX,
+      overDeposit: isPointerDepositHit(depositSlotRef.current, event.clientX, event.clientY)
+    };
+    if (rafRef.current !== null) return;
+    rafRef.current = window.requestAnimationFrame(() => {
+      rafRef.current = null;
+      const pending = pendingPointRef.current;
+      pendingPointRef.current = null;
+      if (!pending) return;
+      setIsOverDeposit(pending.overDeposit);
+      setPointerDragState((active) => active && !active.returning ? { ...active, x: pending.x, y: pending.y, moved: pending.moved } : active);
     });
   };
 
   const finishCoinPointerDrag = (event: PointerEvent<HTMLButtonElement>, cancelled = false) => {
-    const current = pointerDrag;
-    if (!current || current.pointerId !== event.pointerId) return;
+    if (cancelled && ignoredLostPointerRef.current === event.pointerId) {
+      ignoredLostPointerRef.current = null;
+      return;
+    }
+    const current = pointerDragRef.current;
+    if (!current || current.pointerId !== event.pointerId || current.returning) return;
     event.preventDefault();
-    event.currentTarget.releasePointerCapture?.(event.pointerId);
-    unlockScrollRef.current?.();
-    unlockScrollRef.current = null;
+    cleanupPointerDrag(current);
     const overDeposit = !cancelled && isPointerDepositHit(depositSlotRef.current, event.clientX, event.clientY);
     const isTap = !current.moved && !cancelled;
     const now = Date.now();
@@ -158,7 +220,7 @@ export function PiggySceneV2(props: PiggySceneV2Props) {
       const deposited = props.onCoinPointerDeposit(current.value);
       setSelectedCoin(null);
       setIsOverDeposit(false);
-      setPointerDrag(null);
+      setPointerDragState(null);
       lastTapRef.current = null;
       if (!deposited) bounceCoinBack(current);
       return;
@@ -167,7 +229,7 @@ export function PiggySceneV2(props: PiggySceneV2Props) {
     if (isTap) {
       lastTapRef.current = { value: current.value, at: now };
       setSelectedCoin(current.value);
-      setPointerDrag(null);
+      setPointerDragState(null);
       setIsOverDeposit(false);
       return;
     }
@@ -236,24 +298,17 @@ export function PiggySceneV2(props: PiggySceneV2Props) {
           <Decorations />
           <CoinDock
             disabled={props.availableToDeposit <= 0}
-            activeValue={pointerDrag?.value ?? selectedCoin ?? props.draggedCoin}
+            activeValue={selectedCoin ?? props.draggedCoin}
+            draggingValue={pointerDrag?.value ?? null}
             bounceValue={props.bounceCoin}
-            onCoinDragStart={props.onCoinDragStart}
             onCoinDragEnd={props.onCoinDragEnd}
             onCoinPointerDown={beginCoinPointerDrag}
             onCoinPointerMove={moveCoinPointerDrag}
             onCoinPointerUp={(event) => finishCoinPointerDrag(event)}
             onCoinPointerCancel={(event) => finishCoinPointerDrag(event, true)}
+            onCoinLostPointerCapture={(event) => finishCoinPointerDrag(event, true)}
           />
-          {pointerDrag ? (
-            <img
-              className={`piggy-v2-floating-coin ${pointerDrag.returning ? 'is-returning' : ''}`}
-              src={piggyUiAssets.coins[pointerDrag.value]}
-              alt=""
-              aria-hidden="true"
-              style={{ left: pointerDrag.x, top: pointerDrag.y }}
-            />
-          ) : null}
+          <CoinDragOverlay drag={pointerDrag} />
         </main>
       </div>
     </section>
@@ -573,26 +628,54 @@ function Decorations() {
   );
 }
 
+function CoinDragOverlay({ drag }: { drag: CoinPointerDrag | null }) {
+  if (!drag || typeof document === 'undefined') return null;
+  return createPortal(
+    <img
+      className={`piggy-v2-floating-coin ${drag.returning ? 'is-returning' : ''}`}
+      src={piggyUiAssets.coins[drag.value]}
+      alt=""
+      aria-hidden="true"
+      style={{
+        width: drag.size,
+        height: drag.size,
+        transform: `translate3d(${drag.x}px, ${drag.y}px, 0) translate(-50%, -50%) scale(${drag.returning ? 0.98 : 1.08})`
+      }}
+    />,
+    document.body
+  );
+}
+
+function cleanupActiveDrag(current: CoinPointerDrag) {
+  try {
+    current.sourceElement?.releasePointerCapture?.(current.pointerId);
+  } catch {
+    // Pointer capture may already be released after cancel/lostpointercapture.
+  }
+}
+
 function CoinDock({
   disabled,
   activeValue,
+  draggingValue,
   bounceValue,
-  onCoinDragStart,
   onCoinDragEnd,
   onCoinPointerDown,
   onCoinPointerMove,
   onCoinPointerUp,
-  onCoinPointerCancel
+  onCoinPointerCancel,
+  onCoinLostPointerCapture
 }: {
   disabled: boolean;
   activeValue: number | null;
+  draggingValue: number | null;
   bounceValue: number | null;
-  onCoinDragStart: (value: PiggyCoinValue, event: DragEvent<HTMLButtonElement>) => void;
   onCoinDragEnd: () => void;
   onCoinPointerDown: (value: PiggyCoinValue, event: PointerEvent<HTMLButtonElement>) => void;
   onCoinPointerMove: (event: PointerEvent<HTMLButtonElement>) => void;
   onCoinPointerUp: (event: PointerEvent<HTMLButtonElement>) => void;
   onCoinPointerCancel: (event: PointerEvent<HTMLButtonElement>) => void;
+  onCoinLostPointerCapture: (event: PointerEvent<HTMLButtonElement>) => void;
 }) {
   return (
     <div className={`piggy-v2-coin-dock ${disabled ? 'is-empty' : ''}`} aria-label="硬幣列">
@@ -600,14 +683,18 @@ function CoinDock({
         <button
           key={value}
           type="button"
-          draggable={!disabled}
+          draggable={false}
           aria-label={`${value} 元硬幣，拖到撲滿或點兩下投入`}
-          className={`${activeValue === value ? 'is-dragging' : ''} ${bounceValue === value ? 'is-bouncing-back' : ''}`}
+          className={`${activeValue === value ? 'is-dragging' : ''} ${draggingValue === value ? 'is-source-hidden' : ''} ${bounceValue === value ? 'is-bouncing-back' : ''}`}
           onPointerDown={(event) => onCoinPointerDown(value, event)}
           onPointerMove={onCoinPointerMove}
           onPointerUp={onCoinPointerUp}
           onPointerCancel={onCoinPointerCancel}
-          onDragStart={(event) => onCoinDragStart(value, event)}
+          onLostPointerCapture={onCoinLostPointerCapture}
+          onDragStart={(event) => {
+            event.preventDefault();
+            onCoinDragEnd();
+          }}
           onDragEnd={onCoinDragEnd}
         >
           <img src={piggyUiAssets.coins[value]} alt={`${value} 元硬幣`} />
