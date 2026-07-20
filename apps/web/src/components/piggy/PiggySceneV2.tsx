@@ -700,6 +700,7 @@ function CoinDock({
           <img src={piggyUiAssets.coins[value]} alt={`${value} 元硬幣`} />
         </button>
       ))}
+      <p className="piggy-v2-coin-hint">拖動硬幣到撲滿裡存錢吧！</p>
     </div>
   );
 }

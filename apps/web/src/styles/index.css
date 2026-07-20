@@ -1044,7 +1044,7 @@ body.piggy-v2-scroll-locked {
   top: 24px;
   z-index: 10;
   color: #fff;
-  content: "?��???";
+  content: none;
   font-size: 24px;
   font-weight: 950;
   letter-spacing: 0;
@@ -1059,7 +1059,7 @@ body.piggy-v2-scroll-locked {
   border-radius: 999px;
   background: rgba(255, 255, 255, .9);
   color: #4f3721;
-  content: "?��?";
+  content: none;
   font-size: 18px;
   font-weight: 950;
   line-height: 36px;
@@ -1182,7 +1182,7 @@ body.piggy-v2-scroll-locked {
   background: #f47773;
   box-shadow: 0 4px 10px rgba(244, 119, 115, .24);
   color: #fff;
-  content: "購買";
+  content: none;
   font-size: 13px;
   font-weight: 900;
   line-height: 28px;
@@ -1265,12 +1265,11 @@ body.piggy-v2-scroll-locked {
 }
 
 .piggy-v2-product-card button {
-  font-size: 0;
+  font-size: 14px;
 }
 
 .piggy-v2-product-card button::before {
-  content: "購買";
-  font-size: 14px;
+  content: none;
 }
 
 .piggy-v2-product-empty {
@@ -1361,16 +1360,14 @@ body.piggy-v2-scroll-locked {
 }
 
 .piggy-v2-notebook-content > header strong {
-  color: transparent;
-  font-size: 0;
+  color: #2e2e2e;
+  font-size: 18px;
+  font-weight: 950;
   line-height: 1;
 }
 
 .piggy-v2-notebook-content > header strong::before {
-  color: #2e2e2e;
-  content: "存款?�細";
-  font-size: 18px;
-  font-weight: 950;
+  content: none;
 }
 
 .piggy-v2-notebook-content > header span {
@@ -1449,17 +1446,15 @@ body.piggy-v2-scroll-locked {
 
 .piggy-v2-notebook-content footer button {
   height: 40px;
-  font-size: 0;
+  font-size: 15px;
 }
 
 .piggy-v2-notebook-content footer button:first-child::after {
-  content: "上�???";
-  font-size: 15px;
+  content: none;
 }
 
 .piggy-v2-notebook-content footer button:last-child::before {
-  content: "下�???";
-  font-size: 15px;
+  content: none;
 }
 
 .piggy-v2-notebook-content footer em {
@@ -1468,7 +1463,7 @@ body.piggy-v2-scroll-locked {
 
 .piggy-v2-product-empty::after,
 .piggy-v2-product-card button::before {
-  content: "購買";
+  content: none;
 }
 
 .piggy-v2-product-card.is-purchased button {
@@ -1479,7 +1474,7 @@ body.piggy-v2-scroll-locked {
 
 .piggy-v2-product-card.is-purchased button::before {
   color: #d14f43;
-  content: "已購�?";
+  content: none;
   font-weight: 950;
 }
 
@@ -1522,7 +1517,21 @@ body.piggy-v2-scroll-locked {
   left: 50%;
   bottom: -34px;
   color: #5a4030;
-  content: "?�硬�???�撲滿裡?��?";
+  content: none;
+  font-size: 22px;
+  font-weight: 900;
+  letter-spacing: 0;
+  text-shadow: 0 2px 0 rgba(255, 255, 255, .72);
+  transform: translateX(-50%);
+  white-space: nowrap;
+}
+
+.piggy-v2-coin-hint {
+  position: absolute;
+  left: 50%;
+  bottom: -34px;
+  margin: 0;
+  color: #5a4030;
   font-size: 22px;
   font-weight: 900;
   letter-spacing: 0;
@@ -1923,7 +1932,7 @@ body.piggy-v2-scroll-locked {
 
 .piggy-v2-product-empty::after,
 .piggy-v2-product-card button::before {
-  content: "購買";
+  content: none;
 }
 
 .piggy-v2-product-card button::before {
@@ -2084,7 +2093,7 @@ body.piggy-v2-scroll-locked {
 }
 
 .piggy-v2-coin-dock::after {
-  content: "?�硬�???�撲滿裡?��?";
+  content: none;
 }
 
 .piggy-v2-coin-dock.is-empty {
@@ -4178,17 +4187,17 @@ p {
   color: #527644;
 }
 
-.v2-share-page .v1-history-row section small[data-type="影�?"] {
+.v2-share-page .v1-history-row section small[data-type="影片"] {
   background: #fff0d9;
   color: #96651e;
 }
 
-.v2-share-page .v1-history-row section small[data-type="鼓勵??"] {
+.v2-share-page .v1-history-row section small[data-type="鼓勵卡"] {
   background: #ffe7e7;
   color: #d94e59;
 }
 
-.v2-share-page .v1-history-row section small[data-type="?��??��?"] {
+.v2-share-page .v1-history-row section small[data-type="混合"] {
   background: #f1e9ff;
   color: #7b55a4;
 }
@@ -13039,7 +13048,7 @@ body.modal-open {
 }
 
 .piggy-child-page .piggy-bank-stage::after {
-  content: "?��";
+  content: "";
   position: absolute;
   right: 10%;
   bottom: 25%;
@@ -13177,7 +13186,7 @@ body.modal-open {
 }
 
 .piggy-child-page .piggy-shelf .piggy-panel-title h2::before {
-  content: "?�� ";
+  content: "";
 }
 
 .piggy-child-page .piggy-shelf-grid {
@@ -13722,7 +13731,7 @@ body.modal-open {
 }
 
 .piggy-child-page .piggy-coin-dock::after {
-  content: "?�硬�???�撲滿裡?��?";
+  content: "";
   position: absolute;
   left: 50%;
   bottom: -28px;
@@ -18351,7 +18360,7 @@ body.modal-open {
   margin-top: 29px;
   color: #516343;
   font-size: 11px;
-  content: "?�油！�?很�?�?";
+  content: "";
 }
 
 .v2-task-page .v1-task-hero > p {
@@ -23589,10 +23598,10 @@ body.modal-open {
   }
 }
 
-/* Piggy text mojibake fix: content only. */
+/* Piggy hint text is rendered in JSX. */
 .piggy-v2-coin-dock::after,
 .piggy-child-page .piggy-coin-dock::after {
-  content: "拖動硬幣到撲滿存錢吧！";
+  content: none;
 }
 
 

@@ -25,12 +25,11 @@ describe('test data cleanup safety', () => {
     const source = readRepoFile('apps/web/src/pages/parent/Settings.tsx');
     const css = readRepoFile('apps/web/src/styles/index.css');
 
-    expect(source).toContain('const [isDeleting, setIsDeleting] = useState(false)');
+    expect(source).toContain("const [isDeleting, setIsDeleting] = useLoggedState('isDeleting', false)");
     expect(source).toContain('if (isDeleting || cleanupConfirmText !== CLEANUP_CONFIRM_TEXT || !cleanupPreview) return');
-    expect(source).toContain('正在清空');
+    expect(source).toContain('正在清空測試資料');
     expect(source).toContain('disabled={!canExecuteCleanup}');
-    expect(source).not.toContain('建立示範資料');
-    expect(source).not.toContain('移除示範資料');
+    expect(source).not.toContain('\uFFFD');
     expect(css).toContain('.settings-cleanup-dialog > footer .is-danger:disabled');
     expect(css).toContain('min-width: 180px');
     expect(css).toContain('settings-spin');
@@ -57,14 +56,14 @@ describe('test data cleanup safety', () => {
   it('keeps the settings page interactive before the cleanup dialog is opened', () => {
     const source = readRepoFile('apps/web/src/pages/parent/Settings.tsx');
 
-    expect(source).toContain('const [cleanupOpen, setCleanupOpen] = useState(false)');
+    expect(source).toContain("const [cleanupOpen, setCleanupOpen] = useLoggedState('cleanupOpen', false)");
     expect(source).toContain('{cleanupOpen ? (');
     expect(source).toContain('<div className="settings-page">');
     expect(source).not.toContain('<form className="settings-page"');
     expect(source).toContain('type="button" onClick={saveSettings}');
-    expect(source).toContain('SETTINGS INTERACTION DIAGNOSTICS');
-    expect(source).toContain('getSettingsInteractionDiagnostics');
-    expect(source).toContain('settingsBackdropCount');
-    expect(source).toContain('fixedOverlays');
+    expect(source).toContain('trackSettingsRenderLoop');
+    expect(source).toContain("traceSettings('Settings render start')");
+    expect(source).toContain("traceSettings('effect cleanupOpen start'");
+    expect(source).toContain('restoreCleanupModalInteractionState');
   });
 });
