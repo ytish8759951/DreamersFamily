@@ -106,6 +106,8 @@ describe('source text encoding', () => {
     expect(piggyScene).toContain('className="piggy-v2-product-status-label"');
     expect(piggyScene).toContain('className="piggy-v2-product-action-button"');
     expect(styles).toContain('grid-template-rows: 68px minmax(18px, 32px) 16px 32px');
+    expect(styles).toContain('object-fit: contain');
+    expect(styles).toContain('background: #fff8ea');
     expect(styles).toContain('.piggy-v2-product-action');
     expect(styles).toContain('.piggy-v2-product-status-label');
     expect(styles).toContain('.piggy-v2-product-action-button');
