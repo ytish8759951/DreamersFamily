@@ -630,14 +630,32 @@
 }
 
 .piggy-v2-page {
-  --piggy-v2-scale: min(calc((100vw - 40px) * 0.0006944444), calc((100vh - 18px) * 0.0009765625), 0.92);
+  --piggy-v2-scale: min(calc((100vw - 40px) * 0.0006944444), calc((100dvh - 18px) * 0.0009765625), 0.92);
   width: 100%;
   min-height: calc(var(--piggy-v2-scene-h) * var(--piggy-v2-scale));
   overflow-x: hidden;
   overflow-y: auto;
+  overscroll-behavior: contain;
+  touch-action: pan-y;
   background: var(--piggy-v2-cream);
   color: var(--piggy-v2-text);
   font-family: inherit;
+  -webkit-user-select: none;
+  user-select: none;
+}
+
+.piggy-v2-page.is-coin-dragging {
+  cursor: grabbing;
+  overflow: hidden;
+  overscroll-behavior: none;
+  touch-action: none;
+}
+
+html.piggy-v2-scroll-locked,
+body.piggy-v2-scroll-locked {
+  overflow: hidden;
+  overscroll-behavior: none;
+  touch-action: none;
 }
 
 .piggy-v2-wrap {
@@ -653,8 +671,12 @@
   width: var(--piggy-v2-scene-w);
   height: var(--piggy-v2-scene-h);
   overflow: hidden;
+  overscroll-behavior: none;
+  touch-action: manipulation;
   transform: scale(var(--piggy-v2-scale));
   transform-origin: top left;
+  -webkit-user-select: none;
+  user-select: none;
 }
 
 .piggy-v2-bg,
@@ -720,7 +742,7 @@
   z-index: var(--v2-notebook-z);
   filter: drop-shadow(0 18px 24px rgba(86, 56, 24, .16));
 }
-.piggy-v2-bank { left: var(--v2-piggy-x); top: var(--v2-piggy-y); width: var(--v2-piggy-w); height: var(--v2-piggy-h); z-index: var(--v2-piggy-z); border: 0; background: transparent; padding: 0; cursor: pointer; }
+.piggy-v2-bank { left: var(--v2-piggy-x); top: var(--v2-piggy-y); width: var(--v2-piggy-w); height: var(--v2-piggy-h); z-index: var(--v2-piggy-z); border: 0; background: transparent; padding: 0; cursor: pointer; touch-action: manipulation; }
 .piggy-v2-sticky { left: var(--v2-sticky-x); top: var(--v2-sticky-y); width: var(--v2-sticky-w); height: var(--v2-sticky-h); z-index: var(--v2-sticky-z); }
 .piggy-v2-shelf {
   left: var(--v2-shelf-x);
@@ -888,6 +910,27 @@
   transform: rotate(8deg);
   z-index: 4;
   pointer-events: none;
+}
+
+.piggy-v2-deposit-slot {
+  position: absolute;
+  left: 214px;
+  top: 54px;
+  z-index: 9;
+  width: 156px;
+  height: 78px;
+  border: 4px solid transparent;
+  border-radius: 999px;
+  pointer-events: none;
+  transform: rotate(-5deg);
+  transition: border-color .16s ease, box-shadow .16s ease, background .16s ease, opacity .16s ease;
+}
+
+.piggy-v2-bank.is-drop-target .piggy-v2-deposit-slot,
+.piggy-v2-page.is-coin-over-deposit .piggy-v2-deposit-slot {
+  border-color: rgba(24, 130, 58, .82);
+  background: rgba(255, 255, 255, .22);
+  box-shadow: 0 0 0 9px rgba(24, 130, 58, .14), 0 0 28px rgba(24, 130, 58, .34);
 }
 
 .piggy-v2-coin-canvas {
@@ -1457,7 +1500,11 @@
 .piggy-v2-coin-dock {
   display: block;
   opacity: 1;
+  overscroll-behavior: none;
+  touch-action: none;
   transition: opacity .2s ease;
+  -webkit-user-select: none;
+  user-select: none;
 }
 
 .piggy-v2-coin-dock::before {
@@ -1496,6 +1543,9 @@
   background: transparent;
   padding: 0;
   cursor: grab;
+  touch-action: none;
+  -webkit-user-drag: none;
+  -webkit-tap-highlight-color: transparent;
   transition: transform .16s ease, filter .16s ease;
 }
 
@@ -1511,6 +1561,10 @@
   transform: translateY(-8px) scale(1.1);
 }
 
+.piggy-v2-coin-dock button.is-dragging {
+  cursor: grabbing;
+}
+
 .piggy-v2-coin-dock button.is-bouncing-back { animation: piggy-v2-bounce-back 420ms ease; }
 
 .piggy-v2-coin-dock img {
@@ -1520,6 +1574,25 @@
   pointer-events: none;
   user-select: none;
   filter: drop-shadow(0 9px 7px rgba(77, 59, 35, .16));
+}
+
+.piggy-v2-floating-coin {
+  position: fixed;
+  z-index: 2147483000;
+  width: calc(92px * var(--piggy-v2-scale));
+  height: calc(92px * var(--piggy-v2-scale));
+  pointer-events: none;
+  transform: translate(-50%, -50%) scale(1.08);
+  filter: drop-shadow(0 20px 18px rgba(77, 59, 35, .28));
+  transition: none;
+  -webkit-user-select: none;
+  user-select: none;
+}
+
+.piggy-v2-floating-coin.is-returning {
+  transition: left 220ms ease, top 220ms ease, transform 220ms ease, opacity 220ms ease;
+  transform: translate(-50%, -50%) scale(.98);
+  opacity: .88;
 }
 
 /* PiggyBank V3 visual polish: spacing, summary cards, real list, shelf card density. */

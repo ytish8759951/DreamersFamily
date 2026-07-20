@@ -279,7 +279,7 @@ export function ChildPiggyBankPage() {
           event.dataTransfer.setData('text/piggy-coin', String(value));
         }}
         onCoinDragEnd={() => setDraggedCoin(null)}
-        onCoinDoubleClick={(value) => depositCoin(value)}
+        onCoinPointerDeposit={(value) => depositCoin(value)}
         onProductDragStart={(productId, event) => {
           if (!isArranging) return;
           setDraggedProductId(productId);
