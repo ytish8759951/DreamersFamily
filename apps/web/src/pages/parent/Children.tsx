@@ -16,7 +16,7 @@ import {
 import { childrenRepository } from '../../lib/childrenRepository';
 import { deviceBindingRepository } from '../../lib/deviceBindingRepository';
 import { starRepository } from '../../lib/starRepository';
-import type { LocalChild, LocalDeviceBinding } from '../../lib/localTypes';
+import type { LocalChild } from '../../lib/localTypes';
 import type { ChildLoginChallengeResult } from '../../lib/localData';
 import { useLocalDataState } from '../../lib/useLocalData';
 import { resolveChildDeviceStatus, type ChildDeviceStatus } from '../../lib/childDeviceStatus';
@@ -254,7 +254,6 @@ export function Children() {
               const isActive = child.id === state.active_child_id;
               const tone = child.theme_color || tones[index % tones.length];
               const deviceStatus = resolveChildDeviceStatus(state.device_bindings, child.id);
-              const deviceBinding = deviceStatus.binding;
               return (
                 <article className={`child-manager-item${isActive ? ' is-active' : ''}`} key={child.id}>
                   <div className="child-manager-main">
@@ -290,7 +289,6 @@ export function Children() {
                       <ChildDeviceSettings
                         child={child}
                         deviceStatus={deviceStatus}
-                        deviceBinding={deviceBinding}
                         challenge={challengeByChildId[child.id] ?? null}
                         copied={copiedChildId === child.id}
                         error={deviceErrorByChildId[child.id] ?? ''}
@@ -473,7 +471,6 @@ function QRCodeDialogContent({
 function ChildDeviceSettings({
   child: childInput,
   deviceStatus,
-  deviceBinding,
   challenge,
   copied,
   error,
@@ -484,7 +481,6 @@ function ChildDeviceSettings({
 }: {
   child: LocalChild;
   deviceStatus: ChildDeviceStatus;
-  deviceBinding: LocalDeviceBinding | null;
   challenge: ChildLoginChallengeResult | null;
   copied: boolean;
   error: string;
@@ -494,19 +490,11 @@ function ChildDeviceSettings({
   onUnbind: () => void;
 }) {
   const isBound = deviceStatus.isBound;
-  const lastLoginAt = deviceStatus.lastLoginAt;
-  const lastHeartbeatAt = deviceStatus.lastHeartbeatAt;
-  const lastLoginDevice = deviceBinding?.last_login_device ?? null;
   const copyUrl = challenge?.loginUrl ?? childDeviceUrl(childInput);
   return (
     <div className="child-device-settings">
       <dl>
         <div><dt>綁定狀態</dt><dd>{isBound ? '已綁定' : '未綁定'}</dd></div>
-        <div><dt>使用狀態</dt><dd>{deviceStatus.label}</dd></div>
-        <div><dt>QR 狀態</dt><dd>{childInput.child_token_consumed_at ? '已失效' : '可使用'}</dd></div>
-        <div><dt>最後登入時間</dt><dd>{lastLoginAt ? formatDateTime(lastLoginAt) : '尚無'}</dd></div>
-        <div><dt>最近心跳</dt><dd>{lastHeartbeatAt ? formatDateTime(lastHeartbeatAt) : '尚無'}</dd></div>
-        <div><dt>最後登入裝置</dt><dd>{lastLoginDevice ?? '尚無'}</dd></div>
       </dl>
       {error ? <p className="local-form-error">{error}</p> : null}
       <div className="child-device-url">
