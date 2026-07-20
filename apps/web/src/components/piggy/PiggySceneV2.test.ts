@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { getPiggyProductStatusLabel, isPointInsideRect, PIGGY_DRAG_SCROLL_LOCK_CLASS } from './PiggySceneV2';
+import { getPiggyProductActionStatus, getPiggyProductStatusLabel, isPointInsideRect, PIGGY_DRAG_SCROLL_LOCK_CLASS } from './PiggySceneV2';
 
 describe('PiggySceneV2 pointer drag helpers', () => {
   it('uses an inclusive bounding rect hit test for the piggy deposit slot', () => {
@@ -18,10 +18,17 @@ describe('PiggySceneV2 pointer drag helpers', () => {
 });
 
 describe('PiggySceneV2 product status labels', () => {
-  it('renders every shelf status from real product state', () => {
+  it('maps every shelf status to a stable DOM status and visible label', () => {
+    expect(getPiggyProductActionStatus({ status: 'available', affordable: true })).toBe('available');
     expect(getPiggyProductStatusLabel({ status: 'available', affordable: true })).toBe('購買');
+
+    expect(getPiggyProductActionStatus({ status: 'available', affordable: false })).toBe('insufficient');
     expect(getPiggyProductStatusLabel({ status: 'available', affordable: false })).toBe('存款不足');
+
+    expect(getPiggyProductActionStatus({ status: 'pendingPurchase', affordable: true })).toBe('pending');
     expect(getPiggyProductStatusLabel({ status: 'pendingPurchase', affordable: true })).toBe('等待到貨');
+
+    expect(getPiggyProductActionStatus({ status: 'arrived', affordable: true })).toBe('arrived');
     expect(getPiggyProductStatusLabel({ status: 'arrived', affordable: true })).toBe('已到貨');
   });
 });

@@ -19,6 +19,8 @@ export type PiggySceneV2ShelfSlot = {
   leaving: boolean;
 };
 
+export type PiggyProductActionStatus = 'available' | 'insufficient' | 'pending' | 'arrived';
+
 type FallingCoinView = {
   id: number;
   value: number;
@@ -75,10 +77,21 @@ type PiggySceneV2Props = {
   onProductRemove: (productId: string) => void;
 };
 
+export function getPiggyProductActionStatus(product: Pick<PiggySceneV2ShelfSlot, 'status' | 'affordable'>): PiggyProductActionStatus {
+  if (product.status === 'pendingPurchase') return 'pending';
+  if (product.status === 'arrived') return 'arrived';
+  return product.affordable ? 'available' : 'insufficient';
+}
+
 export function getPiggyProductStatusLabel(product: Pick<PiggySceneV2ShelfSlot, 'status' | 'affordable'>) {
-  if (product.status === 'pendingPurchase') return '等待到貨';
-  if (product.status === 'arrived') return '已到貨';
-  return product.affordable ? '購買' : '存款不足';
+  const status = getPiggyProductActionStatus(product);
+  const labels: Record<PiggyProductActionStatus, string> = {
+    available: '購買',
+    insufficient: '存款不足',
+    pending: '等待到貨',
+    arrived: '已到貨'
+  };
+  return labels[status];
 }
 
 export function PiggySceneV2(props: PiggySceneV2Props) {
@@ -581,6 +594,7 @@ function ProductCard({
   onRemove: () => void;
   isArranging: boolean;
 }) {
+  const debugPiggy = shouldShowPiggyDebug();
   if (product.status === 'pendingPurchase') {
     return (
       <article className={`piggy-v2-product-card is-purchased ${isArranging ? 'is-arranging' : ''} ${product.leaving ? 'is-leaving' : ''}`} draggable={false}>
@@ -589,14 +603,10 @@ function ProductCard({
         {product.imageSrc ? <img src={product.imageSrc} alt={product.name} /> : <div className="piggy-v2-product-image-empty">尚未上傳圖片</div>}
         <strong className={!product.name.trim() ? 'is-empty-name' : ''} title={product.name} aria-label={product.name}>{product.name}</strong>
         <span>{product.price}</span>
-        <div className="piggy-v2-product-action">
-          <button type="button" disabled className="piggy-v2-product-waiting">{getPiggyProductStatusLabel(product)}</button>
-        </div>
+        <ProductAction product={product} isArranging={isArranging} onBuy={onBuy} debug={debugPiggy} />
       </article>
     );
   }
-
-  const statusLabel = getPiggyProductStatusLabel(product);
 
   return (
     <article
@@ -612,13 +622,87 @@ function ProductCard({
       {product.imageSrc ? <img src={product.imageSrc} alt={product.name} /> : <div className="piggy-v2-product-image-empty">尚未上傳圖片</div>}
       <strong className={!product.name.trim() ? 'is-empty-name' : ''} title={product.name} aria-label={product.name}>{product.name}</strong>
       <span>{product.price}</span>
-      <div className="piggy-v2-product-action">
-        <button type="button" disabled={isArranging || (product.status === 'available' && !product.affordable)} onClick={onBuy}>
-          {statusLabel}
-        </button>
-      </div>
+      <ProductAction product={product} isArranging={isArranging} onBuy={onBuy} debug={debugPiggy} />
     </article>
   );
+}
+
+type PiggyProductDebugInfo = {
+  productStatus: PiggySceneV2ShelfSlot['status'];
+  affordable: boolean;
+  statusLabel: string;
+  actionRect: string;
+  labelRect: string;
+  actionStyle: string;
+  labelStyle: string;
+};
+
+function ProductAction({
+  product,
+  isArranging,
+  onBuy,
+  debug
+}: {
+  product: PiggySceneV2ShelfSlot;
+  isArranging: boolean;
+  onBuy: () => void;
+  debug: boolean;
+}) {
+  const actionRef = useRef<HTMLDivElement>(null);
+  const labelRef = useRef<HTMLSpanElement>(null);
+  const [debugInfo, setDebugInfo] = useState<PiggyProductDebugInfo | null>(null);
+  const status = getPiggyProductActionStatus(product);
+  const statusLabel = getPiggyProductStatusLabel(product);
+  const canClick = !isArranging && (status === 'available' || status === 'arrived');
+
+  useEffect(() => {
+    if (!debug) {
+      setDebugInfo(null);
+      return;
+    }
+    const frame = window.requestAnimationFrame(() => {
+      setDebugInfo({
+        productStatus: product.status,
+        affordable: product.affordable,
+        statusLabel,
+        actionRect: formatDebugRect(actionRef.current?.getBoundingClientRect()),
+        labelRect: formatDebugRect(labelRef.current?.getBoundingClientRect()),
+        actionStyle: formatDebugStyle(actionRef.current),
+        labelStyle: formatDebugStyle(labelRef.current)
+      });
+    });
+    return () => window.cancelAnimationFrame(frame);
+  }, [debug, product.status, product.affordable, statusLabel]);
+
+  return (
+    <div className="piggy-v2-product-action" data-status={status} ref={actionRef}>
+      <span className="piggy-v2-product-status-label" ref={labelRef}>{statusLabel}</span>
+      {canClick ? (
+        <button type="button" className="piggy-v2-product-action-button" aria-label={`${statusLabel} ${product.name || '商品'}`} onClick={onBuy} />
+      ) : null}
+      {debug && debugInfo ? <pre className="piggy-v2-product-debug">{JSON.stringify(debugInfo, null, 2)}</pre> : null}
+    </div>
+  );
+}
+
+function shouldShowPiggyDebug() {
+  if (typeof window === 'undefined') return false;
+  return new URLSearchParams(window.location.search).get('debugPiggy') === '1';
+}
+
+function formatDebugRect(rect?: DOMRect) {
+  if (!rect) return 'null';
+  return `top=${roundDebug(rect.top)} bottom=${roundDebug(rect.bottom)} left=${roundDebug(rect.left)} right=${roundDebug(rect.right)} width=${roundDebug(rect.width)} height=${roundDebug(rect.height)}`;
+}
+
+function formatDebugStyle(element: HTMLElement | null) {
+  if (!element || typeof window === 'undefined') return 'null';
+  const style = window.getComputedStyle(element);
+  return `display=${style.display} visibility=${style.visibility} opacity=${style.opacity} color=${style.color} fontSize=${style.fontSize}`;
+}
+
+function roundDebug(value: number) {
+  return Math.round(value * 100) / 100;
 }
 
 function Decorations() {

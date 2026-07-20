@@ -8,12 +8,66 @@ const appRoot = resolve(scriptDir, '..');
 const repoRoot = resolve(appRoot, '..', '..');
 const artifactDir = resolve(repoRoot, 'artifacts', 'piggy-product-layout');
 
+const familyId = '00000000-0000-4000-8000-000000000101';
+const childId = '00000000-0000-4000-8000-000000000202';
+
+const products = [
+  {
+    id: '00000000-0000-4000-8000-000000000301',
+    family_id: familyId,
+    child_id: childId,
+    status: 'available',
+    affordable: true,
+    name: '超長商品名稱測試兩行省略不推擠狀態列',
+    price: '$100',
+    statusLabel: '購買',
+    actionStatus: 'available',
+    canClick: true
+  },
+  {
+    id: '00000000-0000-4000-8000-000000000302',
+    family_id: familyId,
+    child_id: childId,
+    status: 'available',
+    affordable: false,
+    name: '222',
+    price: '$999',
+    statusLabel: '存款不足',
+    actionStatus: 'insufficient',
+    canClick: false
+  },
+  {
+    id: '00000000-0000-4000-8000-000000000303',
+    family_id: familyId,
+    child_id: childId,
+    status: 'pendingPurchase',
+    affordable: true,
+    name: '等待到貨商品',
+    price: '$50',
+    statusLabel: '等待到貨',
+    actionStatus: 'pending',
+    canClick: false
+  },
+  {
+    id: '00000000-0000-4000-8000-000000000304',
+    family_id: familyId,
+    child_id: childId,
+    status: 'arrived',
+    affordable: true,
+    name: '已到貨商品',
+    price: '$80',
+    statusLabel: '已到貨',
+    actionStatus: 'arrived',
+    canClick: true
+  }
+];
+
 test.describe('piggy product card layout', () => {
   for (const viewport of [
     { name: 'ipad-landscape', width: 1024, height: 768 },
     { name: 'ipad-portrait', width: 768, height: 1024 }
   ]) {
-    test(`${viewport.name} keeps status action inside product card`, async ({ page }) => {
+    test(`${viewport.name} keeps visible status label inside product card`, async ({ page }) => {
       await page.setViewportSize(viewport);
       await mkdir(artifactDir, { recursive: true });
       const css = await readFile(resolve(appRoot, 'src', 'styles', 'index.css'), 'utf8');
@@ -35,21 +89,36 @@ test.describe('piggy product card layout', () => {
             height: round(domRect.height)
           });
           const action = card.querySelector('.piggy-v2-product-action');
-          const button = action?.querySelector('button');
+          const label = action?.querySelector('.piggy-v2-product-status-label');
+          const button = action?.querySelector('.piggy-v2-product-action-button');
           const cardRect = card.getBoundingClientRect();
           const actionRect = action?.getBoundingClientRect();
+          const labelRect = label?.getBoundingClientRect();
           const buttonRect = button?.getBoundingClientRect();
           const actionStyle = action ? getComputedStyle(action) : null;
+          const labelStyle = label ? getComputedStyle(label) : null;
           const buttonStyle = button ? getComputedStyle(button) : null;
           return {
-            label: button?.textContent?.trim() ?? '',
+            label: label?.textContent?.trim() ?? '',
+            status: action?.getAttribute('data-status') ?? '',
+            hasButton: Boolean(button),
             card: rect(cardRect),
             action: actionRect ? rect(actionRect) : null,
+            labelRect: labelRect ? rect(labelRect) : null,
             button: buttonRect ? rect(buttonRect) : null,
             actionStyle: actionStyle ? {
               display: actionStyle.display,
               visibility: actionStyle.visibility,
-              opacity: actionStyle.opacity
+              opacity: actionStyle.opacity,
+              color: actionStyle.color,
+              fontSize: actionStyle.fontSize
+            } : null,
+            labelStyle: labelStyle ? {
+              display: labelStyle.display,
+              visibility: labelStyle.visibility,
+              opacity: labelStyle.opacity,
+              color: labelStyle.color,
+              fontSize: labelStyle.fontSize
             } : null,
             buttonStyle: buttonStyle ? {
               display: buttonStyle.display,
@@ -62,24 +131,47 @@ test.describe('piggy product card layout', () => {
 
       await writeFile(resolve(artifactDir, `${viewport.name}-measurements.json`), JSON.stringify(measurements, null, 2), 'utf8');
       expect(measurements.map((item) => item.label)).toEqual(['購買', '存款不足', '等待到貨', '已到貨']);
+      expect(measurements.map((item) => item.status)).toEqual(['available', 'insufficient', 'pending', 'arrived']);
 
       for (const item of measurements) {
         expect(item.action, item.label).not.toBeNull();
-        expect(item.button, item.label).not.toBeNull();
+        expect(item.labelRect, item.label).not.toBeNull();
         expect(item.action.top, item.label).toBeGreaterThanOrEqual(item.card.top);
         expect(item.action.bottom, item.label).toBeLessThanOrEqual(item.card.bottom);
         expect(item.action.width, item.label).toBeGreaterThan(0);
-        expect(item.action.height, item.label).toBeGreaterThan(0);
-        expect(item.button.top, item.label).toBeGreaterThanOrEqual(item.card.top);
-        expect(item.button.bottom, item.label).toBeLessThanOrEqual(item.card.bottom);
+        expect(item.action.height, item.label).toBeGreaterThanOrEqual(32);
+        expect(item.labelRect.top, item.label).toBeGreaterThanOrEqual(item.card.top);
+        expect(item.labelRect.bottom, item.label).toBeLessThanOrEqual(item.card.bottom);
+        expect(item.labelRect.width, item.label).toBeGreaterThan(0);
+        expect(item.labelRect.height, item.label).toBeGreaterThan(0);
+        expect(item.actionStyle.display, item.label).toBe('flex');
+        expect(item.actionStyle.visibility, item.label).toBe('visible');
+        expect(Number(item.actionStyle.opacity), item.label).toBe(1);
+        expect(item.labelStyle.visibility, item.label).toBe('visible');
+        expect(Number(item.labelStyle.opacity), item.label).toBe(1);
+        expect(item.labelStyle.color, item.label).not.toBe('transparent');
+        expect(item.labelStyle.color, item.label).not.toBe('rgba(0, 0, 0, 0)');
+        expect(parseFloat(item.labelStyle.fontSize), item.label).toBeGreaterThan(0);
+      }
+
+      expect(measurements[0].labelStyle.color).toBe('rgb(255, 255, 255)');
+      expect(measurements[1].labelStyle.color).toBe('rgb(116, 106, 95)');
+      expect(measurements[2].labelStyle.color).toBe('rgb(138, 87, 37)');
+      expect(measurements[3].labelStyle.color).toBe('rgb(255, 255, 255)');
+
+      expect(measurements[0].hasButton).toBe(true);
+      expect(measurements[1].hasButton).toBe(false);
+      expect(measurements[2].hasButton).toBe(false);
+      expect(measurements[3].hasButton).toBe(true);
+      for (const item of [measurements[0], measurements[3]]) {
+        expect(item.button, item.label).not.toBeNull();
+        expect(item.button.top, item.label).toBeGreaterThanOrEqual(item.action.top);
+        expect(item.button.bottom, item.label).toBeLessThanOrEqual(item.action.bottom);
         expect(item.button.width, item.label).toBeGreaterThan(0);
         expect(item.button.height, item.label).toBeGreaterThan(0);
-        expect(item.actionStyle.display, item.label).not.toBe('none');
-        expect(item.actionStyle.visibility, item.label).not.toBe('hidden');
-        expect(Number(item.actionStyle.opacity), item.label).not.toBe(0);
         expect(item.buttonStyle.display, item.label).not.toBe('none');
-        expect(item.buttonStyle.visibility, item.label).not.toBe('hidden');
-        expect(Number(item.buttonStyle.opacity), item.label).not.toBe(0);
+        expect(item.buttonStyle.visibility, item.label).toBe('visible');
+        expect(Number(item.buttonStyle.opacity), item.label).toBe(0);
       }
     });
   }
@@ -103,11 +195,8 @@ function buildFixture(appCss) {
 <body>
   <section class="piggy-v2-page">
     <section class="piggy-v2-shelf" aria-label="商品架">
-      <div class="piggy-v2-shelf-grid" aria-label="展示商品">
-        ${productCard('超長商品名稱測試兩行省略仍顯示按鈕', '$100', '購買', '')}
-        ${productCard('222', '$999', '存款不足', '')}
-        ${productCard('等待商品', '$50', '等待到貨', 'is-purchased')}
-        ${productCard('到貨商品', '$80', '已到貨', '')}
+      <div class="piggy-v2-shelf-grid" aria-label="商品架清單">
+        ${products.map(productCard).join('')}
       </div>
     </section>
   </section>
@@ -115,12 +204,26 @@ function buildFixture(appCss) {
 </html>`;
 }
 
-function productCard(name, price, label, stateClass) {
-  const disabled = label === '存款不足' || label === '等待到貨' ? ' disabled' : '';
-  return `<article class="piggy-v2-product-card ${stateClass}">
-    <img alt="${name}" />
-    <strong title="${name}" aria-label="${name}">${name}</strong>
-    <span>${price}</span>
-    <div class="piggy-v2-product-action"><button type="button"${disabled}>${label}</button></div>
+function productCard(product) {
+  const stateClass = product.status === 'pendingPurchase' ? 'is-purchased' : product.affordable ? 'is-affordable' : '';
+  const button = product.canClick
+    ? `<button type="button" class="piggy-v2-product-action-button" aria-label="${product.statusLabel} ${escapeHtml(product.name)}"></button>`
+    : '';
+  return `<article class="piggy-v2-product-card ${stateClass}" data-product-id="${product.id}" data-family-id="${product.family_id}" data-child-id="${product.child_id}" data-product-status="${product.status}" data-affordable="${product.affordable}">
+    <img alt="${escapeHtml(product.name)}" />
+    <strong title="${escapeHtml(product.name)}" aria-label="${escapeHtml(product.name)}">${escapeHtml(product.name)}</strong>
+    <span>${product.price}</span>
+    <div class="piggy-v2-product-action" data-status="${product.actionStatus}">
+      <span class="piggy-v2-product-status-label">${product.statusLabel}</span>
+      ${button}
+    </div>
   </article>`;
+}
+
+function escapeHtml(value) {
+  return String(value)
+    .replaceAll('&', '&amp;')
+    .replaceAll('"', '&quot;')
+    .replaceAll('<', '&lt;')
+    .replaceAll('>', '&gt;');
 }

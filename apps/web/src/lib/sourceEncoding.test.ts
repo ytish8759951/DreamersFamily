@@ -103,9 +103,13 @@ describe('source text encoding', () => {
     const piggyScene = readSource('apps/web/src/components/piggy/PiggySceneV2.tsx');
 
     expect(piggyScene).toContain('className="piggy-v2-product-action"');
-    expect(styles).toContain('grid-template-rows: 68px minmax(18px, 32px) 16px 30px');
+    expect(piggyScene).toContain('className="piggy-v2-product-status-label"');
+    expect(piggyScene).toContain('className="piggy-v2-product-action-button"');
+    expect(styles).toContain('grid-template-rows: 68px minmax(18px, 32px) 16px 32px');
     expect(styles).toContain('.piggy-v2-product-action');
-    expect(styles).toContain('height: 30px');
+    expect(styles).toContain('.piggy-v2-product-status-label');
+    expect(styles).toContain('.piggy-v2-product-action-button');
+    expect(styles).toContain('height: 32px');
     expect(styles).toContain('-webkit-line-clamp: 2');
   });
 });
