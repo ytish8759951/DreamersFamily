@@ -75,6 +75,12 @@ type PiggySceneV2Props = {
   onProductRemove: (productId: string) => void;
 };
 
+export function getPiggyProductStatusLabel(product: Pick<PiggySceneV2ShelfSlot, 'status' | 'affordable'>) {
+  if (product.status === 'pendingPurchase') return '等待到貨';
+  if (product.status === 'arrived') return '已到貨';
+  return product.affordable ? '購買' : '存款不足';
+}
+
 export function PiggySceneV2(props: PiggySceneV2Props) {
   const sceneScale = useSceneScale();
   const sceneStyle = { ...piggySceneV2Vars(), '--piggy-v2-scale': sceneScale } as CSSProperties;
@@ -581,12 +587,16 @@ function ProductCard({
         {isArranging ? <button type="button" className="piggy-v2-product-remove" onClick={onRemove}>移除</button> : null}
         {isArranging ? <span className="piggy-v2-product-handle" aria-hidden="true"><GripVertical size={16} /></span> : null}
         {product.imageSrc ? <img src={product.imageSrc} alt={product.name} /> : <div className="piggy-v2-product-image-empty">尚未上傳圖片</div>}
-        <strong className={!product.name.trim() ? 'is-empty-name' : ''}>{product.name}</strong>
+        <strong className={!product.name.trim() ? 'is-empty-name' : ''} title={product.name} aria-label={product.name}>{product.name}</strong>
         <span>{product.price}</span>
-        <button disabled className="piggy-v2-product-waiting">等待到貨</button>
+        <div className="piggy-v2-product-action">
+          <button type="button" disabled className="piggy-v2-product-waiting">{getPiggyProductStatusLabel(product)}</button>
+        </div>
       </article>
     );
   }
+
+  const statusLabel = getPiggyProductStatusLabel(product);
 
   return (
     <article
@@ -599,18 +609,14 @@ function ProductCard({
     >
       {isArranging ? <button type="button" className="piggy-v2-product-remove" onClick={onRemove}>移除</button> : null}
       {isArranging ? <span className="piggy-v2-product-handle" aria-hidden="true"><GripVertical size={16} /></span> : null}
-      {product.status === 'arrived' && !isArranging ? (
-        <button type="button" className="piggy-v2-arrived-badge" onClick={onBuy} aria-label={`${product.name || '商品'} 已到貨`}>
-          <span aria-hidden="true">✓</span>
-          已到貨
-        </button>
-      ) : null}
       {product.imageSrc ? <img src={product.imageSrc} alt={product.name} /> : <div className="piggy-v2-product-image-empty">尚未上傳圖片</div>}
-      <strong className={!product.name.trim() ? 'is-empty-name' : ''}>{product.name}</strong>
+      <strong className={!product.name.trim() ? 'is-empty-name' : ''} title={product.name} aria-label={product.name}>{product.name}</strong>
       <span>{product.price}</span>
-      <button disabled={isArranging || (product.status === 'available' && !product.affordable)} onClick={onBuy}>
-        {product.status === 'arrived' ? '已到貨' : product.affordable ? '購買' : '存款不足'}
-      </button>
+      <div className="piggy-v2-product-action">
+        <button type="button" disabled={isArranging || (product.status === 'available' && !product.affordable)} onClick={onBuy}>
+          {statusLabel}
+        </button>
+      </div>
     </article>
   );
 }

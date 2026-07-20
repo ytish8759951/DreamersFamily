@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { isPointInsideRect, PIGGY_DRAG_SCROLL_LOCK_CLASS } from './PiggySceneV2';
+import { getPiggyProductStatusLabel, isPointInsideRect, PIGGY_DRAG_SCROLL_LOCK_CLASS } from './PiggySceneV2';
 
 describe('PiggySceneV2 pointer drag helpers', () => {
   it('uses an inclusive bounding rect hit test for the piggy deposit slot', () => {
@@ -14,5 +14,14 @@ describe('PiggySceneV2 pointer drag helpers', () => {
 
   it('keeps the scroll-lock class scoped to piggy coin dragging', () => {
     expect(PIGGY_DRAG_SCROLL_LOCK_CLASS).toBe('piggy-v2-scroll-locked');
+  });
+});
+
+describe('PiggySceneV2 product status labels', () => {
+  it('renders every shelf status from real product state', () => {
+    expect(getPiggyProductStatusLabel({ status: 'available', affordable: true })).toBe('購買');
+    expect(getPiggyProductStatusLabel({ status: 'available', affordable: false })).toBe('存款不足');
+    expect(getPiggyProductStatusLabel({ status: 'pendingPurchase', affordable: true })).toBe('等待到貨');
+    expect(getPiggyProductStatusLabel({ status: 'arrived', affordable: true })).toBe('已到貨');
   });
 });
