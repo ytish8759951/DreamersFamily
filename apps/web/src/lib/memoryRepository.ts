@@ -1,4 +1,5 @@
 import { mediaRepository } from './mediaRepository';
+import { dataRepository } from './dataRepository';
 import type { LocalShareMedia } from './localTypes';
 
 export const memoryRepository = {
@@ -42,11 +43,13 @@ async function getMediaBytes(mediaId: string, fallbackName: string) {
   };
 }
 
-async function saveDreamCover(input: { id?: string; ownerId: string; blob: Blob; mimeType: string; fileName?: string }) {
+async function saveDreamCover(input: { id?: string; ownerId: string; childId?: string | null; blob: Blob; mimeType: string; fileName?: string }) {
+  const state = dataRepository.getState();
   const media = await mediaRepository.saveMedia({
     id: input.id,
     ownerType: 'dream',
     ownerId: input.ownerId,
+    childId: input.childId ?? state.dreams.find((dream) => dream.id === input.ownerId)?.child_id ?? state.active_child_id,
     mediaType: 'image',
     mimeType: input.mimeType,
     fileName: input.fileName,

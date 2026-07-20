@@ -1,6 +1,9 @@
+import { createClient, type SupabaseClient } from '@supabase/supabase-js';
 import { dataMode, dataRepository } from './dataRepository';
-import { supabaseClient } from './supabaseData';
+import { getSupabaseConfig, supabaseClient } from './supabaseData';
+import { getChildSession, isChildSessionValid } from './childSessionRepository';
 import { startupTrace, traceStartupPromise, traceStartupPromiseAll } from './startupTrace';
+import type { LocalDatabaseState, UUID } from './localTypes';
 
 const DB_NAME = 'little-dreamers-family-media';
 const DB_VERSION = 4;
@@ -52,6 +55,8 @@ export type SaveMediaInput = {
   thumbnailBlob?: Blob | null;
   thumbnailMimeType?: string | null;
   skipImageCompression?: boolean;
+  familyId?: string | null;
+  childId?: string | null;
   blob: Blob;
   createdAt?: number;
 };
@@ -77,6 +82,27 @@ type LegacyMediaRecord = {
   createdAt?: string | number;
 };
 
+type RemoteMediaAsset = {
+  id: UUID;
+  family_id: UUID;
+  child_id: UUID | null;
+  entity_type: MediaOwnerType | string | null;
+  entity_id: UUID | string | null;
+  media_kind: UnifiedMediaType | 'document';
+  purpose: string | null;
+  bucket: 'family-media';
+  path: string;
+  mime_type: string;
+  file_size: number;
+  created_at: string;
+};
+
+type MediaScope = {
+  familyId: UUID;
+  childId: UUID;
+  ownerId: string;
+};
+
 export const mediaRepository = {
   saveMedia,
   getMedia,
@@ -95,7 +121,8 @@ export const mediaRepository = {
   getMediaThumbnail,
   getThumbnail,
   createThumbnail,
-  listStoreSummaries
+  listStoreSummaries,
+  backfillLocalMediaToSupabase
 };
 
 async function openMediaDb() {
@@ -210,7 +237,7 @@ export async function saveMedia(input: SaveMediaInput) {
     mediaType: input.mediaType
   });
   if (shouldUseSupabaseStorage(record.ownerType)) {
-    const saved = await traceStartupPromise('mediaRepository.saveSupabaseStorageMedia', () => saveSupabaseStorageMedia(record), {
+    const saved = await traceStartupPromise('mediaRepository.saveSupabaseStorageMedia', () => saveSupabaseStorageMedia(record, input), {
       ownerType: record.ownerType,
       ownerId: record.ownerId,
       id: record.id
@@ -230,8 +257,8 @@ export async function saveMedia(input: SaveMediaInput) {
 }
 
 export async function getMedia(id: string) {
-  const remoteShareMedia = findRemoteShareMedia(id);
-  if (remoteShareMedia) return getSupabaseStorageMedia(remoteShareMedia);
+  const remoteMedia = await findRemoteMedia(id);
+  if (remoteMedia) return getSupabaseStorageMedia(remoteMedia);
   const db = await openMediaDb();
   const record = await new Promise<UnifiedMediaRecord | null>((resolve, reject) => {
     const transaction = db.transaction(MEDIA_STORE_NAME, 'readonly');
@@ -245,9 +272,9 @@ export async function getMedia(id: string) {
 
 export async function deleteMedia(id: string) {
   revokeCachedObjectUrl(id);
-  const remoteShareMedia = findRemoteShareMedia(id);
-  if (remoteShareMedia) {
-    await deleteSupabaseStorageMedia(remoteShareMedia);
+  const remoteMedia = await findRemoteMedia(id);
+  if (remoteMedia) {
+    await deleteSupabaseStorageMedia(remoteMedia);
     return;
   }
   const db = await openMediaDb();
@@ -264,6 +291,11 @@ export async function updateMedia(input: UpdateMediaInput) {
     id: input.id,
     blob: input.blob ?? existing.blob
   });
+  if (shouldUseSupabaseStorage(next.ownerType)) {
+    const saved = await saveSupabaseStorageMedia(next, input);
+    revokeCachedObjectUrl(input.id);
+    return saved;
+  }
   const db = await openMediaDb();
   await writeTransaction(db, (store) => store.put(next));
   db.close();
@@ -303,6 +335,47 @@ export async function listMedia() {
   });
   db.close();
   return records.sort((a, b) => a.createdAt - b.createdAt);
+}
+
+export async function backfillLocalMediaToSupabase() {
+  if (dataMode !== 'supabase' || !supabaseClient) return { attempted: 0, uploaded: 0, skipped: 0, failed: 0 };
+  const records = await listMedia();
+  let uploaded = 0;
+  let skipped = 0;
+  let failed = 0;
+  for (const record of records) {
+    if (record.bucket === 'family-media' && record.storagePath) {
+      skipped += 1;
+      continue;
+    }
+    try {
+      await saveSupabaseStorageMedia(record, {
+        id: record.id,
+        ownerType: record.ownerType,
+        ownerId: record.ownerId,
+        mediaType: record.mediaType,
+        mimeType: record.mimeType,
+        fileName: record.fileName,
+        width: record.width,
+        height: record.height,
+        duration: record.duration,
+        thumbnailBlob: record.thumbnailBlob,
+        thumbnailMimeType: record.thumbnailMimeType,
+        blob: record.blob,
+        createdAt: record.createdAt
+      });
+      uploaded += 1;
+    } catch (error) {
+      failed += 1;
+      console.warn('[mediaRepository] failed to backfill local media to Supabase', {
+        mediaId: record.id,
+        ownerType: record.ownerType,
+        ownerId: record.ownerId,
+        error
+      });
+    }
+  }
+  return { attempted: records.length, uploaded, skipped, failed };
 }
 
 export async function deleteOwnerMedia(ownerType: MediaOwnerType, ownerId: string) {
@@ -466,19 +539,21 @@ async function normalizeSaveInput(input: SaveMediaInput): Promise<UnifiedMediaRe
 }
 
 function shouldUseSupabaseStorage(ownerType: MediaOwnerType) {
-  return dataMode === 'supabase' && ownerType === 'share' && Boolean(supabaseClient);
+  return dataMode === 'supabase' && Boolean(supabaseClient) && Boolean(ownerType);
 }
 
-async function saveSupabaseStorageMedia(record: UnifiedMediaRecord): Promise<UnifiedMediaRecord> {
+async function saveSupabaseStorageMedia(record: UnifiedMediaRecord, input?: Partial<SaveMediaInput>): Promise<UnifiedMediaRecord> {
   if (!supabaseClient) throw new Error('Supabase Storage is not configured');
-  const share = dataRepository.getState().shares.find((item) => item.id === record.ownerId);
-  if (!share) throw new Error('Share metadata must exist before uploading media');
+  const scope = resolveMediaScope(record, input);
+  if (!scope) throw new Error('Media owner scope is unavailable. Please save the item first or re-upload the media.');
+  const client = getStorageClientForScope(scope);
   const extension = extensionFromMimeType(record.mimeType, record.fileName);
   const createdAt = new Date(record.createdAt);
   const year = String(createdAt.getUTCFullYear());
   const month = String(createdAt.getUTCMonth() + 1).padStart(2, '0');
-  const storagePath = `${share.family_id}/${share.child_id}/${year}/${month}/${record.id}.${extension}`;
-  const upload = await supabaseClient.storage
+  const ownerSegment = safePathSegment(record.ownerType);
+  const storagePath = `${scope.familyId}/${scope.childId}/${year}/${month}/${ownerSegment}/${record.id}.${extension}`;
+  const upload = await client.storage
     .from('family-media')
     .upload(storagePath, record.blob, {
       cacheControl: '31536000',
@@ -489,8 +564,8 @@ async function saveSupabaseStorageMedia(record: UnifiedMediaRecord): Promise<Uni
 
   let thumbnailPath: string | null = null;
   if (record.thumbnailBlob) {
-    thumbnailPath = `${share.family_id}/${share.child_id}/${year}/${month}/${record.id}-thumb.webp`;
-    const thumbnailUpload = await supabaseClient.storage
+    thumbnailPath = `${scope.familyId}/${scope.childId}/${year}/${month}/${ownerSegment}/${record.id}-thumb.webp`;
+    const thumbnailUpload = await client.storage
       .from('family-media')
       .upload(thumbnailPath, record.thumbnailBlob, {
         cacheControl: '31536000',
@@ -498,6 +573,25 @@ async function saveSupabaseStorageMedia(record: UnifiedMediaRecord): Promise<Uni
         upsert: true
       });
     if (thumbnailUpload.error) throw thumbnailUpload.error;
+  }
+
+  await upsertRemoteMediaAsset({
+    record,
+    scope,
+    storagePath
+  });
+
+  if (record.ownerType === 'share') {
+    dataRepository.updateShareMediaStorage(record.id, {
+      bucket: 'family-media',
+      storage_path: storagePath,
+      thumbnail_path: thumbnailPath,
+      mime_type: record.mimeType,
+      file_size_bytes: record.blob.size,
+      width: record.width ?? null,
+      height: record.height ?? null,
+      duration_seconds: record.duration ?? null
+    });
   }
 
   return {
@@ -508,47 +602,202 @@ async function saveSupabaseStorageMedia(record: UnifiedMediaRecord): Promise<Uni
   };
 }
 
-async function getSupabaseStorageMedia(media: ReturnType<typeof findRemoteShareMedia> extends infer T ? NonNullable<T> : never) {
+async function getSupabaseStorageMedia(media: RemoteMediaAsset) {
   if (!supabaseClient) throw new Error('Supabase Storage is not configured');
-  const download = await supabaseClient.storage.from(media.bucket).download(media.storage_path);
+  const client = getStorageClientForRemoteMedia(media);
+  const download = await client.storage.from(media.bucket).download(media.path);
   if (download.error) throw download.error;
   let thumbnailBlob: Blob | undefined;
-  if (media.thumbnail_path) {
-    const thumbnailDownload = await supabaseClient.storage.from(media.bucket).download(media.thumbnail_path);
-    if (!thumbnailDownload.error && thumbnailDownload.data) thumbnailBlob = thumbnailDownload.data;
-  }
   return {
     id: media.id,
-    ownerType: 'share',
-    ownerId: media.share_id,
-    mediaType: media.media_type,
+    ownerType: normalizeRemoteOwnerType(media.entity_type),
+    ownerId: media.entity_id ?? media.id,
+    mediaType: normalizeRemoteMediaType(media.media_kind),
     mimeType: media.mime_type,
-    fileName: media.storage_path.split('/').pop(),
-    width: media.width ?? undefined,
-    height: media.height ?? undefined,
-    duration: media.duration_seconds ?? undefined,
+    fileName: media.path.split('/').pop(),
     bucket: 'family-media',
-    storagePath: media.storage_path,
+    storagePath: media.path,
     thumbnailBlob,
     thumbnailMimeType: thumbnailBlob?.type,
-    thumbnailPath: media.thumbnail_path,
+    thumbnailPath: null,
     createdAt: normalizeCreatedAt(media.created_at),
     blob: download.data
   } satisfies UnifiedMediaRecord;
 }
 
-async function deleteSupabaseStorageMedia(media: ReturnType<typeof findRemoteShareMedia> extends infer T ? NonNullable<T> : never) {
+async function deleteSupabaseStorageMedia(media: RemoteMediaAsset) {
   if (!supabaseClient) throw new Error('Supabase Storage is not configured');
-  const paths = [media.storage_path, media.thumbnail_path].filter((path): path is string => Boolean(path));
+  const client = getStorageClientForRemoteMedia(media);
+  const paths = [media.path].filter((path): path is string => Boolean(path));
   if (!paths.length) return;
-  const { error } = await supabaseClient.storage.from(media.bucket).remove(paths);
+  const { error } = await client.storage.from(media.bucket).remove(paths);
+  if (error) throw error;
+  await client.from('media_assets').delete().eq('id', media.id);
+}
+
+async function findRemoteMedia(mediaId: string): Promise<RemoteMediaAsset | null> {
+  if (dataMode !== 'supabase') return null;
+  const media = dataRepository.getState().share_media.find((item) => item.id === mediaId);
+  if (media?.bucket === 'family-media') {
+    return {
+      id: media.id,
+      family_id: media.family_id,
+      child_id: media.child_id,
+      entity_type: 'share',
+      entity_id: media.share_id,
+      media_kind: media.media_type,
+      purpose: 'content',
+      bucket: 'family-media',
+      path: media.storage_path,
+      mime_type: media.mime_type,
+      file_size: media.file_size_bytes,
+      created_at: media.created_at
+    };
+  }
+  if (!supabaseClient) return null;
+  const scoped = getStorageClientForCurrentSession();
+  const { data, error } = await scoped
+    .from('media_assets')
+    .select('id,family_id,child_id,entity_type,entity_id,media_kind,purpose,bucket,path,mime_type,file_size,created_at')
+    .eq('id', mediaId)
+    .maybeSingle();
+  if (error) {
+    console.warn('[mediaRepository] failed to resolve remote media metadata', { mediaId, error });
+    return null;
+  }
+  const row = data as RemoteMediaAsset | null;
+  return row?.bucket === 'family-media' ? row : null;
+}
+
+async function upsertRemoteMediaAsset(input: {
+  record: UnifiedMediaRecord;
+  scope: MediaScope;
+  storagePath: string;
+}) {
+  const client = getStorageClientForScope(input.scope);
+  const row = {
+    id: input.record.id,
+    family_id: input.scope.familyId,
+    child_id: input.scope.childId,
+    record_id: null,
+    entity_type: input.record.ownerType,
+    entity_id: isUuid(input.scope.ownerId) ? input.scope.ownerId : null,
+    media_kind: input.record.mediaType,
+    purpose: mediaPurpose(input.record.ownerType),
+    bucket: 'family-media',
+    path: input.storagePath,
+    mime_type: input.record.mimeType,
+    file_size: input.record.blob.size,
+    caption: input.record.fileName ?? null,
+    uploaded_by: null,
+    uploaded_by_child_id: input.record.ownerType === 'avatar' && input.scope.ownerId === input.scope.childId ? input.scope.childId : null,
+    uploaded_by_device_id: null
+  };
+  const { error } = await client.from('media_assets').upsert(row, { onConflict: 'id' });
   if (error) throw error;
 }
 
-function findRemoteShareMedia(mediaId: string) {
-  if (dataMode !== 'supabase') return null;
-  const media = dataRepository.getState().share_media.find((item) => item.id === mediaId);
-  return media?.bucket === 'family-media' ? media : null;
+function resolveMediaScope(record: UnifiedMediaRecord, input?: Partial<SaveMediaInput>): MediaScope | null {
+  const state = dataRepository.getState();
+  const session = getChildSession();
+  const familyId = input?.familyId ?? session?.familyId ?? state.family_id;
+  const explicitChildId = input?.childId ?? null;
+  const childId =
+    explicitChildId ??
+    resolveOwnerChildId(record.ownerType, record.ownerId, state) ??
+    (isChildSessionValid(session) ? session.childId : null) ??
+    state.active_child_id ??
+    state.device_child_id ??
+    state.children.find((child) => child.status === 'active')?.id ??
+    null;
+  if (!familyId || !childId) return null;
+  return { familyId, childId, ownerId: record.ownerId };
+}
+
+function resolveOwnerChildId(ownerType: MediaOwnerType, ownerId: string, state: LocalDatabaseState) {
+  if (ownerType === 'share') return state.shares.find((item) => item.id === ownerId)?.child_id ?? null;
+  if (ownerType === 'dream') return state.dreams.find((item) => item.id === ownerId)?.child_id ?? null;
+  if (ownerType === 'mailbox') return state.encouragement_cards.find((item) => item.id === ownerId)?.child_id ?? null;
+  if (ownerType === 'special-day') return state.special_days.find((item) => item.id === ownerId)?.child_id ?? null;
+  if (ownerType === 'piggy-product') return state.piggy_products.find((item) => item.id === ownerId)?.child_id ?? null;
+  if (ownerType === 'task') return state.tasks.find((item) => item.id === ownerId)?.child_id ?? null;
+  if (ownerType === 'avatar') return state.children.some((child) => child.id === ownerId) ? ownerId : null;
+  return null;
+}
+
+function getStorageClientForCurrentSession() {
+  const session = getChildSession();
+  if (isChildSessionValid(session)) return getChildScopedSupabaseClient(session);
+  return supabaseClient!;
+}
+
+function getStorageClientForRemoteMedia(media: RemoteMediaAsset) {
+  const session = getChildSession();
+  if (isChildSessionValid(session, media.child_id)) return getChildScopedSupabaseClient(session);
+  return supabaseClient!;
+}
+
+function getStorageClientForScope(scope: MediaScope) {
+  const session = getChildSession();
+  if (isChildSessionValid(session, scope.childId)) return getChildScopedSupabaseClient(session);
+  return supabaseClient!;
+}
+
+let childScopedClientKey: string | null = null;
+let childScopedClient: SupabaseClient | null = null;
+
+function getChildScopedSupabaseClient(session: NonNullable<ReturnType<typeof getChildSession>>) {
+  const config = getSupabaseConfig();
+  if (!config) throw new Error('Supabase is not configured');
+  const key = `${session.childId}:${session.deviceBindingId}:${session.deviceId}`;
+  if (childScopedClient && childScopedClientKey === key) return childScopedClient;
+  childScopedClientKey = key;
+  childScopedClient = createClient(config.url, config.anonKey, {
+    auth: { persistSession: false, autoRefreshToken: false },
+    global: {
+      headers: {
+        'x-child-id': session.childId,
+        'x-child-device-id': session.deviceId,
+        'x-child-device-binding-id': session.deviceBindingId
+      }
+    }
+  });
+  return childScopedClient;
+}
+
+function mediaPurpose(ownerType: MediaOwnerType) {
+  if (ownerType === 'avatar') return 'avatar';
+  if (ownerType === 'dream' || ownerType === 'special-day') return 'cover';
+  return 'content';
+}
+
+function normalizeRemoteOwnerType(value: string | null): MediaOwnerType {
+  if (
+    value === 'share' ||
+    value === 'dream' ||
+    value === 'mailbox' ||
+    value === 'special-day' ||
+    value === 'avatar' ||
+    value === 'memory' ||
+    value === 'piggy-product' ||
+    value === 'task'
+  ) {
+    return value;
+  }
+  return 'memory';
+}
+
+function normalizeRemoteMediaType(value: string): UnifiedMediaType {
+  if (value === 'photo' || value === 'audio' || value === 'video' || value === 'image') return value;
+  return 'image';
+}
+
+function safePathSegment(value: string) {
+  return value.replace(/[^a-z0-9-]/gi, '-').toLowerCase() || 'media';
+}
+
+function isUuid(value: string | null | undefined): value is UUID {
+  return Boolean(value && /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{12}$/i.test(value));
 }
 
 function extensionFromMimeType(mimeType: string, fileName?: string) {

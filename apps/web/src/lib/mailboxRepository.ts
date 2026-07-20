@@ -40,6 +40,7 @@ function releaseRecordingDraft(recording?: Pick<MailboxRecordingDraft, 'preview_
 
 async function saveMailboxMedia(input: {
   ownerId: string;
+  childId?: string | null;
   cardType: LocalMailboxMessage['card_type'];
   mimeType: string;
   fileName?: string;
@@ -50,6 +51,7 @@ async function saveMailboxMedia(input: {
   const media = await mediaRepository.saveMedia({
     ownerType: 'mailbox',
     ownerId: input.ownerId,
+    childId: input.childId,
     mediaType,
     mimeType: input.mimeType,
     fileName: input.fileName,
@@ -59,10 +61,11 @@ async function saveMailboxMedia(input: {
   return media.id;
 }
 
-async function saveMailboxMediaFile(input: { ownerId: string; cardType: LocalMailboxMessage['card_type']; file: File }) {
+async function saveMailboxMediaFile(input: { ownerId: string; childId?: string | null; cardType: LocalMailboxMessage['card_type']; file: File }) {
   const mimeType = input.file.type || (input.cardType === 'audio' ? 'audio/mpeg' : input.cardType === 'video' ? 'video/mp4' : 'image/jpeg');
   return saveMailboxMedia({
     ownerId: input.ownerId,
+    childId: input.childId,
     cardType: input.cardType,
     mimeType,
     fileName: input.file.name,
@@ -70,9 +73,10 @@ async function saveMailboxMediaFile(input: { ownerId: string; cardType: LocalMai
   });
 }
 
-function saveMailboxRecording(input: { ownerId: string; recording: MailboxRecordingDraft }) {
+function saveMailboxRecording(input: { ownerId: string; childId?: string | null; recording: MailboxRecordingDraft }) {
   return saveMailboxMedia({
     ownerId: input.ownerId,
+    childId: input.childId,
     cardType: 'audio',
     mimeType: input.recording.mime_type,
     fileName: input.recording.file_name,

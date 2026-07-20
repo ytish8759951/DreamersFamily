@@ -13,10 +13,12 @@ export const specialDayRepository = {
   releaseSpecialDayImageUrl
 };
 
-async function saveSpecialDayImage(input: { ownerId: string; blob: Blob; mimeType: string; fileName?: string }) {
+async function saveSpecialDayImage(input: { ownerId: string; childId?: string | null; blob: Blob; mimeType: string; fileName?: string }) {
+  const state = dataRepository.getState();
   const media = await mediaRepository.saveMedia({
     ownerType: 'special-day',
     ownerId: input.ownerId,
+    childId: input.childId ?? state.special_days.find((day) => day.id === input.ownerId)?.child_id ?? state.active_child_id,
     mediaType: 'image',
     mimeType: input.mimeType,
     fileName: input.fileName,
@@ -25,9 +27,10 @@ async function saveSpecialDayImage(input: { ownerId: string; blob: Blob; mimeTyp
   return media.id;
 }
 
-async function saveSpecialDayImageFile(input: { ownerId: string; file: File }) {
+async function saveSpecialDayImageFile(input: { ownerId: string; childId?: string | null; file: File }) {
   return saveSpecialDayImage({
     ownerId: input.ownerId,
+    childId: input.childId,
     blob: new Blob([await input.file.arrayBuffer()], { type: input.file.type || 'image/jpeg' }),
     mimeType: input.file.type || 'image/jpeg',
     fileName: input.file.name

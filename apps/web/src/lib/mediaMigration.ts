@@ -1,5 +1,5 @@
 import { dataRepository } from './dataRepository';
-import { mediaRepository, type MediaOwnerType, type UnifiedMediaType } from './mediaRepository';
+import { mediaRepository, backfillLocalMediaToSupabase, type MediaOwnerType, type UnifiedMediaType } from './mediaRepository';
 import type { LocalDatabaseState, UUID } from './localTypes';
 import { startupTrace, traceStartupPromise } from './startupTrace';
 
@@ -34,7 +34,9 @@ export async function migrateLocalStorageMediaToRepository(): Promise<MediaMigra
     mediaType: UnifiedMediaType;
     fileName?: string;
   }) => {
-    if (!isDataUrl(input.dataUrl)) return input.mediaId ?? null;
+    if (!isDataUrl(input.dataUrl)) {
+      return input.mediaId ? { mediaId: input.mediaId, bucket: null, storagePath: null } : null;
+    }
     startupTrace('migrateLocalStorage media item start', {
       ownerType: input.ownerType,
       ownerId: input.ownerId,
@@ -43,7 +45,7 @@ export async function migrateLocalStorageMediaToRepository(): Promise<MediaMigra
     });
     const blob = dataUrlToBlob(input.dataUrl);
     const mediaId = input.mediaId || createLocalId();
-    await traceStartupPromise(
+    const saved = await traceStartupPromise(
       `mediaRepository.saveMedia:${input.ownerType}:${input.ownerId}:${mediaId}`,
       () => mediaRepository.saveMedia({
         id: mediaId,
@@ -62,13 +64,13 @@ export async function migrateLocalStorageMediaToRepository(): Promise<MediaMigra
       mediaType: input.mediaType,
       mediaId
     });
-    return mediaId;
+    return { mediaId, bucket: saved.bucket ?? null, storagePath: saved.storagePath ?? null };
   };
 
   startupTrace('migrateLocalStorage share_media start', { count: state.share_media?.length ?? 0 });
   for (const media of state.share_media ?? []) {
     const dataUrl = media.local_data_url;
-    const mediaId = await migrateDataUrl({
+    const migrated = await migrateDataUrl({
       dataUrl,
       mediaId: media.id,
       ownerType: 'share',
@@ -76,10 +78,10 @@ export async function migrateLocalStorageMediaToRepository(): Promise<MediaMigra
       mediaType: media.media_type,
       fileName: media.storage_path?.split('/').pop()
     });
-    if (mediaId) {
+    if (migrated?.mediaId) {
       media.local_data_url = null;
-      media.bucket = 'local-media';
-      media.storage_path = media.storage_path || mediaId;
+      media.bucket = migrated.bucket === 'family-media' ? 'family-media' : 'local-media';
+      media.storage_path = migrated.storagePath || media.storage_path || migrated.mediaId;
       media.mime_type = media.mime_type || dataUrlMimeType(dataUrl) || 'application/octet-stream';
       media.file_size_bytes = media.file_size_bytes || dataUrlByteSize(dataUrl);
     }
@@ -89,7 +91,7 @@ export async function migrateLocalStorageMediaToRepository(): Promise<MediaMigra
   startupTrace('migrateLocalStorage encouragement_cards start', { count: state.encouragement_cards?.length ?? 0 });
   for (const message of state.encouragement_cards ?? []) {
     const mediaType = mailboxMediaType(message.card_type, message.media_mime_type);
-    const mediaId = await migrateDataUrl({
+    const migrated = await migrateDataUrl({
       dataUrl: message.local_data_url,
       mediaId: message.media_id,
       ownerType: 'mailbox',
@@ -97,10 +99,10 @@ export async function migrateLocalStorageMediaToRepository(): Promise<MediaMigra
       mediaType,
       fileName: message.media_path?.split('/').pop()
     });
-    if (mediaId) {
-      message.media_id = mediaId;
-      message.media_bucket = 'local-media';
-      message.media_path = message.media_path || mediaId;
+    if (migrated?.mediaId) {
+      message.media_id = migrated.mediaId;
+      message.media_bucket = migrated.bucket === 'family-media' ? 'family-media' : 'local-media';
+      message.media_path = migrated.mediaId;
       message.media_mime_type = message.media_mime_type || dataUrlMimeType(message.local_data_url);
       message.local_data_url = null;
     }
@@ -109,7 +111,7 @@ export async function migrateLocalStorageMediaToRepository(): Promise<MediaMigra
 
   startupTrace('migrateLocalStorage special_days start', { count: state.special_days?.length ?? 0 });
   for (const day of state.special_days ?? []) {
-    const mediaId = await migrateDataUrl({
+    const migrated = await migrateDataUrl({
       dataUrl: day.image_data_url,
       mediaId: day.image_media_id,
       ownerType: 'special-day',
@@ -117,8 +119,8 @@ export async function migrateLocalStorageMediaToRepository(): Promise<MediaMigra
       mediaType: 'image',
       fileName: `${day.id}.webp`
     });
-    if (mediaId) {
-      day.image_media_id = mediaId;
+    if (migrated?.mediaId) {
+      day.image_media_id = migrated.mediaId;
       day.image_data_url = null;
     }
   }
@@ -126,7 +128,7 @@ export async function migrateLocalStorageMediaToRepository(): Promise<MediaMigra
 
   startupTrace('migrateLocalStorage children start', { count: state.children?.length ?? 0 });
   for (const child of state.children ?? []) {
-    const mediaId = await migrateDataUrl({
+    const migrated = await migrateDataUrl({
       dataUrl: child.avatar_path,
       mediaId: child.avatar_media_id,
       ownerType: 'avatar',
@@ -134,8 +136,8 @@ export async function migrateLocalStorageMediaToRepository(): Promise<MediaMigra
       mediaType: 'image',
       fileName: `${child.id}-avatar.webp`
     });
-    if (mediaId) {
-      child.avatar_media_id = mediaId;
+    if (migrated?.mediaId) {
+      child.avatar_media_id = migrated.mediaId;
       child.avatar_path = null;
     }
   }
@@ -144,7 +146,7 @@ export async function migrateLocalStorageMediaToRepository(): Promise<MediaMigra
   startupTrace('migrateLocalStorage dreams start', { count: state.dreams?.length ?? 0 });
   for (const dream of state.dreams ?? []) {
     const legacyCover = dream.cover_path || dream.coverUrl || dream.imageUrl;
-    const mediaId = await migrateDataUrl({
+    const migrated = await migrateDataUrl({
       dataUrl: legacyCover,
       mediaId: dream.cover_media_id ?? dream.coverMediaId,
       ownerType: 'dream',
@@ -152,9 +154,9 @@ export async function migrateLocalStorageMediaToRepository(): Promise<MediaMigra
       mediaType: 'image',
       fileName: `${dream.id}-cover.webp`
     });
-    if (mediaId) {
-      dream.cover_media_id = mediaId;
-      dream.coverMediaId = mediaId;
+    if (migrated?.mediaId) {
+      dream.cover_media_id = migrated.mediaId;
+      dream.coverMediaId = migrated.mediaId;
       dream.cover_path = null;
       dream.coverUrl = null;
       dream.imageUrl = null;
@@ -165,7 +167,7 @@ export async function migrateLocalStorageMediaToRepository(): Promise<MediaMigra
   const settings = state.family_settings;
   startupTrace('migrateLocalStorage family_settings start', { hasSettings: Boolean(settings) });
   if (settings) {
-    const familyAvatarId = await migrateDataUrl({
+    const familyAvatar = await migrateDataUrl({
       dataUrl: settings.family_avatar_data_url,
       mediaId: settings.family_avatar_media_id,
       ownerType: 'avatar',
@@ -173,12 +175,12 @@ export async function migrateLocalStorageMediaToRepository(): Promise<MediaMigra
       mediaType: 'image',
       fileName: 'family-avatar.webp'
     });
-    if (familyAvatarId) {
-      settings.family_avatar_media_id = familyAvatarId;
+    if (familyAvatar?.mediaId) {
+      settings.family_avatar_media_id = familyAvatar.mediaId;
       settings.family_avatar_data_url = null;
     }
 
-    const parentAvatarId = await migrateDataUrl({
+    const parentAvatar = await migrateDataUrl({
       dataUrl: settings.parent_avatar_data_url,
       mediaId: settings.parent_avatar_media_id,
       ownerType: 'avatar',
@@ -186,8 +188,8 @@ export async function migrateLocalStorageMediaToRepository(): Promise<MediaMigra
       mediaType: 'image',
       fileName: 'parent-avatar.webp'
     });
-    if (parentAvatarId) {
-      settings.parent_avatar_media_id = parentAvatarId;
+    if (parentAvatar?.mediaId) {
+      settings.parent_avatar_media_id = parentAvatar.mediaId;
       settings.parent_avatar_data_url = null;
     }
   }
@@ -198,9 +200,14 @@ export async function migrateLocalStorageMediaToRepository(): Promise<MediaMigra
     dataRepository.importData(JSON.stringify(state));
     startupTrace('migrateLocalStorage importData finish', { migratedCount: migratedMediaIds.length });
   }
+  const backfillResult = await traceStartupPromise(
+    'mediaRepository.backfillLocalMediaToSupabase',
+    () => backfillLocalMediaToSupabase()
+  );
   startupTrace('migrateLocalStorageMediaToRepository finish', {
     migratedCount: migratedMediaIds.length,
-    migratedMediaIds
+    migratedMediaIds,
+    backfillResult
   });
   return { migratedCount: migratedMediaIds.length, migratedMediaIds };
 }

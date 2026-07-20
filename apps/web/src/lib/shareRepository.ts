@@ -84,6 +84,7 @@ async function saveShareMedia(input: SaveShareMediaInput) {
     id: mediaId,
     ownerType: 'share',
     ownerId: input.shareId,
+    childId: input.childId,
     mediaType,
     mimeType: input.mimeType,
     fileName: input.fileName,

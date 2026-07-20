@@ -26,10 +26,11 @@ export const piggyRepository = {
   releaseProductMediaUrl
 };
 
-async function saveProductImage(input: { ownerId: string; blob: Blob; mimeType: string; fileName?: string }) {
+async function saveProductImage(input: { ownerId: string; childId?: string | null; blob: Blob; mimeType: string; fileName?: string }) {
   const media = await mediaRepository.saveMedia({
     ownerType: 'piggy-product',
     ownerId: input.ownerId,
+    childId: input.childId,
     mediaType: 'image',
     mimeType: input.mimeType,
     fileName: input.fileName,
@@ -38,10 +39,11 @@ async function saveProductImage(input: { ownerId: string; blob: Blob; mimeType: 
   return media.id;
 }
 
-async function saveProductImageFile(input: { ownerId: string; file: File; blob?: Blob }) {
+async function saveProductImageFile(input: { ownerId: string; childId?: string | null; file: File; blob?: Blob }) {
   const blob = input.blob ?? new Blob([await input.file.arrayBuffer()], { type: input.file.type || 'image/jpeg' });
   return saveProductImage({
     ownerId: input.ownerId,
+    childId: input.childId,
     blob,
     mimeType: blob.type || input.file.type || 'image/webp',
     fileName: input.file.name

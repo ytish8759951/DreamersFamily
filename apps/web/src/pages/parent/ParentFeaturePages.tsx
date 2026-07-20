@@ -176,36 +176,42 @@ export function ParentTasksPage() {
       return;
     }
 
-    let taskImageMediaId: string | null = null;
-    let thumbnailMediaId: string | null = null;
-
+    const uploadedTaskMediaIds: string[] = [];
     try {
-      if (taskForm.task_image_file) {
-        const [originalBlob, thumbnailBlob] = await Promise.all([
+      const preparedTaskImage = taskForm.task_image_file
+        ? await Promise.all([
           compressImageFile(taskForm.task_image_file, { maxSide: 1200, quality: 0.82 }),
           compressImageFile(taskForm.task_image_file, { maxSide: 300, quality: 0.82 })
-        ]);
-        taskImageMediaId = createLocalMediaId();
-        thumbnailMediaId = createLocalMediaId();
-        await Promise.all([
-          taskRepository.saveTaskImage({
-            id: taskImageMediaId,
-            ownerId: taskImageMediaId,
-            blob: originalBlob,
-            mimeType: originalBlob.type || taskForm.task_image_file.type || 'image/webp',
-            fileName: taskForm.task_image_file_name || undefined
-          }),
-          taskRepository.saveTaskImage({
-            id: thumbnailMediaId,
-            ownerId: thumbnailMediaId,
-            blob: thumbnailBlob,
-            mimeType: thumbnailBlob.type || taskForm.task_image_file.type || 'image/webp',
-            fileName: taskForm.task_image_file_name || undefined
-          })
-        ]);
-      }
+        ])
+        : null;
 
-      taskChildren.forEach((child) => {
+      for (const child of taskChildren) {
+        let taskImageMediaId: string | null = null;
+        let thumbnailMediaId: string | null = null;
+        if (taskForm.task_image_file && preparedTaskImage) {
+          const [originalBlob, thumbnailBlob] = preparedTaskImage;
+          taskImageMediaId = createLocalMediaId();
+          thumbnailMediaId = createLocalMediaId();
+          await Promise.all([
+            taskRepository.saveTaskImage({
+              id: taskImageMediaId,
+              ownerId: taskImageMediaId,
+              childId: child.id,
+              blob: originalBlob,
+              mimeType: originalBlob.type || taskForm.task_image_file.type || 'image/webp',
+              fileName: taskForm.task_image_file_name || undefined
+            }),
+            taskRepository.saveTaskImage({
+              id: thumbnailMediaId,
+              ownerId: thumbnailMediaId,
+              childId: child.id,
+              blob: thumbnailBlob,
+              mimeType: thumbnailBlob.type || taskForm.task_image_file.type || 'image/webp',
+              fileName: taskForm.task_image_file_name || undefined
+            })
+          ]);
+          uploadedTaskMediaIds.push(taskImageMediaId, thumbnailMediaId);
+        }
         taskRepository.createTask({
           child_id: child.id,
           title,
@@ -216,7 +222,7 @@ export function ParentTasksPage() {
           task_image_media_id: taskImageMediaId,
           thumbnail_media_id: thumbnailMediaId
         });
-      });
+      }
 
       taskRepository.releasePreviewUrl(taskForm.task_image_preview_url);
       setTaskForm({
@@ -233,8 +239,9 @@ export function ParentTasksPage() {
       });
       setShowForm(false);
     } catch (caught) {
-      void taskRepository.deleteTaskMedia(taskImageMediaId);
-      void taskRepository.deleteTaskMedia(thumbnailMediaId);
+      uploadedTaskMediaIds.forEach((mediaId) => {
+        void taskRepository.deleteTaskMedia(mediaId);
+      });
       setFormError(caught instanceof Error ? caught.message : '新增任務失敗');
     }
   };
@@ -792,6 +799,7 @@ export function ParentDreamsPage() {
         coverMediaId = await memoryRepository.saveDreamCover({
           id: coverMediaId,
           ownerId: coverMediaId,
+          childId: dreamForm.child_id,
           mimeType: dreamForm.cover_mime_type || dreamForm.cover_blob.type || 'image/webp',
           fileName: dreamForm.cover_file_name || undefined,
           blob: dreamForm.cover_blob
@@ -1251,31 +1259,32 @@ export function ParentMailboxPage() {
       return;
     }
     try {
-      let media: { media_id: string; mime_type: string; file_name?: string } | null = null;
-      if (form.type === 'audio') {
-        if (!form.recording || !form.recording_accepted) {
-          setFormError('請先錄音，再使用這段錄音送出。');
-          return;
-        }
-        const mediaId = await mailboxRepository.saveMailboxRecording({ ownerId: 'mailbox-audio', recording: form.recording });
-        media = {
-          media_id: mediaId,
-          mime_type: form.recording.mime_type,
-          file_name: form.recording.file_name
-        };
-      } else if (form.type === 'image') {
-        if (!form.file) {
-          setFormError('請選擇本機檔案');
-          return;
-        }
-        const mediaId = await mailboxRepository.saveMailboxMediaFile({
-          ownerId: 'mailbox-image',
-          cardType: form.type,
-          file: form.file
-        });
-        media = { media_id: mediaId, mime_type: form.file.type || mailboxDefaultMimeType(form.type), file_name: form.file.name };
+      if (form.type === 'audio' && (!form.recording || !form.recording_accepted)) {
+        setFormError('請先錄音，再使用這段錄音送出。');
+        return;
       }
-      recipients.forEach((child) => {
+      if (form.type === 'image' && !form.file) {
+        setFormError('請選擇本機檔案');
+        return;
+      }
+      for (const child of recipients) {
+        let media: { media_id: string; mime_type: string; file_name?: string } | null = null;
+        if (form.type === 'audio' && form.recording) {
+          const mediaId = await mailboxRepository.saveMailboxRecording({ ownerId: 'mailbox-audio', childId: child.id, recording: form.recording });
+          media = {
+            media_id: mediaId,
+            mime_type: form.recording.mime_type,
+            file_name: form.recording.file_name
+          };
+        } else if (form.type === 'image' && form.file) {
+          const mediaId = await mailboxRepository.saveMailboxMediaFile({
+            ownerId: 'mailbox-image',
+            childId: child.id,
+            cardType: form.type,
+            file: form.file
+          });
+          media = { media_id: mediaId, mime_type: form.file.type || mailboxDefaultMimeType(form.type), file_name: form.file.name };
+        }
         mailboxRepository.createMailboxMessage({
           child_id: child.id,
           title: form.title || mailboxDefaultTitle(form.type),
@@ -1284,7 +1293,7 @@ export function ParentMailboxPage() {
           template_key: form.type === 'card' ? 'local-encouragement-card' : null,
           media
         });
-      });
+      }
       closeMailboxForm();
     } catch (caught) {
       setFormError(caught instanceof Error ? caught.message : '發送訊息失敗');

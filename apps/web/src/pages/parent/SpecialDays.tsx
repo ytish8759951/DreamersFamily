@@ -219,7 +219,7 @@ export function SpecialDays() {
               <label className="is-full">標題<input autoFocus required maxLength={60} value={form.title} onChange={(event) => setForm({ ...form, title: event.target.value })} placeholder="例如：家庭旅行" /></label>
               <label>日期<input type="date" required value={form.date} onChange={(event) => setForm({ ...form, date: event.target.value })} /></label>
               <label className="is-full">描述<textarea rows={3} maxLength={220} value={form.description} onChange={(event) => setForm({ ...form, description: event.target.value })} placeholder="留下簡短備註" /></label>
-              <label className="is-full">圖片（選填）<input type="file" accept="image/*" onChange={(event) => void saveSpecialDayImage(event, setForm)} /></label>
+              <label className="is-full">圖片（選填）<input type="file" accept="image/*" onChange={(event) => void saveSpecialDayImage(event, setForm, form.child_id === 'family' ? activeChildren[0]?.id ?? null : form.child_id)} /></label>
               {form.image_media_id ? <MediaImage className="special-form-preview" mediaId={form.image_media_id} alt="已選圖片" /> : null}
               {formError ? <p className="local-form-error">{formError}</p> : null}
               <footer><button type="button" onClick={() => setShowForm(false)}>取消</button><button className="ds-primary-button" type="submit">儲存</button></footer>
@@ -279,12 +279,14 @@ function isInDateFilter(date: string, filter: SpecialDateFilter) {
 
 async function saveSpecialDayImage(
   event: ChangeEvent<HTMLInputElement>,
-  setForm: Dispatch<SetStateAction<SpecialDayForm>>
+  setForm: Dispatch<SetStateAction<SpecialDayForm>>,
+  childId: string | null
 ) {
   const file = event.currentTarget.files?.[0];
   if (!file) return;
   const mediaId = await specialDayRepository.saveSpecialDayImageFile({
     ownerId: 'new-special-day',
+    childId,
     file
   });
   setForm((current) => ({ ...current, image_media_id: mediaId }));

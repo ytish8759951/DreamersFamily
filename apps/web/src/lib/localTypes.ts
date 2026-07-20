@@ -230,7 +230,7 @@ export interface LocalMailboxMessage {
   message: string | null;
   card_type: 'text' | 'card' | 'audio' | 'image' | 'video' | 'mixed';
   template_key: string | null;
-  media_bucket: 'local-media' | null;
+  media_bucket: 'local-media' | 'family-media' | null;
   media_path: string | null;
   media_id: UUID | null;
   media_mime_type: string | null;

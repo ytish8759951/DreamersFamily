@@ -2193,10 +2193,8 @@ export class LocalDataService implements LocalDataRepository {
         message: input.message?.trim() || null,
         card_type: input.card_type ?? (input.media ? 'mixed' : 'text'),
         template_key: input.template_key ?? null,
-        media_bucket: input.media ? 'local-media' : null,
-        media_path: input.media
-          ? `local/${state.family_id}/${input.child_id}/mailbox/${id()}/${input.media.file_name ?? 'attachment'}`
-          : null,
+        media_bucket: input.media ? 'family-media' : null,
+        media_path: input.media?.media_id ?? null,
         media_id: input.media?.media_id ?? null,
         media_mime_type: input.media?.mime_type ?? null,
         local_data_url: null,

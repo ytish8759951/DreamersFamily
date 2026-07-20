@@ -529,7 +529,7 @@ function PiggyProductForm({ childId, product, onClose }: { childId: string; prod
       const ids: string[] = [];
       for (const file of Array.from(files).slice(0, main ? 1 : 5)) {
         const blob = await compressImageFile(file);
-        const mediaId = await piggyRepository.saveProductImageFile({ ownerId: product?.id ?? 'new-piggy-product', file, blob });
+        const mediaId = await piggyRepository.saveProductImageFile({ ownerId: product?.id ?? 'new-piggy-product', childId, file, blob });
         ids.push(mediaId);
       }
       setForm((current) => main ? { ...current, mainMediaId: ids[0], error: '' } : { ...current, galleryMediaIds: ids.slice(0, 5), error: '' });
