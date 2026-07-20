@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import migration from '../../../../supabase/migrations/017_atomic_child_device_token_binding.sql?raw';
 import hardeningMigration from '../../../../supabase/migrations/018_harden_child_binding_anon_table_access.sql?raw';
 import ambiguousColumnFixMigration from '../../../../supabase/migrations/019_fix_child_binding_rpc_ambiguous_columns.sql?raw';
+import childLoginConflictFixMigration from '../../../../supabase/migrations/024_fix_child_login_challenge_conflict_ambiguity.sql?raw';
 
 describe('Supabase child binding migration', () => {
   it('adds the production-missing token binding columns', () => {
@@ -37,5 +38,13 @@ describe('Supabase child binding migration', () => {
     expect(ambiguousColumnFixMigration).toContain('update public.children as child_row');
     expect(ambiguousColumnFixMigration).toContain('coalesce(child_row.child_token_consumed_at, v_now)');
     expect(ambiguousColumnFixMigration).not.toContain('coalesce(child_token_consumed_at, v_now)');
+  });
+
+  it('uses a named constraint for child login device binding upserts', () => {
+    expect(childLoginConflictFixMigration).toContain('create or replace function public.complete_child_login_challenge');
+    expect(childLoginConflictFixMigration).toContain('on conflict on constraint device_bindings_child_device_key');
+    expect(childLoginConflictFixMigration).toContain('returning public.device_bindings.id into v_binding_id');
+    expect(childLoginConflictFixMigration).not.toMatch(/\bon conflict\s*\(\s*child_id\s*,\s*device_id\s*\)/i);
+    expect(childLoginConflictFixMigration).not.toMatch(/\bwhere\s+(child_id|device_id|family_id|status)\s*=/i);
   });
 });
