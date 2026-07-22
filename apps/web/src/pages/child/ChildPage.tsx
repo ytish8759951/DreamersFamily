@@ -594,6 +594,16 @@ function SharePage() {
         : [],
     [localState, selectedChild]
   );
+  const shareRewards = useMemo(() => {
+    const rewards = new Map<string, number>();
+    localState.stars
+      .filter((star) => star.transaction_type === 'share_reward' && star.share_id && (!selectedChild || star.child_id === selectedChild.id))
+      .sort((a, b) => a.created_at.localeCompare(b.created_at))
+      .forEach((star) => {
+        if (star.share_id && !rewards.has(star.share_id)) rewards.set(star.share_id, Math.max(0, star.amount));
+      });
+    return rewards;
+  }, [localState.stars, selectedChild]);
   const filteredShares = childShares.filter((share) => shareFilter === 'all' || share.share_type === shareFilter);
   const shareFilters = [
     { value: 'all' as const, label: '全部', count: childShares.length },
@@ -1108,7 +1118,7 @@ function SharePage() {
             ))}
           </div>
           <div className="v2-share-grid">
-            {visibleShares.length ? visibleShares.map((share) => <ShareGridCard key={share.id} share={share} />) : <ChildTaskEmpty text={shareFilter === 'all' ? '還沒有分享紀錄，先新增照片、語音或影片分享' : '這個分類目前沒有分享'} />}
+            {visibleShares.length ? visibleShares.map((share) => <ShareGridCard key={share.id} share={share} encouragementStars={shareRewards.get(share.id) ?? 0} />) : <ChildTaskEmpty text={shareFilter === 'all' ? '還沒有分享紀錄，先新增照片、語音或影片分享' : '這個分類目前沒有分享'} />}
           </div>
           <div ref={galleryPagerRef} className="v2-share-pagination">
             <button type="button" onClick={() => setSharePageIndex((value) => Math.max(1, value - 1))} disabled={safePageIndex === 1}>上一頁</button>
@@ -1379,7 +1389,7 @@ function ShareAction({ art, title, subtitle, tone, onClick }: { art: string; tit
   );
 }
 
-function ShareGridCard({ share }: { share: ShareWithMedia }) {
+function ShareGridCard({ share, encouragementStars }: { share: ShareWithMedia; encouragementStars?: number }) {
   const media = share.media[0];
   const photoMedia = share.media.filter((item) => item.media_type === 'photo');
   const type = childShareTypeLabel(share.share_type);
@@ -1438,10 +1448,20 @@ function ShareGridCard({ share }: { share: ShareWithMedia }) {
       <div className="v2-share-card-body">
         <small className={`v2-share-card-type is-${share.share_type}`}>{type}</small>
         <strong>{share.title || share.caption || (share.share_type === 'audio' ? '錄音分享' : type)}</strong>
+        {encouragementStars ? <ChildShareStarBadge stars={encouragementStars} /> : null}
         <time>{share.created_at.slice(0, 10).replace(/-/g, '/')}</time>
         <span>{share.share_type === 'audio' && media?.duration_seconds ? `錄音 · ${formatRecordingTime(media.duration_seconds)}` : type}</span>
       </div>
     </article>
+  );
+}
+
+function ChildShareStarBadge({ stars }: { stars: number }) {
+  return (
+    <div className="child-share-star-badge" aria-label={`家長鼓勵 ${stars} 顆星`}>
+      <span aria-hidden="true">{'⭐'.repeat(Math.max(1, Math.min(5, stars)))}</span>
+      <b>家長鼓勵 {stars}顆星</b>
+    </div>
   );
 }
 

@@ -10336,6 +10336,185 @@ button.ds-primary-button {
   margin-top: 14px;
 }
 
+.share-star-badge,
+.child-share-star-badge {
+  display: inline-flex;
+  align-items: center;
+  width: fit-content;
+  max-width: 100%;
+  gap: 8px;
+  border: 1px solid #f2d38a;
+  border-radius: 999px;
+  background: #fff6d8;
+  color: #6c5317;
+  padding: 8px 12px;
+  font-size: 13px;
+  font-weight: 950;
+  line-height: 1.2;
+}
+
+.share-star-badge span,
+.child-share-star-badge span {
+  white-space: nowrap;
+  letter-spacing: 0;
+}
+
+.share-star-badge strong,
+.child-share-star-badge b {
+  min-width: 0;
+}
+
+.pf-star-dialog-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 110;
+  display: grid;
+  align-items: center;
+  justify-items: center;
+  overflow-y: auto;
+  background: rgba(45, 42, 35, .38);
+  padding: max(20px, env(safe-area-inset-top, 0px)) 18px max(28px, calc(env(safe-area-inset-bottom, 0px) + 28px));
+}
+
+.pf-star-dialog {
+  width: min(430px, 100%);
+  max-height: calc(100dvh - 42px - env(safe-area-inset-bottom, 0px));
+  overflow-y: auto;
+  border: 1px solid #eadcc8;
+  border-radius: 18px;
+  background: #fffdf8;
+  padding: 18px;
+  box-shadow: 0 24px 58px rgba(69, 49, 27, .22);
+}
+
+.pf-star-dialog header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 14px;
+}
+
+.pf-star-dialog header small {
+  display: block;
+  color: #8a7560;
+  font-size: 12px;
+  font-weight: 900;
+}
+
+.pf-star-dialog h2 {
+  margin: 4px 0 0;
+  color: #2e2d2b;
+  font-size: 22px;
+  line-height: 1.25;
+}
+
+.pf-star-dialog header > button {
+  display: grid;
+  width: 38px;
+  height: 38px;
+  flex: none;
+  place-items: center;
+  border: 1px solid #eadcc8;
+  border-radius: 50%;
+  background: white;
+  color: #7a6755;
+  font-size: 22px;
+}
+
+.pf-star-options {
+  display: grid;
+  grid-template-columns: repeat(5, minmax(0, 1fr));
+  gap: 8px;
+  margin-top: 18px;
+}
+
+.pf-star-options button {
+  display: grid;
+  min-height: 76px;
+  align-content: center;
+  gap: 7px;
+  border: 1px solid #eadcc8;
+  border-radius: 12px;
+  background: white;
+  color: #6e5b42;
+  padding: 9px 6px;
+  font-size: 12px;
+  font-weight: 950;
+}
+
+.pf-star-options button span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  letter-spacing: 0;
+}
+
+.pf-star-options button.is-selected {
+  border-color: #e1b343;
+  background: #fff2bf;
+  color: #5a430e;
+  box-shadow: inset 0 0 0 1px #e1b343;
+}
+
+.pf-star-selection-preview {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  margin-top: 16px;
+  border-radius: 14px;
+  background: #fff6d8;
+  color: #644b0f;
+  padding: 14px;
+}
+
+.pf-star-selection-preview span {
+  white-space: nowrap;
+  letter-spacing: 0;
+}
+
+.pf-star-dialog-message,
+.pf-star-dialog-error {
+  margin: 14px 0 0;
+  border-radius: 12px;
+  padding: 11px 12px;
+  font-size: 13px;
+  font-weight: 900;
+  line-height: 1.45;
+}
+
+.pf-star-dialog-message {
+  background: #edf5e8;
+  color: #55744b;
+}
+
+.pf-star-dialog-error {
+  background: #fff1ef;
+  color: #a7473e;
+}
+
+.pf-star-dialog footer {
+  display: flex;
+  justify-content: flex-end;
+  gap: 10px;
+  margin-top: 18px;
+  padding-bottom: max(0px, env(safe-area-inset-bottom, 0px));
+}
+
+.pf-star-dialog footer button {
+  min-width: 108px;
+  min-height: 44px;
+  border-radius: 12px;
+  padding: 10px 16px;
+  font-size: 13px;
+  font-weight: 950;
+}
+
+.pf-star-dialog button:disabled {
+  opacity: .58;
+  cursor: default;
+}
+
 @media (max-width: 700px) {
   .pf-share .pf-share-large-card,
   .pf-share .pf-share-row.pf-share-large-card {
@@ -10364,6 +10543,27 @@ button.ds-primary-button {
   .pf-share .pf-share-pagination button {
     min-width: 82px;
     padding: 9px 10px;
+  }
+
+  .pf-star-dialog-backdrop {
+    align-items: end;
+    padding-inline: 10px;
+  }
+
+  .pf-star-dialog {
+    max-height: calc(100dvh - 18px - env(safe-area-inset-bottom, 0px));
+    border-radius: 18px 18px 0 0;
+  }
+
+  .pf-star-options {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+
+  .pf-star-dialog footer {
+    position: sticky;
+    bottom: 0;
+    background: linear-gradient(180deg, rgba(255, 253, 248, .72), #fffdf8 28%);
+    padding-top: 12px;
   }
 }
 

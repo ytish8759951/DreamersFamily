@@ -2319,6 +2319,37 @@ export class SupabaseDataRepository implements LocalDataRepository {
       .sort((a, b) => b.created_at.localeCompare(a.created_at));
   }
 
+  async encourageShareWithStars(shareId: UUID, stars: number): Promise<LocalStarTransaction> {
+    if (!Number.isInteger(stars) || stars < 1 || stars > 5) {
+      throw new LocalDataError('stars must be an integer from 1 to 5', 'VALIDATION_ERROR');
+    }
+    if (!this.client || !runtimeInfo.familyId) {
+      const transaction = this.cache.encourageShareWithStars(shareId, stars) as LocalStarTransaction;
+      this.emit();
+      return transaction;
+    }
+
+    const { data, error } = await this.client.rpc('encourage_share_with_stars', {
+      p_share_id: shareId,
+      p_stars: stars
+    });
+    if (error) throw error;
+    const row = Array.isArray(data) ? data[0] : data;
+    if (!row?.id) {
+      throw new LocalDataError('Share encouragement response is invalid', 'SHARE_ENCOURAGEMENT_INVALID');
+    }
+
+    const transaction = fromSupabaseStar(row as SupabaseStarRow);
+    const currentState = this.cache.getState();
+    this.cache.importData(JSON.stringify({
+      ...currentState,
+      stars: mergeStars(currentState.stars, [transaction])
+    }));
+    this.emit();
+    this.hydrateFromSupabase();
+    return transaction;
+  }
+
   createDream = this.delegateWrite('createDream');
   migrateDreamCoverToMedia = this.delegateWrite('migrateDreamCoverToMedia');
   deleteDream = this.delegateWrite('deleteDream');
@@ -4398,7 +4429,7 @@ function fromSupabaseStar(row: SupabaseStarRow): LocalStarTransaction {
     amount: row.amount,
     transaction_type: row.transaction_type,
     reason: row.reason,
-    sourceType: row.task_id ? 'task' : row.share_id ? 'share' : row.dream_id ? 'dream' : null,
+    sourceType: row.transaction_type === 'share_reward' && row.share_id ? 'share_encouragement' : row.task_id ? 'task' : row.share_id ? 'share' : row.dream_id ? 'dream' : null,
     sourceId: row.task_id ?? row.share_id ?? row.dream_id,
     task_id: row.task_id,
     share_id: row.share_id,

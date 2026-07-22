@@ -920,6 +920,7 @@ export interface LocalDataRepository {
   listTasks(childId?: UUID): LocalTask[];
   getStarBalance(childId: UUID): number;
   listStarTransactions(childId: UUID): LocalStarTransaction[];
+  encourageShareWithStars(shareId: UUID, stars: number): LocalStarTransaction | Promise<LocalStarTransaction>;
   createDream(input: CreateDreamInput): LocalDream;
   migrateDreamCoverToMedia(dreamId: UUID, input: MigrateDreamCoverInput): LocalDream;
   deleteDream(dreamId: UUID): LocalDream;
@@ -1878,6 +1879,54 @@ export class LocalDataService implements LocalDataRepository {
       .read()
       .stars.filter((item) => item.child_id === childId)
       .sort((a, b) => b.created_at.localeCompare(a.created_at));
+  }
+
+  encourageShareWithStars(shareId: UUID, stars: number) {
+    return this.db.transaction((state) => {
+      const share = requireShare(state, shareId);
+      if (share.deleted_at) {
+        throw new LocalDataError('Cannot encourage a deleted share', 'SHARE_DELETED');
+      }
+      if (!Number.isInteger(stars) || stars < 1 || stars > 5) {
+        throw new LocalDataError('stars must be an integer from 1 to 5', 'VALIDATION_ERROR');
+      }
+
+      const existing = state.stars.find(
+        (item) => item.transaction_type === 'share_reward' && item.share_id === share.id
+      );
+      if (existing) return existing;
+
+      const timestamp = now();
+      const transaction: LocalStarTransaction = {
+        id: id(),
+        family_id: share.family_id,
+        child_id: share.child_id,
+        type: 'earned',
+        amount: stars,
+        transaction_type: 'share_reward',
+        reason: '分享獲得家長鼓勵',
+        sourceType: 'share_encouragement',
+        sourceId: share.id,
+        task_id: null,
+        share_id: share.id,
+        dream_id: null,
+        reversal_of_id: null,
+        idempotency_key: `share_reward:${share.id}`,
+        created_by: state.current_user_id,
+        created_at: timestamp
+      };
+      state.stars.push(transaction);
+      pushNotification(state, {
+        childId: share.child_id,
+        type: 'stars_awarded',
+        title: '分享獲得鼓勵',
+        body: `${stars} 顆星星`,
+        audience: 'child',
+        sourceType: 'share',
+        sourceId: share.id
+      });
+      return transaction;
+    });
   }
 
   createDream(input: CreateDreamInput) {
@@ -3558,6 +3607,7 @@ export const {
   createTask,
   completeTask,
   approveTask,
+  encourageShareWithStars,
   createDream,
   migrateDreamCoverToMedia,
   deleteDream,
@@ -3624,6 +3674,7 @@ export const {
   createTask: localData.createTask.bind(localData),
   completeTask: localData.completeTask.bind(localData),
   approveTask: localData.approveTask.bind(localData),
+  encourageShareWithStars: localData.encourageShareWithStars.bind(localData),
   createDream: localData.createDream.bind(localData),
   migrateDreamCoverToMedia: localData.migrateDreamCoverToMedia.bind(localData),
   deleteDream: localData.deleteDream.bind(localData),

@@ -192,6 +192,79 @@ test('native video selection previews, handles cancel, formats, and size errors'
   await expect(page.locator('#submit')).toBeDisabled();
 });
 
+test('share encouragement stars are selectable, idempotent, and visible to child cards', async ({ page }) => {
+  await page.setContent(`
+    <html>
+      <head><meta name="viewport" content="width=device-width, initial-scale=1" /><style>${styles}</style></head>
+      <body>
+        <main class="pf-page pf-share">
+          <article class="pf-share-row pf-share-large-card is-photo" data-share-id="share-1">
+            <header><div><strong>孩子</strong><time>today</time></div><span>照片</span></header>
+            <footer><button id="encourage" type="button">鼓勵</button></footer>
+          </article>
+          <section id="child-card" class="v2-share-card v2-share-card-photo">
+            <div class="v2-share-card-body"><strong>照片分享</strong></div>
+          </section>
+        </main>
+        <script>
+          let ledger = [];
+          const renderChild = () => {
+            const star = ledger.find((item) => item.share_id === 'share-1' && item.transaction_type === 'share_reward');
+            const body = document.querySelector('#child-card .v2-share-card-body');
+            const existing = body.querySelector('.child-share-star-badge');
+            if (existing) existing.remove();
+            if (star) body.insertAdjacentHTML('beforeend', '<div class="child-share-star-badge"><span>' + '⭐'.repeat(star.amount) + '</span><b>家長鼓勵 ' + star.amount + '顆星</b></div>');
+          };
+          const saveStars = async (stars) => {
+            document.querySelector('#submit-stars').textContent = '送出中';
+            document.querySelector('#submit-stars').disabled = true;
+            await Promise.resolve();
+            if (!ledger.some((item) => item.share_id === 'share-1' && item.transaction_type === 'share_reward')) {
+              ledger.push({ share_id: 'share-1', transaction_type: 'share_reward', amount: stars });
+            }
+            const saved = ledger.find((item) => item.share_id === 'share-1');
+            document.querySelector('#encourage').textContent = '已鼓勵' + saved.amount + '顆星';
+            document.querySelector('#encourage').disabled = true;
+            document.querySelector('#status').textContent = '已送出 ' + saved.amount + ' 顆星星給孩子！';
+            renderChild();
+          };
+          document.querySelector('#encourage').addEventListener('click', () => {
+            document.body.insertAdjacentHTML('beforeend', '<div class="pf-star-dialog-backdrop"><section class="pf-star-dialog" role="dialog" aria-modal="true"><header><div><small>孩子</small><h2>這次想給孩子幾顆星星？</h2></div></header><div class="pf-star-options" role="radiogroup">' + [1,2,3,4,5].map((count) => '<button type="button" role="radio" aria-checked="' + (count === 3 ? 'true' : 'false') + '" class="' + (count === 3 ? 'is-selected' : '') + '" data-stars="' + count + '"><span>' + '⭐'.repeat(count) + '</span>' + count + '顆星</button>').join('') + '</div><div class="pf-star-selection-preview"><span>⭐⭐⭐</span><strong>3 顆星星</strong></div><p id="status" class="pf-star-dialog-message"></p><footer><button type="button">取消</button><button id="submit-stars" class="ds-primary-button" type="button">送出鼓勵</button></footer></section></div>');
+            document.querySelectorAll('[data-stars]').forEach((button) => button.addEventListener('click', () => {
+              document.querySelectorAll('[data-stars]').forEach((item) => item.classList.remove('is-selected'));
+              document.querySelectorAll('[data-stars]').forEach((item) => item.setAttribute('aria-checked', 'false'));
+              button.classList.add('is-selected');
+              button.setAttribute('aria-checked', 'true');
+              const count = Number(button.dataset.stars);
+              document.querySelector('.pf-star-selection-preview').innerHTML = '<span>' + '⭐'.repeat(count) + '</span><strong>' + count + ' 顆星星</strong>';
+            }));
+            document.querySelector('#submit-stars').addEventListener('click', () => {
+              const selected = Number(document.querySelector('[data-stars].is-selected').dataset.stars);
+              saveStars(selected);
+            });
+          });
+          window.retrySameShare = () => saveStars(5);
+          window.currentStarTotal = () => ledger.reduce((total, item) => total + item.amount, 0);
+        </script>
+      </body>
+    </html>
+  `);
+
+  await page.locator('#encourage').click();
+  await expect(page.getByRole('dialog')).toBeVisible();
+  await expect(page.getByText('這次想給孩子幾顆星星？')).toBeVisible();
+  await expect(page.getByRole('radio')).toHaveCount(5);
+  await page.getByRole('radio', { name: /3顆星/ }).click();
+  await page.getByRole('button', { name: '送出鼓勵' }).click();
+  await expect(page.getByText('已送出 3 顆星星給孩子！')).toBeVisible();
+  await expect(page.locator('#encourage')).toHaveText('已鼓勵3顆星');
+  await expect(page.locator('#encourage')).toBeDisabled();
+  await expect(page.getByText('家長鼓勵 3顆星')).toBeVisible();
+
+  await page.evaluate(() => window.retrySameShare());
+  await expect.poll(() => page.evaluate(() => window.currentStarTotal())).toBe(3);
+});
+
 test('limited photo access selection previews, uploads, survives refresh, and supports retry', async ({ page }) => {
   await page.setContent(`
     <html>

@@ -647,6 +647,58 @@ describe('local MVP data flows', () => {
     expect(data.getStarBalance(second.id)).toBe(0);
   });
 
+  it('adds share encouragement stars to the task star ledger once', () => {
+    const first = data.createChild({ display_name: 'Share child' });
+    const second = data.createChild({ display_name: 'Second child' });
+    const initialTask = data.createTask({
+      child_id: first.id,
+      title: 'Task reward 10',
+      reward_stars: 10
+    });
+    data.completeTask(initialTask.id, 'done');
+    data.approveTask(initialTask.id);
+    expect(data.getStarBalance(first.id)).toBe(10);
+
+    const share = data.createShare({
+      child_id: first.id,
+      title: 'Photo share',
+      caption: 'Today',
+      media: [{
+        media_type: 'photo',
+        mime_type: 'image/jpeg',
+        file_name: 'photo.jpg',
+        file_size_bytes: 128
+      }]
+    });
+    const reward = data.encourageShareWithStars(share.id, 3);
+    expect(reward.transaction_type).toBe('share_reward');
+    expect(reward.reason).toBe('分享獲得家長鼓勵');
+    expect(reward.share_id).toBe(share.id);
+    expect(reward.amount).toBe(3);
+    expect(reward.idempotency_key).toBe(`share_reward:${share.id}`);
+    expect(data.getStarBalance(first.id)).toBe(13);
+
+    const duplicate = data.encourageShareWithStars(share.id, 5);
+    expect(duplicate.id).toBe(reward.id);
+    expect(duplicate.amount).toBe(3);
+    expect(data.getStarBalance(first.id)).toBe(13);
+
+    const laterTask = data.createTask({
+      child_id: first.id,
+      title: 'Task reward 2',
+      reward_stars: 2
+    });
+    data.completeTask(laterTask.id, 'done');
+    data.approveTask(laterTask.id);
+    expect(data.getStarBalance(first.id)).toBe(15);
+
+    const ledger = data.listStarTransactions(first.id);
+    expect(ledger.filter((item) => item.transaction_type === 'task_reward')).toHaveLength(2);
+    expect(ledger.filter((item) => item.transaction_type === 'share_reward' && item.share_id === share.id)).toHaveLength(1);
+    expect(data.getStarBalance(second.id)).toBe(0);
+    expect(data.listStarTransactions(second.id)).toHaveLength(0);
+  });
+
   it('shows only today daily task occurrences to children and keeps old unfinished tasks in history', () => {
     const child = data.createChild({ display_name: '沉沉' });
     const yesterday = '2026-06-24';

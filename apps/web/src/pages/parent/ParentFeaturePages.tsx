@@ -11,6 +11,7 @@ import { compressImageFile } from '../../lib/imageCompression';
 import { mailboxRepository, type MailboxRecordingDraft } from '../../lib/mailboxRepository';
 import { memoryRepository } from '../../lib/memoryRepository';
 import { shareRepository } from '../../lib/shareRepository';
+import { starRepository } from '../../lib/starRepository';
 import { taskCompletionRepository } from '../../lib/taskCompletionRepository';
 import { taskRepository } from '../../lib/taskRepository';
 import { getParentHistoryTasks, getParentOpenTasks } from '../../lib/taskRules';
@@ -18,6 +19,7 @@ import type {
   DreamWithBalance,
   LocalMailboxMessage,
   LocalShare,
+  LocalStarTransaction,
   LocalTask,
   ShareWithMedia
 } from '../../lib/localTypes';
@@ -526,7 +528,23 @@ function ParentShareManagementPage() {
   const [selectedChildId, setSelectedChildId] = useState('');
   const [sharePage, setSharePage] = useState(1);
   const [notice, setNotice] = useState('');
+  const [encouragementDialog, setEncouragementDialog] = useState<{
+    share: ShareWithMedia;
+    selectedStars: number;
+    status: 'idle' | 'submitting' | 'success' | 'error';
+    message: string;
+  } | null>(null);
   const shares = useMemo(() => buildSharesWithMedia(state), [state]);
+  const shareRewards = useMemo(() => {
+    const rewards = new Map<string, LocalStarTransaction>();
+    state.stars
+      .filter((star) => star.transaction_type === 'share_reward' && star.share_id)
+      .sort((a, b) => a.created_at.localeCompare(b.created_at))
+      .forEach((star) => {
+        if (star.share_id && !rewards.has(star.share_id)) rewards.set(star.share_id, star);
+      });
+    return rewards;
+  }, [state.stars]);
   const activeChildren = state.children.filter((child) => child.status === 'active');
   const typeFilteredShares = shares.filter((share) => {
     if (filter === '照片') return share.share_type === 'photo';
@@ -574,19 +592,36 @@ function ParentShareManagementPage() {
     }
   };
 
-  const sendQuickEncouragement = (share: ShareWithMedia, message: string) => {
-    const targetChildName = childName(share.child_id);
+  const openEncouragementDialog = (share: ShareWithMedia) => {
+    const existing = shareRewards.get(share.id);
+    if (existing) {
+      setNotice(`這筆分享已鼓勵 ${existing.amount} 顆星`);
+      return;
+    }
+    setEncouragementDialog({ share, selectedStars: 3, status: 'idle', message: '' });
+  };
+
+  const submitShareEncouragement = async () => {
+    if (!encouragementDialog || encouragementDialog.status === 'submitting') return;
+    const current = encouragementDialog;
     try {
-      mailboxRepository.createMailboxMessage({
-        child_id: share.child_id,
-        title: '快速鼓勵',
-        message,
-        card_type: 'text',
-        template_key: 'share_quick_encouragement'
+      setEncouragementDialog({ ...current, status: 'submitting', message: '' });
+      const transaction = await starRepository.encourageShareWithStars(current.share.id, current.selectedStars);
+      const awardedStars = Math.max(0, transaction.amount);
+      const successMessage = `已送出 ${awardedStars} 顆星星給孩子！`;
+      setNotice(`${successMessage}（${childName(current.share.child_id)}）`);
+      setEncouragementDialog({
+        share: current.share,
+        selectedStars: awardedStars,
+        status: 'success',
+        message: successMessage
       });
-      setNotice(`已送出鼓勵給 ${targetChildName}：${message}`);
     } catch (caught) {
-      window.alert(caught instanceof Error ? caught.message : '送出鼓勵失敗');
+      setEncouragementDialog({
+        ...current,
+        status: 'error',
+        message: caught instanceof Error ? `送出失敗：${caught.message}` : '送出失敗：無法送出鼓勵'
+      });
     }
   };
 
@@ -637,7 +672,8 @@ function ParentShareManagementPage() {
                 key={share.id}
                 share={share}
                 childName={childName(share.child_id)}
-                onEncourage={() => sendQuickEncouragement(share, '好棒喔')}
+                encouragement={shareRewards.get(share.id) ?? null}
+                onEncourage={() => openEncouragementDialog(share)}
                 onDelete={() => deleteShare(share)}
               />
             ))}
@@ -653,10 +689,38 @@ function ParentShareManagementPage() {
       </Panel>
     </section>
     {notice ? <p className="pf-inline-notice pf-share-page-notice">{notice}</p> : null}
+    {encouragementDialog ? (
+      <ShareEncouragementDialog
+        childName={childName(encouragementDialog.share.child_id)}
+        selectedStars={encouragementDialog.selectedStars}
+        status={encouragementDialog.status}
+        message={encouragementDialog.message}
+        onSelect={(selectedStars) => setEncouragementDialog((current) => current ? {
+          ...current,
+          selectedStars,
+          status: current.status === 'success' ? 'idle' : current.status,
+          message: ''
+        } : current)}
+        onCancel={() => setEncouragementDialog(null)}
+        onSubmit={submitShareEncouragement}
+      />
+    ) : null}
   </div>;
 }
 
-function ParentShareListRow({ share, childName, onEncourage, onDelete }: { share: ShareWithMedia; childName: string; onEncourage: () => void; onDelete: () => void }) {
+function ParentShareListRow({
+  share,
+  childName,
+  encouragement,
+  onEncourage,
+  onDelete
+}: {
+  share: ShareWithMedia;
+  childName: string;
+  encouragement: LocalStarTransaction | null;
+  onEncourage: () => void;
+  onDelete: () => void;
+}) {
   const media = share.media[0];
   return <article className={`pf-share-row pf-share-large-card is-${share.share_type}`}>
     <header>
@@ -673,11 +737,90 @@ function ParentShareListRow({ share, childName, onEncourage, onDelete }: { share
       </section>
     ) : null}
     <ShareLargeMedia share={share} />
+    {encouragement ? <ShareStarBadge stars={encouragement.amount} /> : null}
     <footer>
-      <button type="button" onClick={onEncourage}>鼓勵</button>
+      <button type="button" onClick={onEncourage} disabled={Boolean(encouragement)}>
+        {encouragement ? `已鼓勵${encouragement.amount}顆星` : '鼓勵'}
+      </button>
       <button type="button" className="is-delete" onClick={onDelete}>刪除</button>
     </footer>
   </article>;
+}
+
+function ShareEncouragementDialog({
+  childName,
+  selectedStars,
+  status,
+  message,
+  onSelect,
+  onCancel,
+  onSubmit
+}: {
+  childName: string;
+  selectedStars: number;
+  status: 'idle' | 'submitting' | 'success' | 'error';
+  message: string;
+  onSelect: (stars: number) => void;
+  onCancel: () => void;
+  onSubmit: () => void;
+}) {
+  const isSubmitting = status === 'submitting';
+  const isSuccess = status === 'success';
+  return (
+    <div className="pf-star-dialog-backdrop" role="presentation" onMouseDown={isSubmitting ? undefined : onCancel}>
+      <section className="pf-star-dialog" role="dialog" aria-modal="true" aria-labelledby="share-star-dialog-title" onMouseDown={(event) => event.stopPropagation()}>
+        <header>
+          <div>
+            <small>{childName}</small>
+            <h2 id="share-star-dialog-title">這次想給孩子幾顆星星？</h2>
+          </div>
+          <button type="button" aria-label="關閉" onClick={onCancel} disabled={isSubmitting}>×</button>
+        </header>
+        <div className="pf-star-options" role="radiogroup" aria-label="選擇星星數量">
+          {[1, 2, 3, 4, 5].map((stars) => (
+            <button
+              key={stars}
+              type="button"
+              role="radio"
+              aria-checked={selectedStars === stars}
+              className={selectedStars === stars ? 'is-selected' : ''}
+              onClick={() => onSelect(stars)}
+              disabled={isSubmitting || isSuccess}
+            >
+              <span aria-hidden="true">{renderStars(stars)}</span>
+              {stars}顆星
+            </button>
+          ))}
+        </div>
+        <div className="pf-star-selection-preview" aria-live="polite">
+          <span aria-hidden="true">{renderStars(selectedStars)}</span>
+          <strong>{selectedStars} 顆星星</strong>
+        </div>
+        {message ? <p className={status === 'error' ? 'pf-star-dialog-error' : 'pf-star-dialog-message'}>{message}</p> : null}
+        <footer>
+          <button type="button" onClick={onCancel} disabled={isSubmitting}>{isSuccess ? '完成' : '取消'}</button>
+          {!isSuccess ? (
+            <button type="button" className="ds-primary-button" onClick={onSubmit} disabled={isSubmitting}>
+              {isSubmitting ? '送出中' : status === 'error' ? '重新送出' : '送出鼓勵'}
+            </button>
+          ) : null}
+        </footer>
+      </section>
+    </div>
+  );
+}
+
+function ShareStarBadge({ stars }: { stars: number }) {
+  return (
+    <div className="share-star-badge" aria-label={`家長鼓勵 ${stars} 顆星`}>
+      <span aria-hidden="true">{renderStars(stars)}</span>
+      <strong>家長鼓勵 {stars}顆星</strong>
+    </div>
+  );
+}
+
+function renderStars(stars: number) {
+  return '⭐'.repeat(Math.max(1, Math.min(5, stars)));
 }
 
 function ShareLargeMedia({ share }: { share: ShareWithMedia }) {
