@@ -981,8 +981,9 @@ function SharePage() {
                       type="file"
                       accept={shareAccept(formMode)}
                       onChange={(event) => {
+                        const selectedFile = event.currentTarget.files?.[0] ?? null;
                         resetShareRecording();
-                        setShareForm((current) => ({ ...current, file: event.currentTarget.files?.[0] ?? null }));
+                        setShareForm((current) => ({ ...current, file: selectedFile }));
                       }}
                     />
                   </label>
@@ -994,7 +995,10 @@ function SharePage() {
                     required
                     type="file"
                     accept={shareAccept(formMode)}
-                    onChange={(event) => setShareForm({ ...shareForm, file: event.currentTarget.files?.[0] ?? null })}
+                    onChange={(event) => {
+                      const selectedFile = event.currentTarget.files?.[0] ?? null;
+                      setShareForm({ ...shareForm, file: selectedFile });
+                    }}
                   />
                 </label>
               )}
@@ -1197,7 +1201,7 @@ function ShareGridCard({ share }: { share: ShareWithMedia }) {
           <LocalShareMediaView mediaId={media.id} mediaType="photo" alt={share.title ?? ''} />
         ) : media?.media_type === 'video' ? (
           <>
-            <LocalShareMediaView mediaId={media.id} mediaType="video" controls={false} />
+            <LocalShareMediaView mediaId={media.id} mediaType="video" controls />
             <span className="v2-share-video-play" aria-hidden="true"><Play size={30} fill="currentColor" /></span>
           </>
         ) : media?.media_type === 'audio' ? (

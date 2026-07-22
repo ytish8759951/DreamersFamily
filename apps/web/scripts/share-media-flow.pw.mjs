@@ -80,3 +80,31 @@ test('parent media cards render real photo audio and video controls', async ({ p
   await expect(page.locator('video[controls][playsinline]')).toHaveCount(1);
   await expect(page.locator('.local-share-media-status')).toHaveCount(0);
 });
+
+test('child share cards keep audio behavior and expose playable video controls', async ({ page }) => {
+  await page.setContent(`
+    <html>
+      <head><meta name="viewport" content="width=device-width, initial-scale=1" /><style>${styles}</style></head>
+      <body>
+        <section class="v2-share-grid">
+          <article class="v2-share-card v2-share-card-video">
+            <div class="v2-share-card-media">
+              <video src="data:video/mp4;base64,AAAA" controls playsinline preload="metadata"></video>
+              <span class="v2-share-video-play" aria-hidden="true"></span>
+            </div>
+          </article>
+          <article class="v2-share-card v2-share-card-audio" role="button" tabindex="0">
+            <div class="v2-share-card-media is-audio">
+              <span class="v2-share-audio-art" aria-hidden="true"></span>
+              <span class="v2-share-audio-wave" aria-hidden="true"></span>
+            </div>
+          </article>
+        </section>
+      </body>
+    </html>
+  `);
+
+  await expect(page.locator('.v2-share-card-video video[controls][playsinline]')).toHaveCount(1);
+  await expect(page.locator('.v2-share-card-audio[role="button"]')).toHaveCount(1);
+  await expect(page.locator('.v2-share-card-audio audio')).toHaveCount(0);
+});
