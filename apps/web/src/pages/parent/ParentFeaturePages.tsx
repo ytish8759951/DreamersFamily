@@ -2,6 +2,7 @@
 import { Check, Clock3, Plus } from 'lucide-react';
 import { LocalDreamCover } from '../../components/LocalDreamCover';
 import { LocalTaskMedia } from '../../components/LocalTaskMedia';
+import { LocalShareAlbum } from '../../components/LocalShareAlbum';
 import { LocalShareMedia as LocalShareMediaView } from '../../components/LocalShareMedia';
 import { dataMode, dataModeBadgeLabel, dataModeLabel, dataRepository } from '../../lib/dataRepository';
 import { useDreamCoverMigration } from '../../lib/dreamCoverMigration';
@@ -681,8 +682,9 @@ function ParentShareListRow({ share, childName, onEncourage, onDelete }: { share
 
 function ShareLargeMedia({ share }: { share: ShareWithMedia }) {
   const media = share.media[0];
-  if (media?.media_type === 'photo') {
-    return <LocalShareMediaView mediaId={media.id} mediaType="photo" alt={share.title ?? ''} className="pf-share-large-media" />;
+  const photoMedia = share.media.filter((item) => item.media_type === 'photo');
+  if (photoMedia.length) {
+    return <LocalShareAlbum media={photoMedia} title={share.title ?? share.caption} className="pf-share-large-media" />;
   }
   if (media?.media_type === 'video') {
     return <LocalShareMediaView mediaId={media.id} mediaType="video" className="pf-share-large-media" />;

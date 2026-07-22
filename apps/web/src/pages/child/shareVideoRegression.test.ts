@@ -14,11 +14,13 @@ describe('child share video regression guards', () => {
     expect(source).toContain('ref={inputRef}');
     expect(source).toContain('type="file"');
     expect(source).toContain('accept="image/*"');
-    expect(source).toContain('const file = captureFirstSelectedFile(input, { clear: false });');
-    expect(source).toContain('void processSelectedPhoto(file);');
-    expect(source).toContain('setSelectedPhotoPreviewUrl');
+    expect(source).toContain('multiple');
+    expect(source).toContain('const files = Array.from(input.files ?? []);');
+    expect(source).toContain('void processSelectedPhotos(files);');
+    expect(source).toContain('SHARE_PHOTO_MAX_COUNT = 10');
+    expect(source).toContain('一次最多選擇 10 張照片');
     expect(source).toContain('shareRepository.createPreviewUrl(file)');
-    expect(source).toContain('更換照片');
+    expect(source).toContain('移除');
     expect(source).toContain('目前檔案大小');
   });
 

@@ -10,6 +10,8 @@ type LocalShareMediaProps = {
   controls?: boolean;
   muted?: boolean;
   autoPlay?: boolean;
+  lightbox?: boolean;
+  onPhotoClick?: () => void;
 };
 
 type LoadState = 'loading' | 'ready' | 'missing' | 'error';
@@ -21,7 +23,9 @@ export function LocalShareMedia({
   alt = '',
   controls = true,
   muted,
-  autoPlay
+  autoPlay,
+  lightbox = true,
+  onPhotoClick
 }: LocalShareMediaProps) {
   const [objectUrl, setObjectUrl] = useState<string | null>(null);
   const [loadState, setLoadState] = useState<LoadState>('loading');
@@ -88,12 +92,16 @@ export function LocalShareMedia({
   if (!objectUrl) return <MediaStatus className={className} text="沒有可播放的媒體網址" />;
 
   if (mediaType === 'photo') {
+    const image = <img src={objectUrl} alt={alt} onError={handleElementError} />;
+    if (!lightbox && !onPhotoClick) {
+      return <span className={`local-share-photo-frame ${className ?? ''}`.trim()}>{image}</span>;
+    }
     return (
       <>
-        <button type="button" className={`local-share-photo-button ${className ?? ''}`.trim()} onClick={() => setLightboxOpen(true)}>
-          <img src={objectUrl} alt={alt} onError={handleElementError} />
+        <button type="button" className={`local-share-photo-button ${className ?? ''}`.trim()} onClick={onPhotoClick ?? (() => setLightboxOpen(true))}>
+          {image}
         </button>
-        {isLightboxOpen ? (
+        {lightbox && isLightboxOpen ? (
           <div className="local-share-lightbox" role="dialog" aria-modal="true" onClick={() => setLightboxOpen(false)}>
             <button type="button" aria-label="關閉照片" onClick={() => setLightboxOpen(false)}>x</button>
             <img src={objectUrl} alt={alt || '分享照片'} />

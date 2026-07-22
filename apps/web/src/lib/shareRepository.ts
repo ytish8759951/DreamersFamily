@@ -40,6 +40,7 @@ export const shareRepository = {
   createPreviewUrl,
   releasePreviewUrl,
   saveShareMedia,
+  deleteShareMedia,
   getMediaUrl,
   releaseMediaUrl,
   downloadMedia,
@@ -120,6 +121,10 @@ async function saveShareMedia(input: SaveShareMediaInput) {
     height: input.height ?? null,
     duration_seconds: savedMedia.duration ?? input.durationSeconds ?? null
   };
+}
+
+async function deleteShareMedia(mediaId: string) {
+  await mediaRepository.deleteMedia(mediaId);
 }
 
 function getMediaUrl(mediaId: string) {

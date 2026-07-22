@@ -331,6 +331,112 @@ test('limited photo access selection previews, uploads, survives refresh, and su
   await expect(page.getByRole('button', { name: 'retry-upload' })).toBeVisible();
 });
 
+test('multi-photo share keeps order, limits count, uploads bytes, and isolates children', async ({ page }) => {
+  await page.setContent(`
+    <html>
+      <head><meta name="viewport" content="width=device-width, initial-scale=1" /><style>${styles}</style></head>
+      <body>
+        <input id="photos" type="file" accept="image/*" multiple />
+        <p id="error" class="local-form-error" hidden></p>
+        <div id="preview" class="child-share-photo-preview-grid"></div>
+        <section id="child-feed"></section>
+        <section id="parent-feed"></section>
+        <script>
+          const max = 10;
+          let selected = [];
+          let stored = [];
+          const typeOk = (file) => {
+            const type = (file.type || '').toLowerCase();
+            const ext = (file.name.split('.').pop() || '').toLowerCase();
+            return ['image/jpeg','image/png','image/webp','image/heic','image/heif'].includes(type) || (!type && ['jpg','jpeg','png','webp','heic','heif'].includes(ext)) || ['jpg','jpeg','png','webp','heic','heif'].includes(ext);
+          };
+          const renderPreview = () => {
+            document.querySelector('#preview').innerHTML = selected.map((file, index) => '<figure data-name="' + file.name + '"><button type="button"><img alt="preview-' + (index + 1) + '" src="${tinyPngDataUrl}" /><span>' + (index + 1) + '</span></button><figcaption><b>' + file.name + '</b><button type="button" data-remove="' + index + '">remove</button></figcaption></figure>').join('');
+            document.querySelectorAll('[data-remove]').forEach((button) => button.addEventListener('click', () => {
+              selected.splice(Number(button.getAttribute('data-remove')), 1);
+              renderPreview();
+            }));
+          };
+          const select = (files) => {
+            const error = document.querySelector('#error');
+            error.hidden = true;
+            if (files.length > max) {
+              error.textContent = '一次最多選擇 10 張照片，請減少後再上傳。';
+              error.hidden = false;
+              return;
+            }
+            selected = files.slice();
+            renderPreview();
+          };
+          const upload = (childId) => {
+            if (!selected.length) return false;
+            stored = selected.map((file, index) => {
+              if (!typeOk(file)) throw new Error('bad type');
+              if (file.name.includes('fail')) throw new Error('第 ' + (index + 1) + ' 張照片上傳失敗：Storage error');
+              return { childId, name: file.name, sort: index, bytes: file.size };
+            });
+            return true;
+          };
+          const renderAlbum = (target, childId, prefix) => {
+            const media = stored.filter((item) => item.childId === childId).sort((a, b) => a.sort - b.sort);
+            target.innerHTML = '<section class="local-share-album"><div class="local-share-album-strip">' + media.map((item, index) => '<div class="local-share-album-slide"><img alt="' + prefix + '-' + item.name + '" src="${tinyPngDataUrl}" /><span class="local-share-album-count">' + (index + 1) + '/' + media.length + '</span></div>').join('') + '</div><div class="local-share-album-dots">' + media.map((item, index) => '<i class="' + (index === 0 ? 'is-active' : '') + '"></i>').join('') + '</div></section>';
+          };
+          document.querySelector('#photos').addEventListener('change', (event) => select(Array.from(event.currentTarget.files || [])));
+          window.selectSyntheticPhotos = select;
+          window.uploadSyntheticPhotos = upload;
+          window.renderSyntheticAlbum = renderAlbum;
+          window.getSelectedNames = () => selected.map((file) => file.name);
+          window.getStoredBytes = () => stored.reduce((total, item) => total + item.bytes, 0);
+          window.getStoredNames = () => stored.map((item) => item.name);
+        </script>
+      </body>
+    </html>
+  `);
+
+  for (const count of [2, 5, 10]) {
+    await page.evaluate((count) => {
+      window.selectSyntheticPhotos(Array.from({ length: count }, (_, index) => new File(['photo'], 'photo-' + (index + 1) + '.jpg', { type: 'image/jpeg' })));
+    }, count);
+    await expect(page.locator('.child-share-photo-preview-grid figure')).toHaveCount(count);
+  }
+
+  await page.evaluate(() => {
+    window.selectSyntheticPhotos(Array.from({ length: 11 }, (_, index) => new File(['photo'], 'too-many-' + index + '.jpg', { type: 'image/jpeg' })));
+  });
+  await expect(page.getByText('一次最多選擇 10 張照片，請減少後再上傳。')).toBeVisible();
+
+  await page.evaluate(() => {
+    window.selectSyntheticPhotos([
+      new File(['jpg'], 'one.jpg', { type: 'image/jpeg' }),
+      new File(['png'], 'two.png', { type: 'image/png' }),
+      new File(['heic'], 'three.HEIC', { type: 'image/heic' }),
+      new File(['empty'], 'four.jpeg', { type: '' })
+    ]);
+  });
+  await page.locator('[data-remove="1"]').click();
+  expect(await page.evaluate(() => window.getSelectedNames())).toEqual(['one.jpg', 'three.HEIC', 'four.jpeg']);
+  expect(await page.evaluate(() => window.uploadSyntheticPhotos('child-a'))).toBe(true);
+  expect(await page.evaluate(() => window.getStoredBytes())).toBeGreaterThan(0);
+  expect(await page.evaluate(() => window.getStoredNames())).toEqual(['one.jpg', 'three.HEIC', 'four.jpeg']);
+
+  await page.evaluate(() => {
+    window.renderSyntheticAlbum(document.querySelector('#child-feed'), 'child-a', 'child');
+    window.renderSyntheticAlbum(document.querySelector('#parent-feed'), 'child-a', 'parent');
+  });
+  await expect(page.locator('#child-feed .local-share-album-slide')).toHaveCount(3);
+  await expect(page.locator('#parent-feed .local-share-album-slide')).toHaveCount(3);
+  await expect(page.locator('#child-feed .local-share-album-strip')).toHaveCSS('scroll-snap-type', /x mandatory/);
+
+  await page.evaluate(() => window.renderSyntheticAlbum(document.querySelector('#parent-feed'), 'child-b', 'other'));
+  await expect(page.locator('#parent-feed .local-share-album-slide')).toHaveCount(0);
+
+  await page.evaluate(() => {
+    window.selectSyntheticPhotos([new File(['photo'], 'fail.jpg', { type: 'image/jpeg' })]);
+    try { window.uploadSyntheticPhotos('child-a'); } catch (error) { window.failedMessage = error.message; }
+  });
+  expect(await page.evaluate(() => window.failedMessage)).toContain('第 1 張照片上傳失敗');
+});
+
 test('parent media cards render real photo audio and video controls', async ({ page }) => {
   const photoSvg = encodeURIComponent('<svg xmlns="http://www.w3.org/2000/svg" width="160" height="100"><rect width="160" height="100" fill="#8fb3d9"/><circle cx="80" cy="50" r="26" fill="#fff"/></svg>');
   await page.setContent(`
