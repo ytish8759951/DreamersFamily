@@ -28,6 +28,7 @@ import {
   childLoginUrlFromChallengeToken,
   type LocalDataRepository,
   type CreateChildInput,
+  type CreateTaskInput,
   type UpdateChildInput,
   type ChildLoginChallengeResult,
   type ChildLoginChallengePreview,
@@ -285,6 +286,10 @@ interface SupabaseTaskRow {
   description: string | null;
   category: LocalTask['category'];
   task_date: string;
+  daily_template_id?: UUID | null;
+  occurrence_date?: string | null;
+  template_snapshot?: Record<string, unknown> | null;
+  daily_template_active?: boolean | null;
   due_at: string | null;
   recurrence_rule: string | null;
   status: LocalTask['status'];
@@ -1358,7 +1363,12 @@ function runtimeTimestamp() {
 }
 
 function todayIsoDate() {
-  return new Date().toISOString().slice(0, 10);
+  return new Intl.DateTimeFormat('en-CA', {
+    timeZone: 'Asia/Taipei',
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit'
+  }).format(new Date());
 }
 
 function normalizeScreenLogType(log: LocalScreenTimeLog): NonNullable<LocalScreenTimeLog['type']> {
@@ -2295,9 +2305,25 @@ export class SupabaseDataRepository implements LocalDataRepository {
     return this.cache.listDeviceBindings(childId);
   }
 
-  createTask = this.delegateWrite('createTask');
+  createTask(input: CreateTaskInput): LocalTask {
+    const task = this.cache.createTask(input);
+    void this.upsertParentTaskToSupabase(task).catch((error) => {
+      console.warn('[supabase-repository] task create sync failed', error);
+      this.scheduleRetry();
+    });
+    this.queuePush();
+    return task;
+  }
   completeTask = this.delegateWrite('completeTask');
-  approveTask = this.delegateWrite('approveTask');
+  approveTask(taskId: UUID): LocalTask {
+    const task = this.cache.approveTask(taskId);
+    void this.approveTaskInSupabase(task.id).catch((error) => {
+      console.warn('[supabase-repository] task approval sync failed', error);
+      this.scheduleRetry();
+    });
+    this.queuePush();
+    return task;
+  }
   listTasks(childId?: UUID): LocalTask[] {
     if (childId && this.canUseChildScopedSession(childId)) {
       return this.getChildScopedState(childId).tasks
@@ -2700,6 +2726,7 @@ export class SupabaseDataRepository implements LocalDataRepository {
 
   private async fetchSupabaseState(): Promise<LocalDatabaseState | null> {
     if (!this.client || !runtimeInfo.familyId) return null;
+    await this.ensureDailyTaskInstancesInSupabase();
     const state = scopeStateToCurrentFamily(this.cache.getState());
     const [
       { data: parent, error: parentError },
@@ -3051,6 +3078,34 @@ export class SupabaseDataRepository implements LocalDataRepository {
     }
 
     await this.pushPiggyTables(state);
+  }
+
+  private async upsertParentTaskToSupabase(task: LocalTask) {
+    if (!this.client || !runtimeInfo.familyId) return;
+    const { error } = await this.client.rpc('upsert_parent_task_from_repository', {
+      p_task: toSupabaseTask(task)
+    });
+    if (error) throw error;
+    this.hydrateFromSupabase();
+  }
+
+  private async ensureDailyTaskInstancesInSupabase(childId?: UUID | null) {
+    if (!this.client || !runtimeInfo.familyId) return;
+    const { error } = await this.client.rpc('ensure_daily_task_instances', {
+      p_family_id: SUPABASE_FAMILY_ID,
+      p_child_id: childId ?? null,
+      p_occurrence_date: null
+    });
+    if (error) throw error;
+  }
+
+  private async approveTaskInSupabase(taskId: UUID) {
+    if (!this.client || !runtimeInfo.familyId) return;
+    const { error } = await this.client.rpc('approve_task_with_stars', {
+      p_task_id: taskId
+    });
+    if (error) throw error;
+    this.hydrateFromSupabase();
   }
 
   private async pushDreamShareMailboxSpecialTables(state: LocalDatabaseState) {
@@ -3885,6 +3940,10 @@ function toSupabaseTask(task: LocalTask): SupabaseTaskRow {
     description: task.description,
     category: task.category,
     task_date: task.task_date,
+    daily_template_id: task.daily_template_id ?? null,
+    occurrence_date: task.occurrence_date ?? (task.category === 'daily' ? task.task_date : null),
+    template_snapshot: task.template_snapshot ?? null,
+    daily_template_active: task.daily_template_active ?? (task.category === 'daily' && (task.daily_template_id ?? task.id) === task.id),
     due_at: task.due_at,
     recurrence_rule: task.recurrence_rule,
     status: task.status,
@@ -3913,6 +3972,10 @@ function fromSupabaseTask(row: SupabaseTaskRow): LocalTask {
     thumbnail_media_id: null,
     category: row.category,
     task_date: row.task_date,
+    daily_template_id: row.daily_template_id ?? null,
+    occurrence_date: row.occurrence_date ?? (row.category === 'daily' ? row.task_date : null),
+    template_snapshot: row.template_snapshot ?? null,
+    daily_template_active: row.daily_template_active ?? (row.category === 'daily' && (row.daily_template_id ?? row.id) === row.id),
     due_at: row.due_at,
     recurrence_rule: row.recurrence_rule,
     status: row.status,

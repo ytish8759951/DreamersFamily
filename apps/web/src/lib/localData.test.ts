@@ -6,6 +6,7 @@ import {
   getChildHistoryTasks,
   getChildTodayTasks,
   getChildVisibleTasks,
+  getTodayTaskDate,
   getParentHistoryTasks,
   getParentOpenTasks
 } from './taskRules';
@@ -88,6 +89,7 @@ describe('local MVP data flows', () => {
   });
 
   afterEach(() => {
+    vi.useRealTimers();
     vi.unstubAllGlobals();
   });
   it('exposes repository scope for future family, parent, child and device binding', () => {
@@ -848,6 +850,57 @@ describe('local MVP data flows', () => {
     expect(getParentOpenTasks(childTasks, currentDate).map((task) => task.id)).toEqual(
       expect.arrayContaining([yesterdayTask.id, todayTask!.id])
     );
+  });
+
+  it('uses daily templates to create one Taipei-date instance and expire unfinished old instances', () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date('2026-07-22T15:59:00.000Z'));
+    const yesterdayDate = '2026-07-22';
+    const todayDate = getTodayTaskDate();
+    expect(todayDate).toBe('2026-07-22');
+    const child = data.createChild({ display_name: 'Daily child' });
+    const template = data.createTask({
+      child_id: child.id,
+      title: '每日任務',
+      category: 'daily',
+      task_date: yesterdayDate,
+      reward_stars: 3
+    });
+    expect(template.daily_template_id).toBe(template.id);
+    expect(template.occurrence_date).toBe(yesterdayDate);
+    expect(template.daily_template_active).toBe(true);
+
+    vi.setSystemTime(new Date('2026-07-22T16:00:00.000Z'));
+    const nextDate = getTodayTaskDate();
+    expect(nextDate).toBe('2026-07-23');
+    for (let index = 0; index < 10; index += 1) data.getState();
+
+    const dailyTasks = data.listTasks(child.id).filter((task) => task.category === 'daily');
+    const nextInstances = dailyTasks.filter((task) => task.daily_template_id === template.id && task.occurrence_date === nextDate);
+    expect(nextInstances).toHaveLength(1);
+    expect(nextInstances[0]).toMatchObject({
+      title: '每日任務',
+      reward_stars: 3,
+      status: 'pending',
+      daily_template_active: false
+    });
+    expect(data.listTasks(child.id).find((task) => task.id === template.id)?.status).toBe('expired');
+    expect(getChildTodayTasks(data.listTasks(child.id), nextDate).map((task) => task.id)).toEqual([nextInstances[0].id]);
+  });
+
+  it('keeps normal unfinished tasks visible across days while daily tasks roll forward', () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date('2026-07-22T08:00:00.000Z'));
+    const child = data.createChild({ display_name: 'Normal child' });
+    const habit = data.createTask({ child_id: child.id, title: '習慣養成', category: 'habit', task_date: '2026-07-22', reward_stars: 1 });
+    const household = data.createTask({ child_id: child.id, title: '家事任務', category: 'household', task_date: '2026-07-22', reward_stars: 1 });
+    data.createTask({ child_id: child.id, title: '每日任務', category: 'daily', task_date: '2026-07-22', reward_stars: 3 });
+
+    vi.setSystemTime(new Date('2026-07-22T16:00:00.000Z'));
+    data.getState();
+    const todayTasks = getChildTodayTasks(data.listTasks(child.id), '2026-07-23');
+    expect(todayTasks.map((task) => task.id)).toEqual(expect.arrayContaining([habit.id, household.id]));
+    expect(todayTasks.filter((task) => task.category === 'daily')).toHaveLength(1);
   });
 
   it('updates dream progress and moves funded dreams to completed', () => {

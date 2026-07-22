@@ -14,7 +14,7 @@ import { shareRepository } from '../../lib/shareRepository';
 import { starRepository } from '../../lib/starRepository';
 import { taskCompletionRepository } from '../../lib/taskCompletionRepository';
 import { taskRepository } from '../../lib/taskRepository';
-import { getParentHistoryTasks, getParentOpenTasks } from '../../lib/taskRules';
+import { getParentHistoryTasks, getParentOpenTasks, getTodayTaskDate } from '../../lib/taskRules';
 import type {
   DreamWithBalance,
   LocalMailboxMessage,
@@ -97,7 +97,7 @@ export function ParentTasksPage() {
     title: '',
     description: '',
     category: 'daily',
-    task_date: new Date().toISOString().slice(0, 10),
+    task_date: getTodayTaskDate(),
     reward_stars: '1',
     task_image_file: null,
     task_image_preview_url: '',
@@ -151,7 +151,7 @@ export function ParentTasksPage() {
       title: '',
       description: '',
       category: 'daily',
-      task_date: new Date().toISOString().slice(0, 10),
+      task_date: getTodayTaskDate(),
       reward_stars: '1',
       task_image_file: null,
       task_image_preview_url: '',
@@ -234,7 +234,7 @@ export function ParentTasksPage() {
         title: '',
         description: '',
         category: 'daily',
-        task_date: new Date().toISOString().slice(0, 10),
+        task_date: getTodayTaskDate(),
         reward_stars: '1',
         task_image_file: null,
         task_image_preview_url: '',

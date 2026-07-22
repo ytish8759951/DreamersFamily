@@ -100,6 +100,10 @@ export interface LocalTask {
   thumbnail_media_id: UUID | null;
   category: 'daily' | 'habit' | 'household' | 'challenge';
   task_date: ISODate;
+  daily_template_id?: UUID | null;
+  occurrence_date?: ISODate | null;
+  template_snapshot?: Record<string, unknown> | null;
+  daily_template_active?: boolean | null;
   due_at: ISODateTime | null;
   recurrence_rule: string | null;
   status: TaskStatus;

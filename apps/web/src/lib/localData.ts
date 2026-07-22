@@ -64,7 +64,12 @@ export class LocalDataError extends Error {
 }
 
 const now = () => new Date().toISOString();
-const today = () => new Date().toISOString().slice(0, 10);
+const today = (value = new Date()) => new Intl.DateTimeFormat('en-CA', {
+  timeZone: 'Asia/Taipei',
+  year: 'numeric',
+  month: '2-digit',
+  day: '2-digit'
+}).format(value);
 const STAR_TO_SCREEN_MINUTES = 1;
 const SCREEN_TIME_WEEKDAY_LABELS = ['星期一', '星期二', '星期三', '星期四', '星期五', '星期六', '星期日'];
 
@@ -653,6 +658,9 @@ export interface CreateTaskInput {
   description?: string | null;
   category?: LocalTask['category'];
   task_date?: string;
+  daily_template_id?: UUID | null;
+  occurrence_date?: string | null;
+  template_snapshot?: Record<string, unknown> | null;
   due_at?: string | null;
   recurrence_rule?: string | null;
   reward_stars?: number;
@@ -1749,8 +1757,10 @@ export class LocalDataService implements LocalDataRepository {
       }
 
       const timestamp = now();
+      const taskId = id();
+      const taskDate = input.task_date ?? today();
       const task: LocalTask = {
-        id: id(),
+        id: taskId,
         family_id: state.family_id,
         child_id: input.child_id,
         title,
@@ -1758,9 +1768,13 @@ export class LocalDataService implements LocalDataRepository {
         task_image_media_id: input.task_image_media_id ?? null,
         thumbnail_media_id: input.thumbnail_media_id ?? null,
         category: input.category ?? 'daily',
-        task_date: input.task_date ?? today(),
+        task_date: taskDate,
+        daily_template_id: (input.category ?? 'daily') === 'daily' ? input.daily_template_id ?? taskId : null,
+        occurrence_date: (input.category ?? 'daily') === 'daily' ? input.occurrence_date ?? taskDate : null,
+        template_snapshot: input.template_snapshot ?? null,
+        daily_template_active: (input.category ?? 'daily') === 'daily' ? input.daily_template_id === undefined || input.daily_template_id === taskId : null,
         due_at: input.due_at ?? null,
-        recurrence_rule: input.recurrence_rule ?? null,
+        recurrence_rule: input.recurrence_rule ?? ((input.category ?? 'daily') === 'daily' ? 'FREQ=DAILY' : null),
         status: 'pending',
         reward_stars: rewardStars,
         reward_screen_minutes: rewardMinutes,
@@ -3421,22 +3435,41 @@ export class LocalDataService implements LocalDataRepository {
           (task) =>
             task.category === 'daily' &&
             task.child_id === template.child_id &&
-            task.task_date === targetDate &&
-            task.title === template.title
+            (task.occurrence_date ?? task.task_date) === targetDate &&
+            getDailyTemplateId(task) === getDailyTemplateId(template)
         )
     );
-    if (!missingTemplates.length) return;
+    const hasExpiredTasks = state.tasks.some(
+      (task) =>
+        task.category === 'daily' &&
+        (task.occurrence_date ?? task.task_date) < targetDate &&
+        ['pending', 'rejected'].includes(task.status) &&
+        !task.archived_at
+    );
+    if (!missingTemplates.length && !hasExpiredTasks) return;
 
     this.db.transaction((draft) => {
       const timestamp = now();
+      draft.tasks.forEach((task) => {
+        if (
+          task.category === 'daily' &&
+          (task.occurrence_date ?? task.task_date) < targetDate &&
+          ['pending', 'rejected'].includes(task.status) &&
+          !task.archived_at
+        ) {
+          task.status = 'expired';
+          task.updated_at = timestamp;
+        }
+      });
       missingTemplates.forEach((template) => {
+        const templateId = getDailyTemplateId(template);
         if (
           draft.tasks.some(
             (task) =>
               task.category === 'daily' &&
               task.child_id === template.child_id &&
-              task.task_date === targetDate &&
-              task.title === template.title
+              (task.occurrence_date ?? task.task_date) === targetDate &&
+              getDailyTemplateId(task) === templateId
           )
         ) {
           return;
@@ -3445,6 +3478,10 @@ export class LocalDataService implements LocalDataRepository {
           ...template,
           id: id(),
           task_date: targetDate,
+          daily_template_id: templateId,
+          occurrence_date: targetDate,
+          template_snapshot: buildDailyTemplateSnapshot(template),
+          daily_template_active: false,
           due_at: remapDailyDueAt(template.due_at, targetDate),
           status: 'pending',
           completion_note: null,
@@ -3462,21 +3499,38 @@ export class LocalDataService implements LocalDataRepository {
 }
 
 function latestDailyTaskTemplates(state: LocalDatabaseState, targetDate: string) {
-  const byChildAndTitle = new Map<string, LocalTask>();
+  const byTemplate = new Map<string, LocalTask>();
   state.tasks
-    .filter((task) => task.category === 'daily' && task.task_date < targetDate && !task.archived_at)
-    .sort((a, b) => b.task_date.localeCompare(a.task_date) || b.created_at.localeCompare(a.created_at))
+    .filter((task) => task.category === 'daily' && (task.occurrence_date ?? task.task_date) < targetDate && !task.archived_at)
+    .filter((task) => (task.daily_template_active ?? ((task.daily_template_id === task.id) || task.recurrence_rule === 'FREQ=DAILY')) && getDailyTemplateId(task) === task.id)
+    .sort((a, b) => (b.occurrence_date ?? b.task_date).localeCompare(a.occurrence_date ?? a.task_date) || b.created_at.localeCompare(a.created_at))
     .forEach((task) => {
-      const key = `${task.child_id}::${task.title}`;
-      if (!byChildAndTitle.has(key)) byChildAndTitle.set(key, task);
+      const key = `${task.child_id}::${getDailyTemplateId(task)}`;
+      if (!byTemplate.has(key)) byTemplate.set(key, task);
     });
-  return Array.from(byChildAndTitle.values());
+  return Array.from(byTemplate.values());
 }
 
 function remapDailyDueAt(dueAt: string | null, targetDate: string) {
   if (!dueAt) return null;
   const time = dueAt.includes('T') ? dueAt.split('T')[1] : '';
   return time ? `${targetDate}T${time}` : null;
+}
+
+function getDailyTemplateId(task: LocalTask) {
+  return task.daily_template_id ?? task.id;
+}
+
+function buildDailyTemplateSnapshot(task: LocalTask): Record<string, unknown> {
+  return {
+    title: task.title,
+    description: task.description,
+    reward_stars: task.reward_stars,
+    reward_screen_minutes: task.reward_screen_minutes,
+    task_image_media_id: task.task_image_media_id,
+    thumbnail_media_id: task.thumbnail_media_id,
+    recurrence_rule: task.recurrence_rule ?? 'FREQ=DAILY'
+  };
 }
 
 function resolvePiggyProductChildId(state: LocalDatabaseState, childId?: UUID) {

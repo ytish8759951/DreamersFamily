@@ -54,7 +54,7 @@ import type {
   ShareWithMedia
 } from '../../lib/localTypes';
 import { getBirthdaySpecialDays } from '../../lib/specialDays';
-import { getChildHistoryTasks, getChildTodayTasks } from '../../lib/taskRules';
+import { getChildHistoryTasks, getChildTodayTasks, getTodayTaskDate } from '../../lib/taskRules';
 import { useLocalDataState } from '../../lib/useLocalData';
 
 type ChildPageProps = {
@@ -258,6 +258,7 @@ function TaskPage() {
   const [completingTaskId, setCompletingTaskId] = useState<string | null>(null);
   const [flyingTaskId, setFlyingTaskId] = useState<string | null>(null);
   const [redeemHistoryPage, setRedeemHistoryPage] = useState(1);
+  const [taskSnapshotReady, setTaskSnapshotReady] = useState(false);
   const completionTimerRef = useRef<number | null>(null);
   const flyingTimerRef = useRef<number | null>(null);
   const currentChildId = resolveCurrentChildId(localState);
@@ -298,7 +299,7 @@ function TaskPage() {
     try {
       taskRepository.redeemStarsForScreenTime(
         selectedChild.id,
-        new Date().toISOString().slice(0, 10),
+        getTodayTaskDate(),
         redeemAmount,
         `孩子申請兌換 ${redeemAmount} 顆星星為 ${redeemMinutes} 分鐘平板時間`
       );
@@ -309,6 +310,10 @@ function TaskPage() {
       setRedeemMessage(caught instanceof Error && caught.message.includes('Not enough stars') ? '星星不足，無法兌換' : caught instanceof Error ? caught.message : '兌換失敗');
     }
   };
+  useEffect(() => {
+    const timer = window.setTimeout(() => setTaskSnapshotReady(true), 450);
+    return () => window.clearTimeout(timer);
+  }, [localState.updated_at]);
   useEffect(() => {
     return () => {
       if (completionTimerRef.current) window.clearTimeout(completionTimerRef.current);
@@ -337,10 +342,12 @@ function TaskPage() {
       <div className="v1-task-layout">
         <div className="v1-task-content">
           <section className="child-task-carousel-section">
-            <SectionHeading title={`今日冒險 (${completedToday}/${todayAdventureTasks.length})`} accent="⭐" />
+            <SectionHeading title={taskSnapshotReady ? `今日冒險 (${completedToday}/${todayAdventureTasks.length})` : '今日冒險（載入中）'} accent="⭐" />
             <div className="v1-task-list child-task-grid" aria-label="今日冒險任務">
               {!selectedChild ? (
                 <ChildTaskEmpty text="請家長先在孩子管理選擇目前孩子" />
+              ) : !taskSnapshotReady ? (
+                <ChildTaskEmpty text="任務載入中，請稍候" />
               ) : visibleTasks.length ? (
                 visibleTasks.map((task) => (
                   <TaskCard
@@ -659,7 +666,7 @@ function SharePage() {
     try {
       taskRepository.redeemStarsForScreenTime(
         selectedChild.id,
-        new Date().toISOString().slice(0, 10),
+        getTodayTaskDate(),
         redeemAmount,
         `孩子申請兌換 ${redeemAmount} 顆星星為 ${redeemMinutes} 分鐘平板時間`
       );

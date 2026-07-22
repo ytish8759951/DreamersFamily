@@ -5,7 +5,12 @@ const reviewableStatuses: LocalTask['status'][] = ['submitted'];
 const historicalStatuses: LocalTask['status'][] = ['approved', 'cancelled', 'expired'];
 
 export function getTodayTaskDate(now = new Date()) {
-  return now.toISOString().slice(0, 10);
+  return new Intl.DateTimeFormat('en-CA', {
+    timeZone: 'Asia/Taipei',
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit'
+  }).format(now);
 }
 
 export function isTaskOccurrenceToday(task: LocalTask, today = getTodayTaskDate()) {
@@ -31,7 +36,8 @@ export function getChildVisibleTasks(
 export function getChildTodayTasks(tasks: LocalTask[], today = getTodayTaskDate()) {
   return tasks
     .filter((task) => task.category !== 'daily' || isTaskOccurrenceToday(task, today))
-    .filter((task) => activeTaskStatuses.includes(task.status))
+    .filter((task) => task.category !== 'daily' || task.status !== 'expired')
+    .filter((task) => task.category === 'daily' ? activeTaskStatuses.includes(task.status) : ['pending', 'submitted', 'rejected'].includes(task.status))
     .sort((a, b) => {
       const aDone = ['submitted', 'approved'].includes(a.status);
       const bDone = ['submitted', 'approved'].includes(b.status);
