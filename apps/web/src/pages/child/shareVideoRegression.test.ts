@@ -9,9 +9,10 @@ const source = readFileSync(sourcePath, 'utf8');
 
 describe('child share video regression guards', () => {
   it('captures the selected video file before resetting recorder state', () => {
-    expect(source).toMatch(
-      /const selectedFile = event\.currentTarget\.files\?\.\[0\] \?\? null;\s*resetShareRecording\(\);\s*setShareForm\(\(current\) => \(\{ \.\.\.current, file: selectedFile \}\)\);/
-    );
+    expect(source).toContain('const input = event.currentTarget;');
+    expect(source).toContain('const file = captureFirstSelectedFile(input);');
+    expect(source).toContain('void processSelectedVideo(file);');
+    expect(source).not.toMatch(/setShareForm\(\([^)]*\)\s*=>[\s\S]*event\.(currentTarget|target)\.files/);
   });
 
   it('keeps child submitted videos playable with native controls', () => {

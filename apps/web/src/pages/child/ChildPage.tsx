@@ -30,6 +30,7 @@ import { resolveCurrentChildId } from '../../lib/childSession';
 import { dataModeBadgeLabel, dataRepository } from '../../lib/dataRepository';
 import { useDreamCoverMigration } from '../../lib/dreamCoverMigration';
 import { getErrorDiagnostics, getErrorMessage } from '../../lib/errorDiagnostics';
+import { captureFirstSelectedFile } from '../../lib/fileInput';
 import { growthRepository } from '../../lib/growthRepository';
 import { compressImageFile } from '../../lib/imageCompression';
 import { logVideoStorageDiagnostics } from '../../lib/localVideoStore';
@@ -906,6 +907,33 @@ function SharePage() {
       setIsSubmittingShare(false);
     }
   };
+  const processSelectedPhoto = async (file: File) => {
+    setFormError('');
+    setShareForm((current) => ({ ...current, file }));
+  };
+  const processSelectedVideo = async (file: File) => {
+    setFormError('');
+    resetShareRecording();
+    setShareForm((current) => ({
+      ...current,
+      file,
+      recording: null,
+      recording_accepted: false,
+      is_recording: false
+    }));
+  };
+  const handlePhotoFileChange = (event: { currentTarget: HTMLInputElement }) => {
+    const input = event.currentTarget;
+    const file = captureFirstSelectedFile(input);
+    if (!file) return;
+    void processSelectedPhoto(file);
+  };
+  const handleVideoFileChange = (event: { currentTarget: HTMLInputElement }) => {
+    const input = event.currentTarget;
+    const file = captureFirstSelectedFile(input);
+    if (!file) return;
+    void processSelectedVideo(file);
+  };
 
   return (
     <div className="v1-page v2-share-page">
@@ -980,11 +1008,7 @@ function SharePage() {
                     <input
                       type="file"
                       accept={shareAccept(formMode)}
-                      onChange={(event) => {
-                        const selectedFile = event.currentTarget.files?.[0] ?? null;
-                        resetShareRecording();
-                        setShareForm((current) => ({ ...current, file: selectedFile }));
-                      }}
+                      onChange={handleVideoFileChange}
                     />
                   </label>
                 </>
@@ -995,10 +1019,7 @@ function SharePage() {
                     required
                     type="file"
                     accept={shareAccept(formMode)}
-                    onChange={(event) => {
-                      const selectedFile = event.currentTarget.files?.[0] ?? null;
-                      setShareForm({ ...shareForm, file: selectedFile });
-                    }}
+                    onChange={handlePhotoFileChange}
                   />
                 </label>
               )}

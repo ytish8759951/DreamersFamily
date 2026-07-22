@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState, type ChangeEvent } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { Copy, Database, Download, LogOut, Settings as SettingsIcon, Trash2, Upload, UserRound, X } from 'lucide-react';
 import QRCode from 'react-qr-code';
@@ -11,6 +11,7 @@ import {
   unbindParentDeviceFromFamily,
   type ProductionFamilyParent
 } from '../../lib/supabaseData';
+import { captureFirstSelectedFile } from '../../lib/fileInput';
 import { createParentInviteToken, getParentInviteUrl } from '../../lib/parentDeviceBinding';
 import { settingsRepository } from '../../lib/settingsRepository';
 import type { LocalDatabaseState, LocalFamilySettings } from '../../lib/localTypes';
@@ -259,9 +260,7 @@ export function Settings() {
     }
   };
 
-  const readImage = async (event: ChangeEvent<HTMLInputElement>, key: 'family_avatar_media_id' | 'parent_avatar_media_id') => {
-    const file = event.currentTarget.files?.[0];
-    if (!file) return;
+  const readImage = async (file: File, key: 'family_avatar_media_id' | 'parent_avatar_media_id') => {
     const mediaId = await traceSettingsAwait('settingsRepository.saveAvatarFile', () =>
       settingsRepository.saveAvatarFile({
         ownerId: key === 'family_avatar_media_id' ? 'family-avatar' : 'parent-avatar',
@@ -277,9 +276,7 @@ export function Settings() {
     setMessage('已匯出 JSON');
   };
 
-  const importData = async (event: ChangeEvent<HTMLInputElement>) => {
-    const file = event.currentTarget.files?.[0];
-    if (!file) return;
+  const importData = async (file: File) => {
     try {
       const raw = await traceSettingsAwait('file.text', () => file.text());
       settingsRepository.importData(raw);
@@ -287,8 +284,6 @@ export function Settings() {
       setMessage('資料已匯入');
     } catch (caught) {
       setMessage(caught instanceof Error ? caught.message : '匯入資料失敗');
-    } finally {
-      event.currentTarget.value = '';
     }
   };
 
@@ -429,7 +424,12 @@ export function Settings() {
           <header><h2>家庭資料</h2><small>{formatDate(settings.family_created_at)} 建立</small></header>
           <div className="settings-avatar-row">
             <span><AvatarPreview mediaId={form.family_avatar_media_id} fallback="🏠" alt="家庭頭像" /></span>
-            <label>家庭頭像<input type="file" accept="image/*" onChange={(event) => void readImage(event, 'family_avatar_media_id')} /></label>
+            <label>家庭頭像<input type="file" accept="image/*" onChange={(event) => {
+              const input = event.currentTarget;
+              const file = captureFirstSelectedFile(input);
+              if (!file) return;
+              void readImage(file, 'family_avatar_media_id');
+            }} /></label>
           </div>
           <label>家庭名稱<input value={form.family_name} onChange={(event) => update('family_name', event.target.value)} /></label>
           <label>家庭介紹<textarea rows={3} value={form.family_intro} onChange={(event) => update('family_intro', event.target.value)} /></label>
@@ -439,7 +439,12 @@ export function Settings() {
           <header><h2>家長資料</h2><UserRound size={22} /></header>
           <div className="settings-avatar-row">
             <span><AvatarPreview mediaId={form.parent_avatar_media_id} fallback="👤" alt="家長頭像" /></span>
-            <label>家長頭像<input type="file" accept="image/*" onChange={(event) => void readImage(event, 'parent_avatar_media_id')} /></label>
+            <label>家長頭像<input type="file" accept="image/*" onChange={(event) => {
+              const input = event.currentTarget;
+              const file = captureFirstSelectedFile(input);
+              if (!file) return;
+              void readImage(file, 'parent_avatar_media_id');
+            }} /></label>
           </div>
           <label>家長名稱<input value={form.parent_name} onChange={(event) => update('parent_name', event.target.value)} /></label>
           <label>電子郵件<input type="email" value={form.parent_email} onChange={(event) => update('parent_email', event.target.value)} /></label>
@@ -515,7 +520,12 @@ export function Settings() {
         <header><div><h2>測試資料管理</h2><p>{dataMode === 'supabase' ? '正式資料清理會先預覽數量，並透過 Owner 限定 RPC transaction 執行。' : '本機模式會清理目前瀏覽器內的 local/mock 測試資料。'}</p></div><Database size={28} /></header>
         <div className="settings-data-actions">
           <button type="button" onClick={exportData}><Download size={18} /> 匯出備份 JSON</button>
-          <label><Upload size={18} /> 匯入 JSON<input type="file" accept="application/json,.json" onChange={importData} /></label>
+          <label><Upload size={18} /> 匯入 JSON<input type="file" accept="application/json,.json" onChange={(event) => {
+            const input = event.currentTarget;
+            const file = captureFirstSelectedFile(input);
+            if (!file) return;
+            void importData(file);
+          }} /></label>
           <button type="button" className="is-danger" onClick={() => void openCleanupPreview()} disabled={!canManageTestData || cleanupBusy}><Trash2 size={18} /> {isPreviewLoading ? '讀取中...' : '清空所有測試資料'}</button>
         </div>
         {!canManageTestData ? <p className="settings-cleanup-error">只有目前家庭的 Owner 可以管理測試資料。</p> : null}

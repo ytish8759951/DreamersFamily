@@ -5,6 +5,7 @@ import { PiggySceneV2, type PiggySceneV2ShelfSlot } from '../components/piggy/Pi
 import type { PiggyCoinValue } from '../components/piggy/PiggyUiAssets';
 import { dataModeBadgeLabel } from '../lib/dataRepository';
 import { resolveCurrentChildId } from '../lib/childSession';
+import { captureSelectedFiles } from '../lib/fileInput';
 import { compressImageFile } from '../lib/imageCompression';
 import { piggyRepository } from '../lib/piggyRepository';
 import { purchaseRepository } from '../lib/purchaseRepository';
@@ -519,11 +520,11 @@ function PiggyProductForm({ childId, product, onClose }: { childId: string; prod
     error: ''
   });
 
-  const uploadProductImages = async (files: FileList | null, main: boolean) => {
-    if (!files?.length) return;
+  const uploadProductImages = async (files: File[], main: boolean) => {
+    if (!files.length) return;
     try {
       const ids: string[] = [];
-      for (const file of Array.from(files).slice(0, main ? 1 : 5)) {
+      for (const file of files.slice(0, main ? 1 : 5)) {
         const blob = await compressImageFile(file);
         const mediaId = await piggyRepository.saveProductImageFile({ ownerId: product?.id ?? 'new-piggy-product', childId, file, blob });
         ids.push(mediaId);
@@ -564,9 +565,17 @@ function PiggyProductForm({ childId, product, onClose }: { childId: string; prod
           <label className="is-full">商品名稱<input maxLength={50} value={form.name} onChange={(event) => setForm({ ...form, name: event.target.value })} /></label>
           <label>價格<input required type="number" min="1" step="1" value={form.price} onChange={(event) => setForm({ ...form, price: event.target.value })} /></label>
           <label>狀態<select value={form.shelfStatus} onChange={(event) => setForm({ ...form, shelfStatus: event.target.value as LocalPiggyProduct['shelf_status'] })}><option value="backlog">待購買</option><option value="shelf">商品架</option></select></label>
-          <label className="is-full piggy-upload-field"><Upload size={16} /> 主圖<input type="file" accept="image/*" onChange={(event) => void uploadProductImages(event.currentTarget.files, true)} /></label>
+          <label className="is-full piggy-upload-field"><Upload size={16} /> 主圖<input type="file" accept="image/*" onChange={(event) => {
+            const input = event.currentTarget;
+            const files = captureSelectedFiles(input, 1);
+            void uploadProductImages(files, true);
+          }} /></label>
           {form.mainMediaId ? <PiggyMediaImage className="piggy-form-preview" mediaId={form.mainMediaId} alt="商品主圖" /> : null}
-          <label className="is-full piggy-upload-field"><Upload size={16} /> 其他圖片，最多 5 張<input multiple type="file" accept="image/*" onChange={(event) => void uploadProductImages(event.currentTarget.files, false)} /></label>
+          <label className="is-full piggy-upload-field"><Upload size={16} /> 其他圖片，最多 5 張<input multiple type="file" accept="image/*" onChange={(event) => {
+            const input = event.currentTarget;
+            const files = captureSelectedFiles(input, 5);
+            void uploadProductImages(files, false);
+          }} /></label>
           {form.error ? <p className="local-form-error">{form.error}</p> : null}
           <footer><button type="button" onClick={onClose}>取消</button><button className="ds-primary-button" type="submit">儲存商品</button></footer>
         </form>

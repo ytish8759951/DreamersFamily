@@ -5,6 +5,7 @@ import { LocalTaskMedia } from '../../components/LocalTaskMedia';
 import { LocalShareMedia as LocalShareMediaView } from '../../components/LocalShareMedia';
 import { dataMode, dataModeBadgeLabel, dataModeLabel, dataRepository } from '../../lib/dataRepository';
 import { useDreamCoverMigration } from '../../lib/dreamCoverMigration';
+import { captureFirstSelectedFile } from '../../lib/fileInput';
 import { compressImageFile } from '../../lib/imageCompression';
 import { mailboxRepository, type MailboxRecordingDraft } from '../../lib/mailboxRepository';
 import { memoryRepository } from '../../lib/memoryRepository';
@@ -426,7 +427,11 @@ export function ParentTasksPage() {
                 <input
                   type="file"
                   accept="image/jpeg,image/png,image/webp"
-                  onChange={(event) => void updateTaskImage(event.target.files?.[0] ?? null)}
+                  onChange={(event) => {
+                    const input = event.currentTarget;
+                    const file = captureFirstSelectedFile(input);
+                    void updateTaskImage(file);
+                  }}
                 />
                 {taskForm.task_image_preview_url ? (
                   <div className="task-form-image-preview">
@@ -970,7 +975,11 @@ export function ParentDreamsPage() {
             <label className="is-full">夢想說明<textarea rows={3} maxLength={200} value={dreamForm.description} onChange={(event) => setDreamForm({ ...dreamForm, description: event.target.value })} placeholder="選填，寫下孩子想完成這個夢想的原因" /></label>
             <label className="is-full">
               夢想示意圖
-              <input type="file" accept="image/jpeg,image/png,image/webp" onChange={(event) => void updateDreamCover(event.currentTarget.files?.[0] ?? null)} />
+              <input type="file" accept="image/jpeg,image/png,image/webp" onChange={(event) => {
+                const input = event.currentTarget;
+                const file = captureFirstSelectedFile(input);
+                void updateDreamCover(file);
+              }} />
             </label>
             {dreamForm.cover_preview_url ? (
               <div className="dream-cover-preview">
@@ -1377,7 +1386,11 @@ export function ParentMailboxPage() {
               />
             ) : null}
             {form.type === 'image' ? (
-              <label className="is-full">本機檔案<input required type="file" accept={mailboxAccept(form.type)} onChange={(event) => setForm({ ...form, file: event.currentTarget.files?.[0] ?? null })} /></label>
+              <label className="is-full">本機檔案<input required type="file" accept={mailboxAccept(form.type)} onChange={(event) => {
+                const input = event.currentTarget;
+                const file = captureFirstSelectedFile(input);
+                setForm({ ...form, file });
+              }} /></label>
             ) : null}
             {formError ? <p className="local-form-error">{formError}</p> : null}
             <footer><button type="button" onClick={closeMailboxForm}>取消</button><button className="ds-primary-button" type="submit">發送訊息</button></footer>
