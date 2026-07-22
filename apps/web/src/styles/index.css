@@ -8290,6 +8290,50 @@ button.ds-primary-button {
   font-size: 20px;
 }
 
+.child-share-video-options {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
+}
+
+.child-share-video-option {
+  cursor: pointer;
+  min-height: 56px;
+  border: 1px solid rgba(93, 73, 45, .2);
+}
+
+.child-share-video-option.is-secondary {
+  background: #f7fbff;
+}
+
+.child-share-video-option input {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+  white-space: nowrap;
+  border: 0;
+  padding: 0;
+}
+
+.child-share-video-selected {
+  display: grid;
+  gap: 10px;
+}
+
+.child-share-video-meta {
+  display: grid;
+  justify-content: stretch;
+  gap: 4px;
+  color: var(--muted);
+  font-size: 13px;
+}
+
+.child-share-video-meta strong {
+  color: var(--text);
+}
+
 .mailbox-recorder-live,
 .mailbox-recorder-ready > div {
   display: flex;
@@ -8331,6 +8375,12 @@ button.ds-primary-button {
 
 .child-share-video-recorder .mailbox-recorder-live {
   align-items: stretch;
+}
+
+@media (max-width: 640px) {
+  .child-share-video-options {
+    grid-template-columns: 1fr;
+  }
 }
 
 .v2-share-page .v1-history-row section audio,

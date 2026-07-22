@@ -8,11 +8,32 @@ const sourcePath = resolve(dirname(fileURLToPath(import.meta.url)), 'ChildPage.t
 const source = readFileSync(sourcePath, 'utf8');
 
 describe('child share video regression guards', () => {
-  it('captures the selected video file before resetting recorder state', () => {
+  it('uses native camera and library file inputs for video sharing', () => {
+    expect(source).toContain('function ShareNativeVideoPicker');
+    expect(source).toContain('ref={cameraInputRef}');
+    expect(source).toContain('ref={libraryInputRef}');
+    expect(source).toContain('capture="environment"');
+    expect(source).toContain('從照片圖庫選擇影片');
+    expect(source).toContain('preload="metadata"');
+    expect(source).not.toContain('function ShareVideoRecorder');
+    expect(source).not.toContain("startShareRecording('video')");
+    expect(source).not.toContain('getShareVideoRecordingMimeType');
+    expect(source).not.toContain('videoRecordingErrorMessage');
+  });
+
+  it('captures selected video files synchronously without clearing the input immediately', () => {
     expect(source).toContain('const input = event.currentTarget;');
-    expect(source).toContain('const file = captureFirstSelectedFile(input);');
-    expect(source).toContain('void processSelectedVideo(file);');
+    expect(source).toContain('const file = captureFirstSelectedFile(input, { clear: false });');
+    expect(source).toContain("void processSelectedVideo(file, 'camera');");
+    expect(source).toContain("void processSelectedVideo(file, 'library');");
     expect(source).not.toMatch(/setShareForm\(\([^)]*\)\s*=>[\s\S]*event\.(currentTarget|target)\.files/);
+  });
+
+  it('accepts iOS video formats and reports the 300MB limit in Chinese', () => {
+    expect(source).toContain('video/quicktime');
+    expect(source).toContain("'m4v'");
+    expect(source).toContain('影片檔案太大');
+    expect(source).toContain('系統允許的最大容量');
   });
 
   it('keeps child submitted videos playable with native controls', () => {

@@ -3,9 +3,9 @@ type FileInputLike = {
   value: string;
 };
 
-export function captureFirstSelectedFile(input: FileInputLike) {
+export function captureFirstSelectedFile(input: FileInputLike, options: { clear?: boolean } = {}) {
   const file = input.files?.item(0) ?? null;
-  input.value = '';
+  if (options.clear ?? true) input.value = '';
   return file;
 }
 
@@ -20,4 +20,8 @@ export function captureSelectedFiles(input: FileInputLike, limit = Number.POSITI
   }
   input.value = '';
   return captured;
+}
+
+export function clearFileInput(input: FileInputLike | null) {
+  if (input) input.value = '';
 }

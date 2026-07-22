@@ -30,7 +30,7 @@ import { resolveCurrentChildId } from '../../lib/childSession';
 import { dataModeBadgeLabel, dataRepository } from '../../lib/dataRepository';
 import { useDreamCoverMigration } from '../../lib/dreamCoverMigration';
 import { getErrorDiagnostics, getErrorMessage } from '../../lib/errorDiagnostics';
-import { captureFirstSelectedFile } from '../../lib/fileInput';
+import { captureFirstSelectedFile, clearFileInput } from '../../lib/fileInput';
 import { growthRepository } from '../../lib/growthRepository';
 import { compressImageFile } from '../../lib/imageCompression';
 import { logVideoStorageDiagnostics } from '../../lib/localVideoStore';
@@ -537,15 +537,7 @@ type ChildShareFilter = 'all' | ShareFormMode;
 
 type ChildRecordedMedia = ShareRecordedMedia;
 
-const SHARE_VIDEO_MIME_TYPES = [
-  'video/mp4;codecs=h264,aac',
-  'video/mp4',
-  'video/quicktime',
-  'video/webm;codecs=vp9,opus',
-  'video/webm;codecs=vp8,opus',
-  'video/webm;codecs=vp8',
-  'video/webm'
-] as const;
+const SHARE_VIDEO_MAX_BYTES = 300 * 1024 * 1024;
 
 function SharePage() {
   const localState = useLocalDataState();
@@ -560,8 +552,11 @@ function SharePage() {
   const chunksRef = useRef<ShareMediaChunk[]>([]);
   const timerRef = useRef<number | null>(null);
   const recordingTokenRef = useRef(0);
-  const [recordingStream, setRecordingStream] = useState<MediaStream | null>(null);
   const [recordingPreviewUrl, setRecordingPreviewUrl] = useState<string | null>(null);
+  const cameraVideoInputRef = useRef<HTMLInputElement | null>(null);
+  const libraryVideoInputRef = useRef<HTMLInputElement | null>(null);
+  const [selectedVideoPreviewUrl, setSelectedVideoPreviewUrl] = useState<string | null>(null);
+  const [videoSelectionSource, setVideoSelectionSource] = useState<'camera' | 'library' | null>(null);
   const [sharePageIndex, setSharePageIndex] = useState(1);
   const galleryPagerRef = useRef<HTMLDivElement | null>(null);
   const [shareForm, setShareForm] = useState({
@@ -603,6 +598,8 @@ function SharePage() {
   }, [selectedChild?.id, shareFilter]);
   const openShareForm = (mode: ShareFormMode) => {
     stopActiveShareRecording(false);
+    clearSelectedVideoPreview();
+    clearShareVideoInputs();
     setFormMode(mode);
     setShareForm({
       title: '',
@@ -645,6 +642,8 @@ function SharePage() {
   };
   const closeShareForm = () => {
     stopActiveShareRecording(false);
+    clearSelectedVideoPreview();
+    clearShareVideoInputs();
     setFormMode(null);
     setFormError('');
   };
@@ -657,13 +656,23 @@ function SharePage() {
   const stopRecordingStream = () => {
     streamRef.current?.getTracks().forEach((track) => track.stop());
     streamRef.current = null;
-    setRecordingStream(null);
   };
   const clearRecordingPreviewUrl = () => {
     setRecordingPreviewUrl((current) => {
       shareRepository.releasePreviewUrl(current);
       return null;
     });
+  };
+  const clearSelectedVideoPreview = () => {
+    setSelectedVideoPreviewUrl((current) => {
+      shareRepository.releasePreviewUrl(current);
+      return null;
+    });
+    setVideoSelectionSource(null);
+  };
+  const clearShareVideoInputs = () => {
+    clearFileInput(cameraVideoInputRef.current);
+    clearFileInput(libraryVideoInputRef.current);
   };
   function stopActiveShareRecording(saveRecording = true) {
     clearRecordingTimer();
@@ -696,30 +705,29 @@ function SharePage() {
     }));
     setFormError('');
   };
-  const startShareRecording = async (mode: 'audio' | 'video') => {
+  const startShareAudioRecording = async () => {
     setFormError('');
     if (
       !navigator.mediaDevices ||
       typeof navigator.mediaDevices.getUserMedia !== 'function' ||
       typeof window.MediaRecorder === 'undefined'
     ) {
-      setFormError(mode === 'video' ? '目前瀏覽器不支援錄影功能' : '目前瀏覽器不支援錄音功能');
+      setFormError('目前瀏覽器不支援錄音功能');
       return;
     }
     try {
       stopActiveShareRecording(false);
       clearRecordingPreviewUrl();
-      const stream = await navigator.mediaDevices.getUserMedia(mode === 'video' ? { video: true, audio: true } : { audio: true });
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
       streamRef.current = stream;
-      const selectedMimeType = mode === 'video' ? getShareVideoRecordingMimeType() : getShareAudioRecordingMimeType();
+      const selectedMimeType = getShareAudioRecordingMimeType();
       const recorder = selectedMimeType ? new MediaRecorder(stream, { mimeType: selectedMimeType }) : new MediaRecorder(stream);
       const token = recordingTokenRef.current + 1;
       recordingTokenRef.current = token;
       recorderRef.current = recorder;
-      setRecordingStream(mode === 'video' ? stream : null);
       chunksRef.current = [];
       console.info('[child/share] recording started', {
-        mode,
+        mode: 'audio',
         selectedMimeType,
         'recorder.mimeType': recorder.mimeType
       });
@@ -738,17 +746,17 @@ function SharePage() {
         const chunks = chunksRef.current;
         chunksRef.current = [];
         if (recordingTokenRef.current !== token) return;
-        const fallbackType = mode === 'video' ? 'video/webm' : 'audio/webm';
+        const fallbackType = 'audio/webm';
         const mediaMimeType = recorder.mimeType || selectedMimeType || fallbackType;
         const recording = shareRepository.createRecordedMedia({
           chunks,
           mimeType: mediaMimeType,
-          mediaType: mode,
+          mediaType: 'audio',
           fileName: `child-share-recording-${Date.now()}.${getShareRecordingExtension(mediaMimeType)}`,
           durationSeconds: shareForm.recording_seconds
         });
         console.info('[child/share] recording completed', {
-          mode,
+          mode: 'audio',
           selectedMimeType,
           'recorder.mimeType': recorder.mimeType,
           'chunks.length': chunks.length,
@@ -756,7 +764,7 @@ function SharePage() {
           'blob.type': recording.mime_type
         });
         if (recording.file_size_bytes === 0) {
-          setFormError(mode === 'video' ? '錄影失敗，沒有錄到影片資料，請重新錄影。' : '錄音失敗，沒有錄到聲音資料，請重新錄音。');
+          setFormError('錄音失敗，沒有錄到聲音資料，請重新錄音。');
           setShareForm((current) => ({
             ...current,
             recording: null,
@@ -771,10 +779,6 @@ function SharePage() {
           shareRepository.releasePreviewUrl(current);
           return recording.preview_url;
         });
-        if (mode === 'video') {
-          logVideoStorageDiagnostics(recording.blob);
-        }
-
         setShareForm((current) => ({
           ...current,
           recording: { ...recording, duration_seconds: current.recording_seconds },
@@ -800,16 +804,16 @@ function SharePage() {
       stopActiveShareRecording(false);
       const errorName = caught instanceof DOMException ? caught.name : '';
       console.error('[child/share] recording start failed', caught);
-      setFormError(mode === 'video'
-        ? videoRecordingErrorMessage(errorName)
-        : ['NotAllowedError', 'PermissionDeniedError'].includes(errorName)
-          ? '請允許麥克風權限後再錄音。'
-          : '錄音失敗，請稍後再試。');
+      setFormError(['NotAllowedError', 'PermissionDeniedError'].includes(errorName)
+        ? '請允許麥克風權限後再錄音。'
+        : '錄音失敗，請稍後再試。');
     }
   };
   useEffect(() => () => {
     stopActiveShareRecording(false);
     clearRecordingPreviewUrl();
+    clearSelectedVideoPreview();
+    clearShareVideoInputs();
   }, []);
   const createShare = async (event: FormEvent) => {
     event.preventDefault();
@@ -831,6 +835,11 @@ function SharePage() {
         return;
       }
       if (formMode === 'video') {
+        const videoError = getShareVideoFileError(shareForm.file);
+        if (videoError) {
+          setFormError(videoError);
+          return;
+        }
         logVideoStorageDiagnostics(mediaBlob);
         const diagnostics = shareRepository.getStorageDiagnostics();
         console.info('[child/share] localStorage diagnostics before video share', {
@@ -902,7 +911,7 @@ function SharePage() {
         videoBlobSize: shareForm.recording?.blob?.size ?? null,
         estimatedEncodedLength: shareForm.recording?.blob ? Math.ceil(shareForm.recording.blob.size / 3) * 4 : null
       });
-      setFormError(caught instanceof Error ? caught.message : '新增分享失敗');
+      setFormError(getShareCreateErrorMessage(caught, formMode));
     } finally {
       setIsSubmittingShare(false);
     }
@@ -911,9 +920,15 @@ function SharePage() {
     setFormError('');
     setShareForm((current) => ({ ...current, file }));
   };
-  const processSelectedVideo = async (file: File) => {
+  const processSelectedVideo = async (file: File, source: 'camera' | 'library') => {
     setFormError('');
     resetShareRecording();
+    const validationError = getShareVideoFileError(file);
+    setSelectedVideoPreviewUrl((current) => {
+      shareRepository.releasePreviewUrl(current);
+      return shareRepository.createPreviewUrl(file);
+    });
+    setVideoSelectionSource(source);
     setShareForm((current) => ({
       ...current,
       file,
@@ -921,6 +936,7 @@ function SharePage() {
       recording_accepted: false,
       is_recording: false
     }));
+    if (validationError) setFormError(validationError);
   };
   const handlePhotoFileChange = (event: { currentTarget: HTMLInputElement }) => {
     const input = event.currentTarget;
@@ -928,11 +944,17 @@ function SharePage() {
     if (!file) return;
     void processSelectedPhoto(file);
   };
-  const handleVideoFileChange = (event: { currentTarget: HTMLInputElement }) => {
+  const handleCameraVideoFileChange = (event: { currentTarget: HTMLInputElement }) => {
     const input = event.currentTarget;
-    const file = captureFirstSelectedFile(input);
+    const file = captureFirstSelectedFile(input, { clear: false });
     if (!file) return;
-    void processSelectedVideo(file);
+    void processSelectedVideo(file, 'camera');
+  };
+  const handleLibraryVideoFileChange = (event: { currentTarget: HTMLInputElement }) => {
+    const input = event.currentTarget;
+    const file = captureFirstSelectedFile(input, { clear: false });
+    if (!file) return;
+    void processSelectedVideo(file, 'library');
   };
 
   return (
@@ -984,34 +1006,27 @@ function SharePage() {
                   accepted={shareForm.recording_accepted}
                   isRecording={shareForm.is_recording}
                   seconds={shareForm.recording_seconds}
-                  onStart={() => startShareRecording('audio')}
+                  onStart={startShareAudioRecording}
                   onStop={() => stopActiveShareRecording(true)}
                   onReset={resetShareRecording}
                   onUse={() => setShareForm((current) => ({ ...current, recording_accepted: true }))}
                 />
               ) : formMode === 'video' ? (
-                <>
-                  <ShareVideoRecorder
-                    recording={shareForm.recording}
-                    accepted={shareForm.recording_accepted}
-                    isRecording={shareForm.is_recording}
-                    seconds={shareForm.recording_seconds}
-                    liveStream={recordingStream}
-                    previewUrl={recordingPreviewUrl}
-                    onStart={() => startShareRecording('video')}
-                    onStop={() => stopActiveShareRecording(true)}
-                    onReset={resetShareRecording}
-                    onUse={() => setShareForm((current) => ({ ...current, recording_accepted: true, file: null }))}
-                  />
-                  <label className="is-full">
-                    或選擇影片檔案
-                    <input
-                      type="file"
-                      accept={shareAccept(formMode)}
-                      onChange={handleVideoFileChange}
-                    />
-                  </label>
-                </>
+                <ShareNativeVideoPicker
+                  file={shareForm.file}
+                  previewUrl={selectedVideoPreviewUrl}
+                  source={videoSelectionSource}
+                  cameraInputRef={cameraVideoInputRef}
+                  libraryInputRef={libraryVideoInputRef}
+                  onCameraChange={handleCameraVideoFileChange}
+                  onLibraryChange={handleLibraryVideoFileChange}
+                  onReselect={() => {
+                    clearShareVideoInputs();
+                    clearSelectedVideoPreview();
+                    setFormError('');
+                    setShareForm((current) => ({ ...current, file: null }));
+                  }}
+                />
               ) : (
                 <label className="is-full">
                   分享檔案
@@ -1032,6 +1047,7 @@ function SharePage() {
                 <textarea rows={3} maxLength={200} value={shareForm.caption} onChange={(event) => setShareForm({ ...shareForm, caption: event.target.value })} placeholder="寫下這次分享的故事" />
               </label>
               {formError ? <p className="local-form-error">{formError}</p> : null}
+              {isSubmittingShare && formMode === 'video' ? <p className="local-form-hint">影片上傳中，請勿關閉頁面。</p> : null}
               {!formError && formMode ? <p className="local-form-hint">{getShareFormValidationError(formMode, shareForm) || '媒體已準備好，可以送出分享。'}</p> : null}
               <footer><button type="button" onClick={closeShareForm}>取消</button><button className="ds-primary-button" type="submit" disabled={isSubmittingShare}>{isSubmittingShare ? '上傳中...' : '送出分享'}</button></footer>
             </form>
@@ -1092,73 +1108,64 @@ function ShareAudioRecorder({
   );
 }
 
-function ShareVideoRecorder({
-  recording,
-  accepted,
-  isRecording,
-  seconds,
-  liveStream,
+function ShareNativeVideoPicker({
+  file,
   previewUrl,
-  onStart,
-  onStop,
-  onReset,
-  onUse
+  source,
+  cameraInputRef,
+  libraryInputRef,
+  onCameraChange,
+  onLibraryChange,
+  onReselect
 }: {
-  recording: ChildRecordedMedia | null;
-  accepted: boolean;
-  isRecording: boolean;
-  seconds: number;
-  liveStream: MediaStream | null;
+  file: File | null;
   previewUrl: string | null;
-  onStart: () => void;
-  onStop: () => void;
-  onReset: () => void;
-  onUse: () => void;
+  source: 'camera' | 'library' | null;
+  cameraInputRef: { current: HTMLInputElement | null };
+  libraryInputRef: { current: HTMLInputElement | null };
+  onCameraChange: (event: { currentTarget: HTMLInputElement }) => void;
+  onLibraryChange: (event: { currentTarget: HTMLInputElement }) => void;
+  onReselect: () => void;
 }) {
-  const liveVideoRef = useRef<HTMLVideoElement | null>(null);
-  const previewVideoRef = useRef<HTMLVideoElement | null>(null);
-
-  useEffect(() => {
-    if (!liveVideoRef.current) return;
-    liveVideoRef.current.srcObject = liveStream;
-    if (liveStream) void liveVideoRef.current.play();
-  }, [liveStream]);
-
-  useEffect(() => {
-    if (!previewVideoRef.current) return;
-    if (previewUrl) {
-      previewVideoRef.current.src = previewUrl;
-      previewVideoRef.current.load();
-    } else {
-      previewVideoRef.current.removeAttribute('src');
-      previewVideoRef.current.load();
-    }
-  }, [previewUrl]);
-
   return (
-    <section className="mailbox-recorder child-share-recorder child-share-video-recorder is-full" aria-label="影片錄影">
-      {!recording && !isRecording ? (
-        <button type="button" className="mailbox-recorder-primary" onClick={onStart}>
+    <section className="mailbox-recorder child-share-recorder child-share-video-recorder is-full" aria-label="影片選擇">
+      <div className="child-share-video-options">
+        <label className="mailbox-recorder-primary child-share-video-option">
           <span>🎥</span>
-          開始錄影
-        </button>
-      ) : null}
-      {isRecording ? (
-        <div className="mailbox-recorder-live">
-          <video ref={liveVideoRef} muted playsInline autoPlay />
-          <div><strong>錄影中</strong><time>{formatRecordingTime(seconds)}</time></div>
-          <button type="button" onClick={onStop}>停止錄影</button>
-        </div>
-      ) : null}
-      {recording && !isRecording ? (
-        <div className="mailbox-recorder-ready">
-          <video ref={previewVideoRef} controls playsInline />
+          使用相機錄影
+          <input
+            ref={cameraInputRef}
+            type="file"
+            accept="video/*"
+            capture="environment"
+            onClick={() => clearFileInput(cameraInputRef.current)}
+            onChange={onCameraChange}
+          />
+        </label>
+        <label className="mailbox-recorder-primary child-share-video-option is-secondary">
+          <span>▣</span>
+          從照片圖庫選擇影片
+          <input
+            ref={libraryInputRef}
+            type="file"
+            accept="video/*"
+            onClick={() => clearFileInput(libraryInputRef.current)}
+            onChange={onLibraryChange}
+          />
+        </label>
+      </div>
+      <p className="local-form-hint">影片容量上限：{formatFileSize(SHARE_VIDEO_MAX_BYTES)}。原生相機錄影會保留原始影片檔。</p>
+      {file && previewUrl ? (
+        <div className="mailbox-recorder-ready child-share-video-selected">
+          <video src={previewUrl} controls playsInline preload="metadata" />
+          <div className="child-share-video-meta">
+            <strong>{source === 'camera' ? '相機錄影已選擇' : '影片已選擇'}</strong>
+            <span>{file.name || '未命名影片'}</span>
+            <span>目前檔案大小：{formatFileSize(file.size)}</span>
+            <span>系統允許的最大容量：{formatFileSize(SHARE_VIDEO_MAX_BYTES)}</span>
+          </div>
           <div>
-            <button type="button" onClick={() => void previewVideoRef.current?.play()}>播放預覽</button>
-            <button type="button" onClick={onReset}>重新錄影</button>
-            <button type="button" className={accepted ? 'is-selected' : ''} disabled={accepted} onClick={onUse}>
-              {accepted ? '已使用這段影片' : '使用這段影片'}
-            </button>
+            <button type="button" onClick={onReselect}>重新選擇影片</button>
           </div>
         </div>
       ) : null}
@@ -1329,25 +1336,18 @@ function getShareFormValidationError(
     is_recording: boolean;
   }
 ) {
-  if (shareForm.is_recording) return formMode === 'video' ? '錄影尚未停止，請先停止錄影。' : '錄音尚未停止，請先停止錄音。';
+  if (shareForm.is_recording) return '錄音尚未停止，請先停止錄音。';
   if (formMode === 'photo' && !shareForm.file) return '請選擇要分享的照片檔案。';
   if (formMode === 'audio' && (!shareForm.recording || !shareForm.recording_accepted)) return '請先錄音，並按「使用錄音」後再送出。';
-  if (formMode === 'video' && !shareForm.file && (!shareForm.recording || !shareForm.recording_accepted)) {
-    return '請先錄影並按「使用這段影片」，或選擇一個影片檔案。';
+  if (formMode === 'video') {
+    if (!shareForm.file) return '請使用相機錄影，或從照片圖庫選擇影片。';
+    return getShareVideoFileError(shareForm.file);
   }
   return '';
 }
 
 async function compressSharePhoto(file: File) {
   return compressImageFile(file);
-}
-
-function getShareVideoRecordingMimeType() {
-  if (typeof MediaRecorder.isTypeSupported !== 'function') return '';
-  for (const mimeType of SHARE_VIDEO_MIME_TYPES) {
-    if (MediaRecorder.isTypeSupported(mimeType)) return mimeType;
-  }
-  return '';
 }
 
 function getShareAudioRecordingMimeType() {
@@ -1358,13 +1358,6 @@ function getShareAudioRecordingMimeType() {
   return '';
 }
 
-function videoRecordingErrorMessage(errorName: string) {
-  if (['NotAllowedError', 'PermissionDeniedError'].includes(errorName)) return '請允許相機與麥克風權限';
-  if (errorName === 'NotFoundError') return '找不到相機或麥克風';
-  if (errorName === 'NotReadableError') return '相機或麥克風目前被其他程式使用';
-  return '錄影啟動失敗，請重新整理後再試';
-}
-
 function getShareRecordingExtension(mimeType: string) {
   if (mimeType.includes('quicktime')) return 'mov';
   if (mimeType.includes('mp4')) return 'mp4';
@@ -1373,7 +1366,7 @@ function getShareRecordingExtension(mimeType: string) {
 
 function getShareFileExtension(mimeType: string, fileName: string, type: ShareFormMode) {
   const existing = fileName.split('.').pop()?.toLowerCase();
-  if (existing && ['jpg', 'jpeg', 'png', 'webp', 'mp3', 'm4a', 'mp4', 'mov', 'wav', 'webm'].includes(existing)) {
+  if (existing && ['jpg', 'jpeg', 'png', 'webp', 'mp3', 'm4a', 'mp4', 'mov', 'm4v', 'wav', 'webm'].includes(existing)) {
     return existing === 'jpeg' ? 'jpg' : existing;
   }
   if (mimeType.includes('quicktime')) return 'mov';
@@ -1387,6 +1380,41 @@ function getShareFileExtension(mimeType: string, fileName: string, type: ShareFo
   if (type === 'audio') return 'm4a';
   if (type === 'video') return 'mp4';
   return 'jpg';
+}
+
+function getShareVideoFileError(file: File | null) {
+  if (!file) return '';
+  if (file.size > SHARE_VIDEO_MAX_BYTES) {
+    return `影片檔案太大，目前檔案大小 ${formatFileSize(file.size)}，系統允許的最大容量為 ${formatFileSize(SHARE_VIDEO_MAX_BYTES)}。請選擇較短的影片後再送出。`;
+  }
+  if (isSupportedShareVideoFile(file)) return '';
+  return '目前只支援 MOV、MP4、M4V 或 WebM 影片，請重新選擇影片。';
+}
+
+function isSupportedShareVideoFile(file: File) {
+  const mimeType = file.type.toLowerCase();
+  const extension = file.name.split('.').pop()?.toLowerCase() ?? '';
+  if (['video/quicktime', 'video/mp4', 'video/x-m4v', 'video/webm'].includes(mimeType)) return true;
+  if (!mimeType && ['mov', 'mp4', 'm4v', 'webm'].includes(extension)) return true;
+  return ['mov', 'mp4', 'm4v', 'webm'].includes(extension);
+}
+
+function formatFileSize(bytes: number) {
+  if (!Number.isFinite(bytes) || bytes <= 0) return '0 MB';
+  const megabytes = bytes / (1024 * 1024);
+  if (megabytes >= 1) return `${megabytes.toFixed(megabytes >= 10 ? 0 : 1)} MB`;
+  return `${Math.max(1, Math.round(bytes / 1024))} KB`;
+}
+
+function getShareCreateErrorMessage(caught: unknown, formMode: ShareFormMode) {
+  const message = caught instanceof Error ? caught.message : '';
+  if (message.includes('Video media must be 300MB or smaller')) {
+    return `影片檔案太大，系統允許的最大容量為 ${formatFileSize(SHARE_VIDEO_MAX_BYTES)}。`;
+  }
+  if (message.toLowerCase().includes('storage') || message.includes('upload')) {
+    return `${childMediaTypeLabel(formMode)}上傳失敗：${message || '請確認網路連線後再試。'}`;
+  }
+  return message || '新增分享失敗，請稍後再試。';
 }
 
 function formatRecordingTime(seconds: number) {
