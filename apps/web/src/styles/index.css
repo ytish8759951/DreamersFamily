@@ -24615,3 +24615,116 @@ body.modal-open {
     bottom: max(0.5rem, env(safe-area-inset-bottom, 0px));
   }
 }
+
+/* Share media reliability and iPad dialog safety. */
+.local-form-backdrop:has(.child-share-dialog) {
+  align-items: stretch;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  padding: max(1rem, env(safe-area-inset-top, 0px)) 1rem calc(8rem + env(safe-area-inset-bottom, 0px));
+}
+
+.child-share-dialog {
+  align-self: flex-start;
+  width: min(94vw, 720px);
+  max-height: calc(100dvh - 2rem - env(safe-area-inset-top, 0px) - env(safe-area-inset-bottom, 0px));
+  overflow: hidden;
+}
+
+.child-share-dialog form {
+  max-height: calc(100dvh - 7.5rem - env(safe-area-inset-top, 0px) - env(safe-area-inset-bottom, 0px));
+  overflow-y: auto;
+  -webkit-overflow-scrolling: touch;
+  padding-bottom: calc(7rem + env(safe-area-inset-bottom, 0px));
+  scroll-padding-bottom: calc(7rem + env(safe-area-inset-bottom, 0px));
+}
+
+.child-share-dialog form > footer {
+  position: sticky;
+  bottom: 0;
+  z-index: 5;
+  margin: 0 -2px calc(-7rem - env(safe-area-inset-bottom, 0px));
+  border-top: 1px solid rgba(93, 73, 45, .12);
+  background: rgba(255, 252, 246, .96);
+  padding: .9rem 0 calc(.9rem + env(safe-area-inset-bottom, 0px));
+  backdrop-filter: blur(8px);
+}
+
+.local-form-hint {
+  grid-column: 1 / -1;
+  margin: 0;
+  border-radius: 12px;
+  background: #eef6e8;
+  padding: .7rem .85rem;
+  color: #48613d;
+  font-weight: 800;
+}
+
+.local-share-photo-button {
+  display: block;
+  width: 100%;
+  border: 0;
+  background: transparent;
+  padding: 0;
+  cursor: zoom-in;
+}
+
+.local-share-photo-button img,
+.pf-share-large-media img {
+  display: block;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.local-share-media-status {
+  display: grid;
+  min-height: 120px;
+  place-items: center;
+  gap: .65rem;
+  border: 1px dashed rgba(93, 73, 45, .22);
+  border-radius: 12px;
+  background: #fffaf1;
+  padding: 1rem;
+  color: #625f59;
+  text-align: center;
+  font-weight: 800;
+}
+
+.local-share-media-status button {
+  border-radius: 12px;
+  background: #fff;
+  padding: .55rem .85rem;
+  color: #3f5f8f;
+  font-weight: 900;
+}
+
+.local-share-lightbox {
+  position: fixed;
+  inset: 0;
+  z-index: 3000;
+  display: grid;
+  place-items: center;
+  background: rgba(20, 18, 15, .78);
+  padding: max(1rem, env(safe-area-inset-top, 0px)) 1rem max(1rem, env(safe-area-inset-bottom, 0px));
+}
+
+.local-share-lightbox > button {
+  position: fixed;
+  top: max(1rem, env(safe-area-inset-top, 0px));
+  right: 1rem;
+  width: 44px;
+  height: 44px;
+  border-radius: 999px;
+  background: #fff;
+  color: #332a20;
+  font-size: 20px;
+  font-weight: 900;
+}
+
+.local-share-lightbox img {
+  max-width: min(94vw, 1100px);
+  max-height: 86dvh;
+  border-radius: 8px;
+  object-fit: contain;
+}

@@ -19,6 +19,9 @@ const THUMBNAIL_MAX_SIDE = 320;
 const IMAGE_MAX_SIDE = 1600;
 
 const objectUrlCache = new Map<string, { url: string; references: number }>();
+const signedUrlCache = new Map<string, { url: string; references: number; expiresAt: number }>();
+const SIGNED_URL_TTL_SECONDS = 60 * 60;
+const SIGNED_URL_REFRESH_BUFFER_MS = 5 * 60 * 1000;
 
 export type MediaOwnerType = 'share' | 'dream' | 'mailbox' | 'special-day' | 'avatar' | 'memory' | 'piggy-product' | 'task';
 export type UnifiedMediaType = 'photo' | 'audio' | 'video' | 'image';
@@ -428,6 +431,8 @@ export async function acquireMediaObjectUrl(id: string) {
     cached.references += 1;
     return cached.url;
   }
+  const remoteMedia = await findRemoteMedia(id);
+  if (remoteMedia) return acquireSupabaseSignedUrl(id, remoteMedia);
   const record = await getMedia(id);
   if (!record) return null;
   const url = URL.createObjectURL(record.blob);
@@ -436,6 +441,12 @@ export async function acquireMediaObjectUrl(id: string) {
 }
 
 export function releaseMediaObjectUrl(id: string) {
+  const signed = signedUrlCache.get(id);
+  if (signed) {
+    signed.references -= 1;
+    if (signed.references <= 0) signedUrlCache.delete(id);
+    return;
+  }
   const cached = objectUrlCache.get(id);
   if (!cached) return;
   cached.references -= 1;
@@ -582,16 +593,20 @@ async function saveSupabaseStorageMedia(record: UnifiedMediaRecord, input?: Part
   });
 
   if (record.ownerType === 'share') {
-    dataRepository.updateShareMediaStorage(record.id, {
-      bucket: 'family-media',
-      storage_path: storagePath,
-      thumbnail_path: thumbnailPath,
-      mime_type: record.mimeType,
-      file_size_bytes: record.blob.size,
-      width: record.width ?? null,
-      height: record.height ?? null,
-      duration_seconds: record.duration ?? null
-    });
+    try {
+      dataRepository.updateShareMediaStorage(record.id, {
+        bucket: 'family-media',
+        storage_path: storagePath,
+        thumbnail_path: thumbnailPath,
+        mime_type: record.mimeType,
+        file_size_bytes: record.blob.size,
+        width: record.width ?? null,
+        height: record.height ?? null,
+        duration_seconds: record.duration ?? null
+      });
+    } catch (error) {
+      if (!(error instanceof Error) || !error.message.includes('Share media not found')) throw error;
+    }
   }
 
   return {
@@ -743,6 +758,25 @@ function getStorageClientForScope(scope: MediaScope) {
   return supabaseClient!;
 }
 
+async function acquireSupabaseSignedUrl(id: string, media: RemoteMediaAsset) {
+  const cached = signedUrlCache.get(id);
+  if (cached && cached.expiresAt - Date.now() > SIGNED_URL_REFRESH_BUFFER_MS) {
+    cached.references += 1;
+    return cached.url;
+  }
+  if (!supabaseClient) throw new Error('Supabase Storage is not configured');
+  const client = getStorageClientForRemoteMedia(media);
+  const signed = await client.storage.from(media.bucket).createSignedUrl(media.path, SIGNED_URL_TTL_SECONDS);
+  if (signed.error) throw signed.error;
+  if (!signed.data?.signedUrl) throw new Error('無法取得媒體授權網址');
+  signedUrlCache.set(id, {
+    url: signed.data.signedUrl,
+    references: (cached?.references ?? 0) + 1,
+    expiresAt: Date.now() + SIGNED_URL_TTL_SECONDS * 1000
+  });
+  return signed.data.signedUrl;
+}
+
 let childScopedClientKey: string | null = null;
 let childScopedClient: SupabaseClient | null = null;
 
@@ -801,6 +835,10 @@ function isUuid(value: string | null | undefined): value is UUID {
 }
 
 function extensionFromMimeType(mimeType: string, fileName?: string) {
+  const extension = fileName?.split('.').pop()?.toLowerCase();
+  if (extension && ['jpg', 'jpeg', 'png', 'webp', 'mp3', 'm4a', 'mp4', 'mov', 'wav', 'webm'].includes(extension)) {
+    return extension === 'jpeg' ? 'jpg' : extension;
+  }
   if (mimeType.includes('webp')) return 'webp';
   if (mimeType.includes('png')) return 'png';
   if (mimeType.includes('jpeg') || mimeType.includes('jpg')) return 'jpg';
@@ -809,7 +847,6 @@ function extensionFromMimeType(mimeType: string, fileName?: string) {
   if (mimeType.includes('mpeg')) return 'mp3';
   if (mimeType.includes('wav')) return 'wav';
   if (mimeType.includes('webm')) return 'webm';
-  const extension = fileName?.split('.').pop()?.toLowerCase();
   return extension && /^[a-z0-9]+$/.test(extension) ? extension : 'bin';
 }
 
@@ -835,6 +872,7 @@ function normalizeCreatedAt(value?: string | number) {
 }
 
 function revokeCachedObjectUrl(id: string) {
+  signedUrlCache.delete(id);
   const cached = objectUrlCache.get(id);
   if (!cached) return;
   URL.revokeObjectURL(cached.url);
@@ -910,8 +948,8 @@ async function resizeImageBlob(blob: Blob, maxSide: number, quality: number) {
 
 function defaultMimeType(mediaType: UnifiedMediaType) {
   if (mediaType === 'photo' || mediaType === 'image') return 'image/webp';
-  if (mediaType === 'audio') return 'audio/webm';
-  return 'video/webm';
+  if (mediaType === 'audio') return 'audio/mp4';
+  return 'video/mp4';
 }
 
 function createLocalId() {

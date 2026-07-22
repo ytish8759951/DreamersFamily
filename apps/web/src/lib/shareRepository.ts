@@ -92,26 +92,33 @@ async function saveShareMedia(input: SaveShareMediaInput) {
     blob: input.blob
   } satisfies SaveMediaInput);
   if (savedMedia.bucket === 'family-media' && savedMedia.storagePath) {
-    dataRepository.updateShareMediaStorage(mediaId, {
-      bucket: savedMedia.bucket,
-      storage_path: savedMedia.storagePath,
-      thumbnail_path: savedMedia.thumbnailPath ?? null,
-      mime_type: savedMedia.mimeType,
-      file_size_bytes: savedMedia.blob.size,
-      width: savedMedia.width ?? input.width ?? null,
-      height: savedMedia.height ?? input.height ?? null,
-      duration_seconds: savedMedia.duration ?? input.durationSeconds ?? null
-    });
+    try {
+      dataRepository.updateShareMediaStorage(mediaId, {
+        bucket: savedMedia.bucket,
+        storage_path: savedMedia.storagePath,
+        thumbnail_path: savedMedia.thumbnailPath ?? null,
+        mime_type: savedMedia.mimeType,
+        file_size_bytes: savedMedia.blob.size,
+        width: savedMedia.width ?? input.width ?? null,
+        height: savedMedia.height ?? input.height ?? null,
+        duration_seconds: savedMedia.duration ?? input.durationSeconds ?? null
+      });
+    } catch (error) {
+      if (!(error instanceof Error) || !error.message.includes('Share media not found')) throw error;
+    }
   }
   return {
     id: mediaId,
     media_type: input.mediaType,
-    mime_type: input.mimeType,
+    bucket: savedMedia.bucket ?? 'local-media',
+    storage_path: savedMedia.storagePath ?? '',
+    thumbnail_path: savedMedia.thumbnailPath ?? null,
+    mime_type: savedMedia.mimeType || input.mimeType,
     file_name: input.fileName,
-    file_size_bytes: input.fileSizeBytes ?? input.blob.size,
-    width: input.width ?? null,
+    file_size_bytes: savedMedia.blob.size || input.fileSizeBytes || input.blob.size,
+    width: savedMedia.width ?? input.width ?? null,
     height: input.height ?? null,
-    duration_seconds: input.durationSeconds ?? null
+    duration_seconds: savedMedia.duration ?? input.durationSeconds ?? null
   };
 }
 

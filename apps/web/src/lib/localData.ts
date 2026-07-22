@@ -682,7 +682,10 @@ export interface MigrateDreamCoverInput {
 }
 
 export interface ShareMediaInput {
+  id?: UUID;
   media_type: LocalShareMedia['media_type'];
+  bucket?: LocalShareMedia['bucket'];
+  storage_path?: string;
   mime_type: string;
   file_name?: string;
   file_size_bytes?: number;
@@ -694,6 +697,7 @@ export interface ShareMediaInput {
 }
 
 export interface CreateShareInput {
+  id?: UUID;
   child_id: UUID;
   title?: string | null;
   caption?: string | null;
@@ -2037,7 +2041,7 @@ export class LocalDataService implements LocalDataRepository {
       const timestamp = now();
       const sourceType = input.source_type ?? 'child_device';
       const share: LocalShare = {
-        id: id(),
+        id: input.id ?? id(),
         family_id: state.family_id,
         child_id: input.child_id,
         title: input.title?.trim() || null,
@@ -2061,15 +2065,15 @@ export class LocalDataService implements LocalDataRepository {
       state.shares.push(share);
 
       const records = media.map((item, index): LocalShareMedia => {
-        const mediaId = id();
+        const mediaId = item.id ?? id();
         return {
           id: mediaId,
           family_id: state.family_id,
           child_id: input.child_id,
           share_id: share.id,
           media_type: item.media_type,
-          bucket: 'local-media',
-          storage_path: `local/${state.family_id}/${input.child_id}/${share.id}/${item.file_name ?? mediaId}`,
+          bucket: item.bucket ?? 'local-media',
+          storage_path: item.storage_path ?? `local/${state.family_id}/${input.child_id}/${share.id}/${item.file_name ?? mediaId}`,
           mime_type: item.mime_type,
           file_size_bytes: item.file_size_bytes ?? 0,
           width: item.width ?? null,

@@ -537,17 +537,20 @@ type ChildShareFilter = 'all' | ShareFormMode;
 type ChildRecordedMedia = ShareRecordedMedia;
 
 const SHARE_VIDEO_MIME_TYPES = [
+  'video/mp4;codecs=h264,aac',
+  'video/mp4',
+  'video/quicktime',
   'video/webm;codecs=vp9,opus',
   'video/webm;codecs=vp8,opus',
   'video/webm;codecs=vp8',
-  'video/webm',
-  'video/mp4'
+  'video/webm'
 ] as const;
 
 function SharePage() {
   const localState = useLocalDataState();
   const [formMode, setFormMode] = useState<ShareFormMode | null>(null);
   const [formError, setFormError] = useState('');
+  const [isSubmittingShare, setIsSubmittingShare] = useState(false);
   const [shareFilter, setShareFilter] = useState<ChildShareFilter>('all');
   const [redeemStars, setRedeemStars] = useState('1');
   const [redeemMessage, setRedeemMessage] = useState('');
@@ -811,23 +814,17 @@ function SharePage() {
     event.preventDefault();
     if (!selectedChild || !formMode) return;
     setFormError('');
-    if ((formMode === 'audio' || formMode === 'video') && (!shareForm.recording || !shareForm.recording_accepted || shareForm.recording.media_type !== formMode)) {
-      setFormError(formMode === 'video' ? '請先錄影，並使用這段影片後再送出' : '請先錄音，並使用這段錄音後再送出');
+    const validationError = getShareFormValidationError(formMode, shareForm);
+    if (validationError) {
+      setFormError(validationError);
       return;
     }
-    if (formMode === 'audio' && (!shareForm.recording || !shareForm.recording_accepted)) {
-      setFormError('請先錄音，並使用這段錄音後再送出');
-      return;
-    }
-    if (formMode === 'photo' && !shareForm.file) {
-      setFormError('請選擇要分享的本機檔案');
-      return;
-    }
+    setIsSubmittingShare(true);
     try {
       const mediaBlob =
         formMode === 'photo'
           ? await compressSharePhoto(shareForm.file!)
-          : shareForm.recording?.blob ?? null;
+          : shareForm.recording?.blob ?? shareForm.file ?? null;
       if (!mediaBlob) {
         setFormError('媒體檔案準備失敗，請重新選擇或錄製。');
         return;
@@ -853,21 +850,14 @@ function SharePage() {
           : {
               media_type: formMode,
               mime_type: mediaBlob.type || defaultMimeType(formMode),
-              file_name: replaceFileExtension(shareForm.file!.name, mediaBlob.type.includes('webp') ? 'webp' : 'jpg'),
+              file_name: normalizeShareFileName(shareForm.file?.name ?? `share-${formMode}`, mediaBlob.type || defaultMimeType(formMode), formMode),
               file_size_bytes: mediaBlob.size
             };
-      const createdShare = shareRepository.createShare({
-        child_id: selectedChild.id,
-        title: shareForm.title || null,
-        caption: shareForm.caption || null,
-        source_type: 'child_device',
-        status: 'approved',
-        media: [media]
-      });
-      const createdMedia = createdShare.media[0];
-      await shareRepository.saveShareMedia({
-        id: createdMedia.id,
-        shareId: createdShare.id,
+      const shareId = createLocalMediaId();
+      const mediaId = createLocalMediaId();
+      const uploadedMedia = await shareRepository.saveShareMedia({
+        id: mediaId,
+        shareId,
         childId: selectedChild.id,
         mediaType: formMode,
         mimeType: mediaBlob.type || media.mime_type,
@@ -875,6 +865,27 @@ function SharePage() {
         fileSizeBytes: media.file_size_bytes,
         durationSeconds: media.duration_seconds,
         blob: mediaBlob
+      });
+      const createdShare = shareRepository.createShare({
+        id: shareId,
+        child_id: selectedChild.id,
+        title: shareForm.title || null,
+        caption: shareForm.caption || null,
+        source_type: 'child_device',
+        status: 'approved',
+        media: [{
+          id: uploadedMedia.id,
+          media_type: formMode,
+          bucket: uploadedMedia.bucket as LocalShareMedia['bucket'],
+          storage_path: uploadedMedia.storage_path,
+          thumbnail_path: uploadedMedia.thumbnail_path,
+          mime_type: uploadedMedia.mime_type,
+          file_name: media.file_name,
+          file_size_bytes: uploadedMedia.file_size_bytes,
+          width: uploadedMedia.width,
+          height: uploadedMedia.height,
+          duration_seconds: uploadedMedia.duration_seconds
+        }]
       });
       closeShareForm();
     } catch (caught) {
@@ -891,6 +902,8 @@ function SharePage() {
         estimatedEncodedLength: shareForm.recording?.blob ? Math.ceil(shareForm.recording.blob.size / 3) * 4 : null
       });
       setFormError(caught instanceof Error ? caught.message : '新增分享失敗');
+    } finally {
+      setIsSubmittingShare(false);
     }
   };
 
@@ -949,18 +962,31 @@ function SharePage() {
                   onUse={() => setShareForm((current) => ({ ...current, recording_accepted: true }))}
                 />
               ) : formMode === 'video' ? (
-                <ShareVideoRecorder
-                  recording={shareForm.recording}
-                  accepted={shareForm.recording_accepted}
-                  isRecording={shareForm.is_recording}
-                  seconds={shareForm.recording_seconds}
-                  liveStream={recordingStream}
-                  previewUrl={recordingPreviewUrl}
-                  onStart={() => startShareRecording('video')}
-                  onStop={() => stopActiveShareRecording(true)}
-                  onReset={resetShareRecording}
-                  onUse={() => setShareForm((current) => ({ ...current, recording_accepted: true }))}
-                />
+                <>
+                  <ShareVideoRecorder
+                    recording={shareForm.recording}
+                    accepted={shareForm.recording_accepted}
+                    isRecording={shareForm.is_recording}
+                    seconds={shareForm.recording_seconds}
+                    liveStream={recordingStream}
+                    previewUrl={recordingPreviewUrl}
+                    onStart={() => startShareRecording('video')}
+                    onStop={() => stopActiveShareRecording(true)}
+                    onReset={resetShareRecording}
+                    onUse={() => setShareForm((current) => ({ ...current, recording_accepted: true, file: null }))}
+                  />
+                  <label className="is-full">
+                    或選擇影片檔案
+                    <input
+                      type="file"
+                      accept={shareAccept(formMode)}
+                      onChange={(event) => {
+                        resetShareRecording();
+                        setShareForm((current) => ({ ...current, file: event.currentTarget.files?.[0] ?? null }));
+                      }}
+                    />
+                  </label>
+                </>
               ) : (
                 <label className="is-full">
                   分享檔案
@@ -981,7 +1007,8 @@ function SharePage() {
                 <textarea rows={3} maxLength={200} value={shareForm.caption} onChange={(event) => setShareForm({ ...shareForm, caption: event.target.value })} placeholder="寫下這次分享的故事" />
               </label>
               {formError ? <p className="local-form-error">{formError}</p> : null}
-              <footer><button type="button" onClick={closeShareForm}>取消</button><button className="ds-primary-button" type="submit">送出分享</button></footer>
+              {!formError && formMode ? <p className="local-form-hint">{getShareFormValidationError(formMode, shareForm) || '媒體已準備好，可以送出分享。'}</p> : null}
+              <footer><button type="button" onClick={closeShareForm}>取消</button><button className="ds-primary-button" type="submit" disabled={isSubmittingShare}>{isSubmittingShare ? '上傳中...' : '送出分享'}</button></footer>
             </form>
           </section>
         </div>
@@ -1257,6 +1284,35 @@ function replaceFileExtension(fileName: string, extension: string) {
   return `${fileName.replace(/\.[^.]+$/, '') || 'share-photo'}.${extension}`;
 }
 
+function normalizeShareFileName(fileName: string, mimeType: string, type: ShareFormMode) {
+  return replaceFileExtension(fileName, getShareFileExtension(mimeType, fileName, type));
+}
+
+function createLocalMediaId() {
+  if (typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function') {
+    return crypto.randomUUID();
+  }
+  return `local-${Date.now()}-${Math.random().toString(16).slice(2)}`;
+}
+
+function getShareFormValidationError(
+  formMode: ShareFormMode,
+  shareForm: {
+    file: File | null;
+    recording: ChildRecordedMedia | null;
+    recording_accepted: boolean;
+    is_recording: boolean;
+  }
+) {
+  if (shareForm.is_recording) return formMode === 'video' ? '錄影尚未停止，請先停止錄影。' : '錄音尚未停止，請先停止錄音。';
+  if (formMode === 'photo' && !shareForm.file) return '請選擇要分享的照片檔案。';
+  if (formMode === 'audio' && (!shareForm.recording || !shareForm.recording_accepted)) return '請先錄音，並按「使用錄音」後再送出。';
+  if (formMode === 'video' && !shareForm.file && (!shareForm.recording || !shareForm.recording_accepted)) {
+    return '請先錄影並按「使用這段影片」，或選擇一個影片檔案。';
+  }
+  return '';
+}
+
 async function compressSharePhoto(file: File) {
   return compressImageFile(file);
 }
@@ -1285,8 +1341,27 @@ function videoRecordingErrorMessage(errorName: string) {
 }
 
 function getShareRecordingExtension(mimeType: string) {
+  if (mimeType.includes('quicktime')) return 'mov';
   if (mimeType.includes('mp4')) return 'mp4';
   return 'webm';
+}
+
+function getShareFileExtension(mimeType: string, fileName: string, type: ShareFormMode) {
+  const existing = fileName.split('.').pop()?.toLowerCase();
+  if (existing && ['jpg', 'jpeg', 'png', 'webp', 'mp3', 'm4a', 'mp4', 'mov', 'wav', 'webm'].includes(existing)) {
+    return existing === 'jpeg' ? 'jpg' : existing;
+  }
+  if (mimeType.includes('quicktime')) return 'mov';
+  if (mimeType.includes('mp4')) return 'mp4';
+  if (mimeType.includes('webm')) return 'webm';
+  if (mimeType.includes('mpeg')) return 'mp3';
+  if (mimeType.includes('wav')) return 'wav';
+  if (mimeType.includes('png')) return 'png';
+  if (mimeType.includes('webp')) return 'webp';
+  if (mimeType.includes('jpeg') || mimeType.includes('jpg')) return 'jpg';
+  if (type === 'audio') return 'm4a';
+  if (type === 'video') return 'mp4';
+  return 'jpg';
 }
 
 function formatRecordingTime(seconds: number) {

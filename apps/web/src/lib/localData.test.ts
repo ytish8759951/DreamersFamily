@@ -1687,5 +1687,84 @@ describe('local MVP data flows', () => {
       }
     });
   });
+
+  it('creates a share from pre-uploaded family media without changing media ids', () => {
+    const child = data.createChild({ display_name: 'Media Kid' });
+    const shareId = '11111111-1111-4111-8111-111111111111';
+    const photoId = '22222222-2222-4222-8222-222222222222';
+    const audioId = '33333333-3333-4333-8333-333333333333';
+    const videoId = '44444444-4444-4444-8444-444444444444';
+
+    const share = data.createShare({
+      id: shareId,
+      child_id: child.id,
+      caption: 'portable media',
+      media: [
+        {
+          id: photoId,
+          media_type: 'photo',
+          bucket: 'family-media',
+          storage_path: `${child.family_id}/${child.id}/2026/07/share/${photoId}.jpg`,
+          mime_type: 'image/jpeg',
+          file_size_bytes: 1234
+        },
+        {
+          id: audioId,
+          media_type: 'audio',
+          bucket: 'family-media',
+          storage_path: `${child.family_id}/${child.id}/2026/07/share/${audioId}.m4a`,
+          mime_type: 'audio/mp4',
+          file_size_bytes: 2345,
+          duration_seconds: 8
+        },
+        {
+          id: videoId,
+          media_type: 'video',
+          bucket: 'family-media',
+          storage_path: `${child.family_id}/${child.id}/2026/07/share/${videoId}.mov`,
+          mime_type: 'video/quicktime',
+          file_size_bytes: 3456,
+          duration_seconds: 12
+        }
+      ]
+    });
+
+    expect(share.id).toBe(shareId);
+    expect(share.share_type).toBe('mixed');
+    expect(share.media.map((item) => item.id)).toEqual([photoId, audioId, videoId]);
+    expect(share.media.every((item) => item.bucket === 'family-media')).toBe(true);
+    expect(data.listShares(child.id)[0].media.map((item) => item.storage_path)).toEqual([
+      `${child.family_id}/${child.id}/2026/07/share/${photoId}.jpg`,
+      `${child.family_id}/${child.id}/2026/07/share/${audioId}.m4a`,
+      `${child.family_id}/${child.id}/2026/07/share/${videoId}.mov`
+    ]);
+  });
+
+  it('keeps share media isolated between two children', () => {
+    const first = data.createChild({ display_name: 'First Share Kid' });
+    const second = data.createChild({ display_name: 'Second Share Kid' });
+
+    const firstShare = data.createShare({
+      child_id: first.id,
+      caption: 'first',
+      media: [{ media_type: 'photo', mime_type: 'image/jpeg', file_name: 'first.jpg' }]
+    });
+    const secondShare = data.createShare({
+      child_id: second.id,
+      caption: 'second',
+      media: [{ media_type: 'video', mime_type: 'video/mp4', file_name: 'second.mp4' }]
+    });
+
+    expect(data.listShares(first.id).map((share) => share.id)).toEqual([firstShare.id]);
+    expect(data.listShares(second.id).map((share) => share.id)).toEqual([secondShare.id]);
+    expect(data.listShares(first.id)[0].media[0]).toMatchObject({
+      child_id: first.id,
+      media_type: 'photo'
+    });
+    expect(data.listShares(second.id)[0].media[0]).toMatchObject({
+      child_id: second.id,
+      media_type: 'video'
+    });
+  });
 });
 
