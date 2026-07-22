@@ -9,7 +9,7 @@ export async function compressImageFile(
 ) {
   const maxSide = options.maxSide ?? 1280;
   const quality = options.quality ?? 0.75;
-  const bitmap = await createImageBitmap(file);
+  const bitmap = await createOrientedImageBitmap(file);
   const scale = Math.min(1, maxSide / Math.max(bitmap.width, bitmap.height));
   const width = Math.max(1, Math.round(bitmap.width * scale));
   const height = Math.max(1, Math.round(bitmap.height * scale));
@@ -31,6 +31,14 @@ export async function compressImageFile(
   const fallback = await canvasToBlob(canvas, options.fallbackType ?? 'image/jpeg', quality);
   if (!fallback) throw new Error('無法壓縮圖片');
   return fallback;
+}
+
+async function createOrientedImageBitmap(file: File) {
+  try {
+    return await createImageBitmap(file, { imageOrientation: 'from-image' });
+  } catch {
+    return createImageBitmap(file);
+  }
 }
 
 function canvasToBlob(canvas: HTMLCanvasElement, mimeType: string, quality: number) {

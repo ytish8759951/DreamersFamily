@@ -571,7 +571,22 @@ async function saveSupabaseStorageMedia(record: UnifiedMediaRecord, input?: Part
       contentType: record.mimeType,
       upsert: true
     });
-  if (upload.error) throw upload.error;
+  if (upload.error) {
+    console.error('[mediaRepository] family-media upload failed', {
+      path: storagePath,
+      bytes: record.blob.size,
+      mimeType: record.mimeType,
+      status: 'statusCode' in upload.error ? upload.error.statusCode : undefined,
+      code: 'error' in upload.error ? upload.error.error : undefined,
+      message: upload.error.message
+    });
+    throw upload.error;
+  }
+  console.info('[mediaRepository] family-media upload completed', {
+    path: storagePath,
+    bytes: record.blob.size,
+    mimeType: record.mimeType
+  });
 
   let thumbnailPath: string | null = null;
   if (record.thumbnailBlob) {
@@ -709,7 +724,21 @@ async function upsertRemoteMediaAsset(input: {
     uploaded_by_device_id: null
   };
   const { error } = await client.from('media_assets').upsert(row, { onConflict: 'id' });
-  if (error) throw error;
+  if (error) {
+    console.error('[mediaRepository] media_assets upsert failed', {
+      id: input.record.id,
+      path: input.storagePath,
+      bytes: input.record.blob.size,
+      code: error.code,
+      message: error.message
+    });
+    throw error;
+  }
+  console.info('[mediaRepository] media_assets upsert completed', {
+    id: input.record.id,
+    path: input.storagePath,
+    bytes: input.record.blob.size
+  });
 }
 
 function resolveMediaScope(record: UnifiedMediaRecord, input?: Partial<SaveMediaInput>): MediaScope | null {

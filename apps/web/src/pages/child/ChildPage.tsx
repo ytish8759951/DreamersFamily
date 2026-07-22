@@ -538,6 +538,7 @@ type ChildShareFilter = 'all' | ShareFormMode;
 type ChildRecordedMedia = ShareRecordedMedia;
 
 const SHARE_VIDEO_MAX_BYTES = 300 * 1024 * 1024;
+const SHARE_PHOTO_MAX_BYTES = 10 * 1024 * 1024;
 
 function SharePage() {
   const localState = useLocalDataState();
@@ -553,6 +554,9 @@ function SharePage() {
   const timerRef = useRef<number | null>(null);
   const recordingTokenRef = useRef(0);
   const [recordingPreviewUrl, setRecordingPreviewUrl] = useState<string | null>(null);
+  const photoInputRef = useRef<HTMLInputElement | null>(null);
+  const [selectedPhotoPreviewUrl, setSelectedPhotoPreviewUrl] = useState<string | null>(null);
+  const [shareUploadStatus, setShareUploadStatus] = useState<'idle' | 'preparing' | 'uploading' | 'success' | 'error'>('idle');
   const cameraVideoInputRef = useRef<HTMLInputElement | null>(null);
   const libraryVideoInputRef = useRef<HTMLInputElement | null>(null);
   const [selectedVideoPreviewUrl, setSelectedVideoPreviewUrl] = useState<string | null>(null);
@@ -598,8 +602,11 @@ function SharePage() {
   }, [selectedChild?.id, shareFilter]);
   const openShareForm = (mode: ShareFormMode) => {
     stopActiveShareRecording(false);
+    clearSelectedPhotoPreview();
+    clearFileInput(photoInputRef.current);
     clearSelectedVideoPreview();
     clearShareVideoInputs();
+    setShareUploadStatus('idle');
     setFormMode(mode);
     setShareForm({
       title: '',
@@ -642,8 +649,11 @@ function SharePage() {
   };
   const closeShareForm = () => {
     stopActiveShareRecording(false);
+    clearSelectedPhotoPreview();
+    clearFileInput(photoInputRef.current);
     clearSelectedVideoPreview();
     clearShareVideoInputs();
+    setShareUploadStatus('idle');
     setFormMode(null);
     setFormError('');
   };
@@ -669,6 +679,12 @@ function SharePage() {
       return null;
     });
     setVideoSelectionSource(null);
+  };
+  const clearSelectedPhotoPreview = () => {
+    setSelectedPhotoPreviewUrl((current) => {
+      shareRepository.releasePreviewUrl(current);
+      return null;
+    });
   };
   const clearShareVideoInputs = () => {
     clearFileInput(cameraVideoInputRef.current);
@@ -812,6 +828,8 @@ function SharePage() {
   useEffect(() => () => {
     stopActiveShareRecording(false);
     clearRecordingPreviewUrl();
+    clearSelectedPhotoPreview();
+    clearFileInput(photoInputRef.current);
     clearSelectedVideoPreview();
     clearShareVideoInputs();
   }, []);
@@ -825,19 +843,27 @@ function SharePage() {
       return;
     }
     setIsSubmittingShare(true);
+    setShareUploadStatus(formMode === 'photo' ? 'preparing' : 'uploading');
     try {
-      const mediaBlob =
-        formMode === 'photo'
-          ? await compressSharePhoto(shareForm.file!)
-          : shareForm.recording?.blob ?? shareForm.file ?? null;
+      const preparedPhoto = formMode === 'photo' ? await prepareSharePhotoForUpload(shareForm.file!) : null;
+      const mediaBlob = preparedPhoto?.blob ?? shareForm.recording?.blob ?? shareForm.file ?? null;
+      const uploadFileName = preparedPhoto?.fileName ?? shareForm.file?.name ?? `share-${formMode}`;
+      const uploadMimeType = preparedPhoto?.mimeType ?? mediaBlob?.type ?? defaultMimeType(formMode);
       if (!mediaBlob) {
         setFormError('媒體檔案準備失敗，請重新選擇或錄製。');
+        setShareUploadStatus('error');
+        return;
+      }
+      if (mediaBlob.size <= 0) {
+        setFormError(`${childMediaTypeLabel(formMode)}檔案沒有內容，請重新選擇後再試。`);
+        setShareUploadStatus('error');
         return;
       }
       if (formMode === 'video') {
         const videoError = getShareVideoFileError(shareForm.file);
         if (videoError) {
           setFormError(videoError);
+          setShareUploadStatus('error');
           return;
         }
         logVideoStorageDiagnostics(mediaBlob);
@@ -859,10 +885,11 @@ function SharePage() {
             }
           : {
               media_type: formMode,
-              mime_type: mediaBlob.type || defaultMimeType(formMode),
-              file_name: normalizeShareFileName(shareForm.file?.name ?? `share-${formMode}`, mediaBlob.type || defaultMimeType(formMode), formMode),
+              mime_type: uploadMimeType,
+              file_name: normalizeShareFileName(uploadFileName, uploadMimeType, formMode),
               file_size_bytes: mediaBlob.size
             };
+      setShareUploadStatus('uploading');
       const shareId = createLocalMediaId();
       const mediaId = createLocalMediaId();
       const uploadedMedia = await shareRepository.saveShareMedia({
@@ -870,12 +897,15 @@ function SharePage() {
         shareId,
         childId: selectedChild.id,
         mediaType: formMode,
-        mimeType: mediaBlob.type || media.mime_type,
+        mimeType: uploadMimeType || media.mime_type,
         fileName: media.file_name,
         fileSizeBytes: media.file_size_bytes,
         durationSeconds: media.duration_seconds,
         blob: mediaBlob
       });
+      if ((uploadedMedia.file_size_bytes ?? 0) <= 0) {
+        throw new Error(`${childMediaTypeLabel(formMode)}上傳失敗：Storage 檔案大小為 0。`);
+      }
       const createdShare = shareRepository.createShare({
         id: shareId,
         child_id: selectedChild.id,
@@ -897,6 +927,7 @@ function SharePage() {
           duration_seconds: uploadedMedia.duration_seconds
         }]
       });
+      setShareUploadStatus('success');
       closeShareForm();
     } catch (caught) {
       const diagnostics = shareRepository.getStorageDiagnostics();
@@ -911,6 +942,7 @@ function SharePage() {
         videoBlobSize: shareForm.recording?.blob?.size ?? null,
         estimatedEncodedLength: shareForm.recording?.blob ? Math.ceil(shareForm.recording.blob.size / 3) * 4 : null
       });
+      setShareUploadStatus('error');
       setFormError(getShareCreateErrorMessage(caught, formMode));
     } finally {
       setIsSubmittingShare(false);
@@ -918,7 +950,14 @@ function SharePage() {
   };
   const processSelectedPhoto = async (file: File) => {
     setFormError('');
+    setShareUploadStatus('idle');
+    const validationError = getSharePhotoFileError(file);
+    setSelectedPhotoPreviewUrl((current) => {
+      shareRepository.releasePreviewUrl(current);
+      return shareRepository.createPreviewUrl(file);
+    });
     setShareForm((current) => ({ ...current, file }));
+    if (validationError) setFormError(validationError);
   };
   const processSelectedVideo = async (file: File, source: 'camera' | 'library') => {
     setFormError('');
@@ -940,7 +979,7 @@ function SharePage() {
   };
   const handlePhotoFileChange = (event: { currentTarget: HTMLInputElement }) => {
     const input = event.currentTarget;
-    const file = captureFirstSelectedFile(input);
+    const file = captureFirstSelectedFile(input, { clear: false });
     if (!file) return;
     void processSelectedPhoto(file);
   };
@@ -1028,15 +1067,19 @@ function SharePage() {
                   }}
                 />
               ) : (
-                <label className="is-full">
-                  分享檔案
-                  <input
-                    required
-                    type="file"
-                    accept={shareAccept(formMode)}
-                    onChange={handlePhotoFileChange}
-                  />
-                </label>
+                <SharePhotoPicker
+                  file={shareForm.file}
+                  previewUrl={selectedPhotoPreviewUrl}
+                  inputRef={photoInputRef}
+                  onPhotoChange={handlePhotoFileChange}
+                  onReselect={() => {
+                    clearFileInput(photoInputRef.current);
+                    clearSelectedPhotoPreview();
+                    setShareUploadStatus('idle');
+                    setFormError('');
+                    setShareForm((current) => ({ ...current, file: null }));
+                  }}
+                />
               )}
               <label className="is-full">
                 標題
@@ -1047,7 +1090,8 @@ function SharePage() {
                 <textarea rows={3} maxLength={200} value={shareForm.caption} onChange={(event) => setShareForm({ ...shareForm, caption: event.target.value })} placeholder="寫下這次分享的故事" />
               </label>
               {formError ? <p className="local-form-error">{formError}</p> : null}
-              {isSubmittingShare && formMode === 'video' ? <p className="local-form-hint">影片上傳中，請勿關閉頁面。</p> : null}
+              {shareUploadStatus !== 'idle' ? <p className="local-form-hint">{shareUploadStatusLabel(formMode, shareUploadStatus)}</p> : null}
+              {shareUploadStatus === 'error' ? <button type="submit" className="local-form-retry" disabled={isSubmittingShare}>重試上傳</button> : null}
               {!formError && formMode ? <p className="local-form-hint">{getShareFormValidationError(formMode, shareForm) || '媒體已準備好，可以送出分享。'}</p> : null}
               <footer><button type="button" onClick={closeShareForm}>取消</button><button className="ds-primary-button" type="submit" disabled={isSubmittingShare}>{isSubmittingShare ? '上傳中...' : '送出分享'}</button></footer>
             </form>
@@ -1108,6 +1152,51 @@ function ShareAudioRecorder({
   );
 }
 
+function SharePhotoPicker({
+  file,
+  previewUrl,
+  inputRef,
+  onPhotoChange,
+  onReselect
+}: {
+  file: File | null;
+  previewUrl: string | null;
+  inputRef: { current: HTMLInputElement | null };
+  onPhotoChange: (event: { currentTarget: HTMLInputElement }) => void;
+  onReselect: () => void;
+}) {
+  return (
+    <section className="mailbox-recorder child-share-photo-picker is-full" aria-label="照片選擇">
+      <label className="mailbox-recorder-primary child-share-photo-option">
+        <span>📷</span>
+        選擇照片
+        <input
+          ref={inputRef}
+          type="file"
+          accept="image/*"
+          onClick={() => clearFileInput(inputRef.current)}
+          onChange={onPhotoChange}
+        />
+      </label>
+      <p className="local-form-hint">照片容量上限：{formatFileSize(SHARE_PHOTO_MAX_BYTES)}。支援 JPG、PNG、WebP、HEIC、HEIF。</p>
+      {file && previewUrl ? (
+        <div className="mailbox-recorder-ready child-share-photo-selected">
+          <img src={previewUrl} alt={file.name || '已選照片預覽'} />
+          <div className="child-share-file-meta">
+            <strong>照片已選擇</strong>
+            <span>{file.name || '未命名照片'}</span>
+            <span>目前檔案大小：{formatFileSize(file.size)}</span>
+            <span>系統允許的最大容量：{formatFileSize(SHARE_PHOTO_MAX_BYTES)}</span>
+          </div>
+          <div>
+            <button type="button" onClick={onReselect}>更換照片</button>
+          </div>
+        </div>
+      ) : null}
+    </section>
+  );
+}
+
 function ShareNativeVideoPicker({
   file,
   previewUrl,
@@ -1158,7 +1247,7 @@ function ShareNativeVideoPicker({
       {file && previewUrl ? (
         <div className="mailbox-recorder-ready child-share-video-selected">
           <video src={previewUrl} controls playsInline preload="metadata" />
-          <div className="child-share-video-meta">
+          <div className="child-share-file-meta">
             <strong>{source === 'camera' ? '相機錄影已選擇' : '影片已選擇'}</strong>
             <span>{file.name || '未命名影片'}</span>
             <span>目前檔案大小：{formatFileSize(file.size)}</span>
@@ -1312,6 +1401,15 @@ function defaultMimeType(type: ShareFormMode) {
   return ({ photo: 'image/jpeg', audio: 'audio/mpeg', video: 'video/mp4' } as const)[type];
 }
 
+function shareUploadStatusLabel(formMode: ShareFormMode | null, status: 'idle' | 'preparing' | 'uploading' | 'success' | 'error') {
+  const label = formMode ? childMediaTypeLabel(formMode) : '媒體';
+  if (status === 'preparing') return `${label}準備中。`;
+  if (status === 'uploading') return `${label}上傳中，請勿關閉頁面。`;
+  if (status === 'success') return '上傳成功。';
+  if (status === 'error') return '上傳失敗，請確認原因後重試。';
+  return '';
+}
+
 function replaceFileExtension(fileName: string, extension: string) {
   return `${fileName.replace(/\.[^.]+$/, '') || 'share-photo'}.${extension}`;
 }
@@ -1337,7 +1435,10 @@ function getShareFormValidationError(
   }
 ) {
   if (shareForm.is_recording) return '錄音尚未停止，請先停止錄音。';
-  if (formMode === 'photo' && !shareForm.file) return '請選擇要分享的照片檔案。';
+  if (formMode === 'photo') {
+    if (!shareForm.file) return '請選擇要分享的照片檔案。';
+    return getSharePhotoFileError(shareForm.file);
+  }
   if (formMode === 'audio' && (!shareForm.recording || !shareForm.recording_accepted)) return '請先錄音，並按「使用錄音」後再送出。';
   if (formMode === 'video') {
     if (!shareForm.file) return '請使用相機錄影，或從照片圖庫選擇影片。';
@@ -1348,6 +1449,57 @@ function getShareFormValidationError(
 
 async function compressSharePhoto(file: File) {
   return compressImageFile(file);
+}
+
+async function prepareSharePhotoForUpload(file: File) {
+  const validationError = getSharePhotoFileError(file);
+  if (validationError) throw new Error(validationError);
+  try {
+    if (isHeicSharePhoto(file)) {
+      const jpegBlob = await convertSharePhotoToJpeg(file);
+      return {
+        blob: jpegBlob,
+        mimeType: 'image/jpeg',
+        fileName: replaceFileExtension(file.name || 'share-photo.heic', 'jpg')
+      };
+    }
+    const blob = await compressSharePhoto(file);
+    return {
+      blob,
+      mimeType: blob.type || defaultMimeType('photo'),
+      fileName: file.name || 'share-photo'
+    };
+  } catch (caught) {
+    if (isHeicSharePhoto(file)) {
+      throw new Error('HEIC/HEIF 照片轉換失敗，請在照片 App 匯出為 JPEG 後再上傳。');
+    }
+    throw new Error(getErrorMessage(caught, '照片準備失敗，請重新選擇照片後再試。'));
+  }
+}
+
+async function convertSharePhotoToJpeg(file: File) {
+  if (typeof createImageBitmap === 'undefined' || typeof document === 'undefined') {
+    throw new Error('目前瀏覽器無法轉換 HEIC/HEIF 照片。');
+  }
+  let bitmap: ImageBitmap | null = null;
+  try {
+    try {
+      bitmap = await createImageBitmap(file, { imageOrientation: 'from-image' });
+    } catch {
+      bitmap = await createImageBitmap(file);
+    }
+    const canvas = document.createElement('canvas');
+    canvas.width = bitmap.width;
+    canvas.height = bitmap.height;
+    const context = canvas.getContext('2d');
+    if (!context) throw new Error('照片轉換失敗，無法建立畫布。');
+    context.drawImage(bitmap, 0, 0);
+    const blob = await new Promise<Blob | null>((resolve) => canvas.toBlob(resolve, 'image/jpeg', 0.9));
+    if (!blob || blob.size <= 0) throw new Error('照片轉換失敗，沒有產生有效檔案。');
+    return blob;
+  } finally {
+    bitmap?.close();
+  }
 }
 
 function getShareAudioRecordingMimeType() {
@@ -1389,6 +1541,29 @@ function getShareVideoFileError(file: File | null) {
   }
   if (isSupportedShareVideoFile(file)) return '';
   return '目前只支援 MOV、MP4、M4V 或 WebM 影片，請重新選擇影片。';
+}
+
+function getSharePhotoFileError(file: File | null) {
+  if (!file) return '';
+  if (file.size > SHARE_PHOTO_MAX_BYTES) {
+    return `照片檔案太大，目前檔案大小 ${formatFileSize(file.size)}，系統允許的最大容量為 ${formatFileSize(SHARE_PHOTO_MAX_BYTES)}。請選擇較小的照片後再送出。`;
+  }
+  if (isSupportedSharePhotoFile(file)) return '';
+  return '目前只支援 JPG、PNG、WebP、HEIC 或 HEIF 照片，請重新選擇照片。';
+}
+
+function isSupportedSharePhotoFile(file: File) {
+  const mimeType = file.type.toLowerCase();
+  const extension = file.name.split('.').pop()?.toLowerCase() ?? '';
+  if (['image/jpeg', 'image/png', 'image/webp', 'image/heic', 'image/heif'].includes(mimeType)) return true;
+  if (!mimeType && ['jpg', 'jpeg', 'png', 'webp', 'heic', 'heif'].includes(extension)) return true;
+  return ['jpg', 'jpeg', 'png', 'webp', 'heic', 'heif'].includes(extension);
+}
+
+function isHeicSharePhoto(file: File) {
+  const mimeType = file.type.toLowerCase();
+  const extension = file.name.split('.').pop()?.toLowerCase() ?? '';
+  return mimeType === 'image/heic' || mimeType === 'image/heif' || extension === 'heic' || extension === 'heif';
 }
 
 function isSupportedShareVideoFile(file: File) {

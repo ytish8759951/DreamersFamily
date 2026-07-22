@@ -8296,6 +8296,7 @@ button.ds-primary-button {
   gap: 10px;
 }
 
+.child-share-photo-option,
 .child-share-video-option {
   cursor: pointer;
   min-height: 56px;
@@ -8306,6 +8307,7 @@ button.ds-primary-button {
   background: #f7fbff;
 }
 
+.child-share-photo-option input,
 .child-share-video-option input {
   position: absolute;
   width: 1px;
@@ -8317,12 +8319,21 @@ button.ds-primary-button {
   padding: 0;
 }
 
+.child-share-photo-selected,
 .child-share-video-selected {
   display: grid;
   gap: 10px;
 }
 
-.child-share-video-meta {
+.child-share-photo-selected img {
+  width: 100%;
+  max-height: 320px;
+  border-radius: 14px;
+  object-fit: contain;
+  background: #fff;
+}
+
+.child-share-file-meta {
   display: grid;
   justify-content: stretch;
   gap: 4px;
@@ -8330,8 +8341,19 @@ button.ds-primary-button {
   font-size: 13px;
 }
 
-.child-share-video-meta strong {
+.child-share-file-meta strong {
   color: var(--text);
+}
+
+.local-form-retry {
+  grid-column: 1 / -1;
+  justify-self: start;
+  background: #fff;
+  color: var(--text);
+  border: 1px solid rgba(93, 73, 45, .18);
+  border-radius: 12px;
+  padding: .65rem .9rem;
+  font-weight: 800;
 }
 
 .mailbox-recorder-live,
@@ -8341,6 +8363,12 @@ button.ds-primary-button {
   justify-content: space-between;
   gap: 10px;
   flex-wrap: wrap;
+}
+
+.mailbox-recorder-ready > .child-share-file-meta {
+  display: grid;
+  align-items: initial;
+  justify-content: stretch;
 }
 
 .mailbox-recorder-live > div {

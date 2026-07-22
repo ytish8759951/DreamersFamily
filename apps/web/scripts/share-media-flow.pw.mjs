@@ -6,6 +6,11 @@ import { expect, test } from '@playwright/test';
 const scriptDir = dirname(fileURLToPath(import.meta.url));
 const appRoot = resolve(scriptDir, '..');
 const styles = await readFile(resolve(appRoot, 'src', 'styles', 'index.css'), 'utf8');
+const tinyPng = Buffer.from(
+  'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAFgwJ/l7YfWQAAAABJRU5ErkJggg==',
+  'base64'
+);
+const tinyPngDataUrl = `data:image/png;base64,${tinyPng.toString('base64')}`;
 
 test.use({ viewport: { width: 820, height: 1180 }, isMobile: true, hasTouch: true });
 
@@ -185,6 +190,145 @@ test('native video selection previews, handles cancel, formats, and size errors'
   await expect(page.getByText('影片檔案太大')).toBeVisible();
   await expect(page.getByText('系統允許的最大容量為 300 MB')).toBeVisible();
   await expect(page.locator('#submit')).toBeDisabled();
+});
+
+test('limited photo access selection previews, uploads, survives refresh, and supports retry', async ({ page }) => {
+  await page.setContent(`
+    <html>
+      <head><meta name="viewport" content="width=device-width, initial-scale=1" /><style>${styles}</style></head>
+      <body>
+        <form id="share-form">
+          <section class="mailbox-recorder child-share-photo-picker is-full" aria-label="photo picker">
+            <label class="mailbox-recorder-primary child-share-photo-option">
+              choose photo
+              <input id="photo-input" type="file" accept="image/*" />
+            </label>
+            <p class="local-form-hint">Limited photo access still returns the user selected file.</p>
+            <div id="preview"></div>
+            <p id="status" class="local-form-hint"></p>
+            <p id="error" class="local-form-error" hidden></p>
+            <button id="retry" class="local-form-retry" type="submit" hidden>retry-upload</button>
+          </section>
+          <button id="submit" class="ds-primary-button" type="submit" disabled>submit share</button>
+        </form>
+        <section id="child-feed"></section>
+        <section id="parent-feed"></section>
+        <script>
+          let selectedFile = null;
+          let stored = null;
+          const supported = (file) => {
+            const type = (file.type || '').toLowerCase();
+            const ext = (file.name.split('.').pop() || '').toLowerCase();
+            return ['image/jpeg', 'image/png', 'image/webp', 'image/heic', 'image/heif'].includes(type) || (!type && ['jpg', 'jpeg', 'png', 'webp', 'heic', 'heif'].includes(ext)) || ['jpg', 'jpeg', 'png', 'webp', 'heic', 'heif'].includes(ext);
+          };
+          const format = (bytes) => Math.max(1, Math.round(bytes / 1024)) + ' KB';
+          const renderStored = () => {
+            if (!stored) return;
+            document.querySelector('#child-feed').innerHTML = '<article class="v2-share-card v2-share-card-photo"><img alt="child-photo" src="' + stored.url + '" /></article>';
+            document.querySelector('#parent-feed').innerHTML = '<button class="local-share-photo-button pf-share-large-media"><img alt="parent-photo" src="' + stored.url + '" /></button><dialog id="lightbox"><img alt="photo-lightbox" src="' + stored.url + '" /></dialog>';
+            const button = document.querySelector('.local-share-photo-button');
+            if (button) button.addEventListener('click', () => document.querySelector('#lightbox').setAttribute('open', ''));
+          };
+          const selectPhoto = (file) => {
+            if (!file) return;
+            selectedFile = file;
+            document.querySelector('#error').hidden = true;
+            document.querySelector('#submit').disabled = false;
+            document.querySelector('#preview').innerHTML = '<div class="mailbox-recorder-ready child-share-photo-selected"><img alt="' + file.name + '" src="${tinyPngDataUrl}" /><div class="child-share-file-meta"><strong>photo-ready</strong><span>' + file.name + '</span><span class="file-size">size: ' + format(file.size) + '</span></div><div><button type="button">replace-photo</button></div></div>';
+          };
+          document.querySelector('#photo-input').addEventListener('change', (event) => {
+            const input = event.currentTarget;
+            const file = input.files ? input.files.item(0) : null;
+            if (!file) return;
+            Promise.resolve().then(() => selectPhoto(file));
+          });
+          document.querySelector('#share-form').addEventListener('submit', (event) => {
+            event.preventDefault();
+            const error = document.querySelector('#error');
+            if (!selectedFile) return;
+            document.querySelector('#status').textContent = 'photo-preparing';
+            if (!supported(selectedFile)) {
+              error.textContent = 'photo-type-error';
+              error.hidden = false;
+              document.querySelector('#retry').hidden = false;
+              return;
+            }
+            if (selectedFile.name.includes('fail')) {
+              document.querySelector('#status').textContent = 'upload-failed';
+              error.textContent = 'photo upload failed: Storage network error';
+              error.hidden = false;
+              document.querySelector('#retry').hidden = false;
+              return;
+            }
+            document.querySelector('#status').textContent = 'photo-uploading';
+            stored = { url: '${tinyPngDataUrl}', bytes: selectedFile.size, mediaAsset: true, share: true };
+            window.storedPhotoShare = stored;
+            document.querySelector('#status').textContent = 'upload-success';
+            renderStored();
+          });
+          window.selectSyntheticPhoto = selectPhoto;
+          window.getSelectedFileSize = () => selectedFile ? selectedFile.size : 0;
+          window.getStoredBytes = () => stored ? stored.bytes : 0;
+        </script>
+      </body>
+    </html>
+  `);
+
+  await page.locator('#photo-input').dispatchEvent('change');
+  await expect(page.locator('#submit')).toBeDisabled();
+
+  await page.locator('#photo-input').setInputFiles({ name: 'limited-access.jpg', mimeType: 'image/jpeg', buffer: tinyPng });
+  await page.waitForFunction(() => document.querySelector('#photo-input').files?.length === 1);
+  await page.evaluate(async () => {
+    document.querySelector('#photo-input').dispatchEvent(new Event('change', { bubbles: true }));
+    await Promise.resolve();
+    window.selectSyntheticPhoto(document.querySelector('#photo-input').files.item(0));
+  });
+  await expect(page.getByAltText('limited-access.jpg')).toBeVisible();
+  await expect(page.locator('.file-size')).toBeVisible();
+  await expect(page.getByText('replace-photo')).toBeVisible();
+  await expect(page.locator('#submit')).toBeEnabled();
+  expect(await page.evaluate(() => window.getSelectedFileSize())).toBeGreaterThan(0);
+
+  await page.evaluate(() => {
+    for (const file of [
+      new File(['png'], 'photo.png', { type: 'image/png' }),
+      new File(['heic'], 'photo.HEIC', { type: 'image/heic' }),
+      new File(['jpeg'], 'empty-mime.jpeg', { type: '' })
+    ]) window.selectSyntheticPhoto(file);
+  });
+  await expect(page.locator('#submit')).toBeEnabled();
+
+  await page.locator('#submit').click();
+  await expect(page.getByText('upload-success')).toBeVisible();
+  expect(await page.evaluate(() => window.getStoredBytes())).toBeGreaterThan(0);
+  await expect(page.getByAltText('child-photo')).toBeVisible();
+
+  await page.setContent(`
+    <html>
+      <head><meta name="viewport" content="width=device-width, initial-scale=1" /><style>${styles}</style></head>
+      <body>
+        <section id="child-feed"><article class="v2-share-card v2-share-card-photo"><img alt="child-photo" src="${tinyPngDataUrl}" /></article></section>
+        <section id="parent-feed"><button class="local-share-photo-button pf-share-large-media"><img alt="parent-photo" src="${tinyPngDataUrl}" /></button><dialog id="lightbox"><img alt="photo-lightbox" src="${tinyPngDataUrl}" /></dialog></section>
+        <script>document.querySelector('.local-share-photo-button').addEventListener('click', () => document.querySelector('#lightbox').setAttribute('open', ''));</script>
+      </body>
+    </html>
+  `);
+  await expect(page.getByAltText('child-photo')).toBeVisible();
+  await expect(page.getByAltText('parent-photo')).toBeVisible();
+  await page.locator('.local-share-photo-button').click();
+  await expect(page.getByAltText('photo-lightbox')).toBeVisible();
+
+  await page.setContent(`
+    <html>
+      <head><meta name="viewport" content="width=device-width, initial-scale=1" /><style>${styles}</style></head>
+      <body>
+        <form><p class="local-form-hint">photo-preparing</p><p class="local-form-error">photo upload failed: Storage network error</p><button class="local-form-retry" type="submit">retry-upload</button></form>
+      </body>
+    </html>
+  `);
+  await expect(page.getByText('photo upload failed: Storage network error')).toBeVisible();
+  await expect(page.getByRole('button', { name: 'retry-upload' })).toBeVisible();
 });
 
 test('parent media cards render real photo audio and video controls', async ({ page }) => {

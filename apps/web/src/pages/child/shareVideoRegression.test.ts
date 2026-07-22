@@ -8,6 +8,29 @@ const sourcePath = resolve(dirname(fileURLToPath(import.meta.url)), 'ChildPage.t
 const source = readFileSync(sourcePath, 'utf8');
 
 describe('child share video regression guards', () => {
+  it('keeps child photo selection state-driven with preview and delayed input clearing', () => {
+    expect(source).toContain('function SharePhotoPicker');
+    expect(source).toContain('inputRef={photoInputRef}');
+    expect(source).toContain('ref={inputRef}');
+    expect(source).toContain('type="file"');
+    expect(source).toContain('accept="image/*"');
+    expect(source).toContain('const file = captureFirstSelectedFile(input, { clear: false });');
+    expect(source).toContain('void processSelectedPhoto(file);');
+    expect(source).toContain('setSelectedPhotoPreviewUrl');
+    expect(source).toContain('shareRepository.createPreviewUrl(file)');
+    expect(source).toContain('更換照片');
+    expect(source).toContain('目前檔案大小');
+  });
+
+  it('supports iOS photo formats and HEIC conversion before upload', () => {
+    expect(source).toContain('image/heic');
+    expect(source).toContain('image/heif');
+    expect(source).toContain("['jpg', 'jpeg', 'png', 'webp', 'heic', 'heif']");
+    expect(source).toContain('prepareSharePhotoForUpload');
+    expect(source).toContain('convertSharePhotoToJpeg');
+    expect(source).toContain('HEIC/HEIF 照片轉換失敗');
+  });
+
   it('uses native camera and library file inputs for video sharing', () => {
     expect(source).toContain('function ShareNativeVideoPicker');
     expect(source).toContain('ref={cameraInputRef}');
