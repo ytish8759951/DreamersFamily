@@ -2747,7 +2747,9 @@ export class SupabaseDataRepository implements LocalDataRepository {
       mailboxResult,
       specialDayResult,
       growthResult,
-      tabletTimeResult
+      tabletTimeResult,
+      badgeResult,
+      childBadgeResult
     ] = await Promise.all([
       this.client.from('parents').select('*').eq('id', SUPABASE_PARENT_ID).maybeSingle(),
       traceTimingPromise(
@@ -2771,7 +2773,9 @@ export class SupabaseDataRepository implements LocalDataRepository {
       this.client.from('encouragement_cards').select('*').eq('family_id', SUPABASE_FAMILY_ID).order('updated_at', { ascending: false }),
       this.client.from('special_days').select('*').eq('family_id', SUPABASE_FAMILY_ID).order('updated_at', { ascending: false }),
       this.client.from('growth_records').select('*').eq('family_id', SUPABASE_FAMILY_ID).order('updated_at', { ascending: false }),
-      this.client.from('tablet_time').select('*').eq('family_id', SUPABASE_FAMILY_ID).order('updated_at', { ascending: false })
+      this.client.from('tablet_time').select('*').eq('family_id', SUPABASE_FAMILY_ID).order('updated_at', { ascending: false }),
+      this.client.from('badges').select('*').eq('family_id', SUPABASE_FAMILY_ID).order('created_at', { ascending: false }),
+      this.client.from('child_badges').select('*').eq('family_id', SUPABASE_FAMILY_ID).order('awarded_at', { ascending: false })
     ]);
     if (parentError) throw parentError;
     if (childrenError) throw childrenError;
@@ -2791,6 +2795,8 @@ export class SupabaseDataRepository implements LocalDataRepository {
     if (specialDayResult.error) throw specialDayResult.error;
     if (growthResult.error) throw growthResult.error;
     if (tabletTimeResult.error) throw tabletTimeResult.error;
+    if (badgeResult.error) throw badgeResult.error;
+    if (childBadgeResult.error) throw childBadgeResult.error;
 
     const parentSettings = (parent as SupabaseParentRow | null)?.settings ?? null;
     const parentState = readRepositoryState(parentSettings);
@@ -2855,6 +2861,16 @@ export class SupabaseDataRepository implements LocalDataRepository {
       baseState,
       records: (tabletTimeResult.data ?? []) as SupabaseTabletTimeRow[]
     });
+    const remoteBadges = mergeById(
+      baseState.badges,
+      ((badgeResult.data ?? []) as SupabaseBadgeRow[]).map(fromSupabaseBadge),
+      (badge) => badge.updated_at
+    ).sort((first, second) => second.created_at.localeCompare(first.created_at));
+    const remoteChildBadges = mergeById(
+      baseState.child_badges,
+      ((childBadgeResult.data ?? []) as SupabaseChildBadgeRow[]).map(fromSupabaseChildBadge),
+      (badge) => badge.awarded_at
+    ).sort((first, second) => second.awarded_at.localeCompare(first.awarded_at));
     const remoteFamilySettings = mergeFamilySettings(baseState.family_settings, parentSettings?.family_settings);
     const remoteMemoryPacks = mergeById(
       baseState.memory_packs,
@@ -2883,6 +2899,8 @@ export class SupabaseDataRepository implements LocalDataRepository {
       ...tabletTimeState.screen_time_logs.map((log) => log.created_at),
       ...tabletTimeState.screen_time_requests.map((request) => request.updated_at),
       ...tabletTimeState.screen_time_schedules.map((schedule) => schedule.updatedAt),
+      ...remoteBadges.map((badge) => badge.updated_at),
+      ...remoteChildBadges.map((badge) => badge.awarded_at),
       remoteFamilySettings.updated_at,
       ...remoteMemoryPacks.map((pack) => pack.updatedAt),
       ...remoteAnnualParentNotes.map((note) => note.updatedAt),
@@ -2920,6 +2938,8 @@ export class SupabaseDataRepository implements LocalDataRepository {
       piggy_shelf_orders: piggyState.piggy_shelf_orders,
       piggyProductDisplaySettings: piggyState.piggyProductDisplaySettings,
       piggy_purchases: piggyState.piggy_purchases,
+      badges: remoteBadges,
+      child_badges: remoteChildBadges,
       annual_parent_notes: remoteAnnualParentNotes,
       memory_packs: remoteMemoryPacks,
       child_onboarding_tokens: mergedChildren
@@ -3278,6 +3298,11 @@ export class SupabaseDataRepository implements LocalDataRepository {
       )
       .on(
         'postgres_changes',
+        { event: '*', schema: 'public', table: 'task_records', filter: `family_id=eq.${SUPABASE_FAMILY_ID}` },
+        () => this.hydrateFromSupabase()
+      )
+      .on(
+        'postgres_changes',
         { event: '*', schema: 'public', table: 'stars', filter: `family_id=eq.${SUPABASE_FAMILY_ID}` },
         () => this.hydrateFromSupabase()
       )
@@ -3334,6 +3359,16 @@ export class SupabaseDataRepository implements LocalDataRepository {
       .on(
         'postgres_changes',
         { event: '*', schema: 'public', table: 'tablet_time', filter: `family_id=eq.${SUPABASE_FAMILY_ID}` },
+        () => this.hydrateFromSupabase()
+      )
+      .on(
+        'postgres_changes',
+        { event: '*', schema: 'public', table: 'badges', filter: `family_id=eq.${SUPABASE_FAMILY_ID}` },
+        () => this.hydrateFromSupabase()
+      )
+      .on(
+        'postgres_changes',
+        { event: '*', schema: 'public', table: 'child_badges', filter: `family_id=eq.${SUPABASE_FAMILY_ID}` },
         () => this.hydrateFromSupabase()
       )
       .subscribe((status) => {
