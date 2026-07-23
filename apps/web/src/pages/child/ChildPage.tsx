@@ -372,9 +372,9 @@ function TaskPage() {
 
           <section className="v1-panel child-task-history child-completed-task-history">
             <SectionHeading title="完成的任務" accent="⭐" />
-            {historyTasks.length ? (
+            {historyTasks.some(hasCompletedTaskPhoto) ? (
               <div className="child-completed-task-grid child-task-carousel" aria-label="完成的任務">
-                {historyTasks.map((task) => <CompletedTaskCard key={task.id} task={task} />)}
+                {historyTasks.filter(hasCompletedTaskPhoto).map((task) => <CompletedTaskCard key={task.id} task={task} />)}
               </div>
             ) : <ChildTaskEmpty text="家長審核通過後，完成紀錄會出現在這裡" />}
           </section>
@@ -471,7 +471,8 @@ function TaskCard({
 
 function CompletedTaskCard({ task }: { task: LocalTask }) {
   const [previewOpen, setPreviewOpen] = useState(false);
-  const mediaId = task.thumbnail_media_id ?? task.task_image_media_id ?? null;
+  const mediaId = getCompletedTaskPhotoId(task);
+  if (!mediaId) return null;
   return (
     <>
       <article className="child-completed-task-card">
@@ -497,6 +498,14 @@ function CompletedTaskCard({ task }: { task: LocalTask }) {
       ) : null}
     </>
   );
+}
+
+function getCompletedTaskPhotoId(task: LocalTask) {
+  return task.thumbnail_media_id ?? task.task_image_media_id ?? null;
+}
+
+function hasCompletedTaskPhoto(task: LocalTask) {
+  return Boolean(getCompletedTaskPhotoId(task));
 }
 
 function ChildTaskEmpty({ text }: { text: string }) {

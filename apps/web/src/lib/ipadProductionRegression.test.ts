@@ -25,6 +25,9 @@ describe('iPad production regression hardening', () => {
     expect(styles).toContain('padding: 0 !important');
     expect(styles).toContain('.v2-task-page .child-completed-task-media img');
     expect(styles).toContain('object-fit: cover');
+    expect(styles).not.toContain('.v2-task-page .child-completed-task-card span,\n');
+    expect(completedCard).toContain('hasCompletedTaskPhoto');
+    expect(completedCard).toContain('if (!mediaId) return null');
   });
 
   it('keeps the piggy product dialog footer tappable on iPhone Safari', () => {

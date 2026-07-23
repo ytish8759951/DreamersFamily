@@ -25535,9 +25535,10 @@ body.modal-open {
 .child-task-history .child-completed-task-card,
 .child-completed-task-card {
   display: block !important;
-  flex: 0 0 clamp(112px, 14vw, 150px) !important;
-  width: clamp(112px, 14vw, 150px) !important;
-  height: clamp(112px, 14vw, 150px) !important;
+  flex: 0 0 clamp(110px, 13vw, 130px) !important;
+  width: clamp(110px, 13vw, 130px) !important;
+  height: clamp(110px, 13vw, 130px) !important;
+  aspect-ratio: 1 / 1 !important;
   min-width: 0 !important;
   min-height: 0 !important;
   padding: 0 !important;
@@ -25589,7 +25590,6 @@ body.modal-open {
 }
 
 .v2-task-page .child-completed-task-card strong,
-.v2-task-page .child-completed-task-card span,
 .v2-task-page .child-completed-task-card time,
 .v2-task-page .child-completed-task-card .child-completed-label,
 .v2-task-page .child-completed-task-card .child-completed-check {
@@ -25601,8 +25601,8 @@ body.modal-open {
   .v2-task-page .child-completed-task-history .child-completed-task-grid.child-task-carousel .child-completed-task-card,
   .child-task-history .child-completed-task-card,
   .child-completed-task-card {
-    flex-basis: clamp(96px, 28vw, 128px) !important;
-    width: clamp(96px, 28vw, 128px) !important;
-    height: clamp(96px, 28vw, 128px) !important;
+    flex-basis: clamp(110px, 30vw, 128px) !important;
+    width: clamp(110px, 30vw, 128px) !important;
+    height: clamp(110px, 30vw, 128px) !important;
   }
 }

@@ -139,6 +139,9 @@ test('completed child tasks render as image-only thumbnails without card shell',
     const imgStyle = getComputedStyle(element.querySelector('img'));
     const rect = element.getBoundingClientRect();
     return {
+      display: style.display,
+      visibility: style.visibility,
+      opacity: style.opacity,
       width: rect.width,
       height: rect.height,
       borderRadius: style.borderRadius,
@@ -152,6 +155,11 @@ test('completed child tasks render as image-only thumbnails without card shell',
   expect(cardStyles.paddingTop).toBe('0px');
   expect(Math.abs(cardStyles.width - cardStyles.height)).toBeLessThanOrEqual(1);
   expect(Math.abs(mediaStyles.width - mediaStyles.height)).toBeLessThanOrEqual(1);
+  expect(mediaStyles.display).not.toBe('none');
+  expect(mediaStyles.visibility).not.toBe('hidden');
+  expect(mediaStyles.opacity).not.toBe('0');
+  expect(mediaStyles.width).toBeGreaterThanOrEqual(110);
+  expect(mediaStyles.width).toBeLessThanOrEqual(130);
   expect(mediaStyles.objectFit).toBe('cover');
   await expect(hiddenText).toBeHidden();
 });
