@@ -25294,3 +25294,230 @@ body.modal-open {
   border-radius: 8px;
   object-fit: contain;
 }
+
+/* iOS product dialog hit-area safety. Keep this after generic form and piggy overrides. */
+.local-form-backdrop:has(.piggy-product-dialog) {
+  align-items: stretch;
+  place-items: stretch center;
+  overflow: hidden;
+  padding: max(.75rem, env(safe-area-inset-top, 0px)) .75rem max(.75rem, env(safe-area-inset-bottom, 0px));
+  z-index: 3000;
+}
+
+.piggy-product-dialog.local-form-dialog,
+.local-form-dialog.piggy-product-dialog {
+  align-self: center;
+  display: grid;
+  grid-template-rows: auto minmax(0, 1fr);
+  width: min(100%, 42rem);
+  max-height: min(760px, calc(100dvh - max(1.5rem, env(safe-area-inset-top, 0px)) - max(1.5rem, env(safe-area-inset-bottom, 0px))));
+  overflow: hidden;
+  padding: 0;
+  border-radius: 20px;
+  pointer-events: auto;
+}
+
+.piggy-product-dialog > header {
+  position: sticky;
+  top: 0;
+  z-index: 3;
+  margin: 0;
+  border-bottom: 1px solid rgba(93, 73, 45, .12);
+  background: rgba(255, 252, 246, .98);
+  padding: 1rem 1rem .85rem;
+  backdrop-filter: blur(10px);
+}
+
+.piggy-product-dialog form {
+  display: grid !important;
+  grid-template-columns: 1fr;
+  grid-template-rows: minmax(0, 1fr) auto;
+  min-height: 0;
+  margin: 0;
+  gap: 0;
+  padding: 0 !important;
+  overflow: hidden;
+}
+
+.piggy-product-form-scroll {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px;
+  min-height: 0;
+  overflow-y: auto;
+  -webkit-overflow-scrolling: touch;
+  padding: 1rem;
+  scroll-padding-bottom: calc(6.5rem + env(safe-area-inset-bottom, 0px));
+}
+
+.piggy-product-form-scroll > .is-full,
+.piggy-product-form-scroll > .piggy-selected-photo-preview,
+.piggy-product-form-scroll > .piggy-selected-photo-grid,
+.piggy-product-form-scroll > .local-form-status,
+.piggy-product-form-scroll > .local-form-error,
+.piggy-product-form-scroll > .piggy-form-preview,
+.piggy-product-form-scroll > .piggy-product-form-bottom-spacer {
+  grid-column: 1 / -1;
+}
+
+.piggy-product-form-bottom-spacer {
+  height: .5rem;
+}
+
+.piggy-product-dialog form > footer {
+  position: sticky;
+  bottom: 0;
+  z-index: 4;
+  display: grid;
+  grid-template-columns: minmax(92px, .42fr) minmax(0, 1fr);
+  gap: .75rem;
+  margin: 0;
+  border-top: 1px solid rgba(93, 73, 45, .14);
+  background: rgba(255, 252, 246, .98);
+  padding: .8rem 1rem calc(.8rem + env(safe-area-inset-bottom, 0px));
+  box-shadow: 0 -12px 24px rgba(56, 45, 31, .08);
+  pointer-events: auto;
+}
+
+.piggy-product-dialog form > footer button,
+.piggy-product-dialog .piggy-product-save-button {
+  position: relative;
+  z-index: 5;
+  display: inline-flex;
+  width: 100%;
+  min-height: 52px;
+  align-items: center;
+  justify-content: center;
+  border-radius: 14px;
+  touch-action: manipulation;
+  pointer-events: auto;
+  -webkit-tap-highlight-color: transparent;
+}
+
+.piggy-product-dialog .piggy-product-save-button:disabled {
+  cursor: progress;
+}
+
+@media (max-width: 640px) {
+  .piggy-product-dialog.local-form-dialog,
+  .local-form-dialog.piggy-product-dialog {
+    align-self: stretch;
+    width: 100%;
+    max-height: calc(100dvh - max(1rem, env(safe-area-inset-top, 0px)) - max(1rem, env(safe-area-inset-bottom, 0px)));
+  }
+
+  .piggy-product-form-scroll {
+    grid-template-columns: 1fr;
+    padding: .85rem;
+  }
+
+  .piggy-product-dialog > header {
+    padding: .9rem .9rem .75rem;
+  }
+
+  .piggy-product-dialog form > footer {
+    grid-template-columns: 1fr 1.35fr;
+    padding-inline: .85rem;
+  }
+}
+
+/* Completed child tasks: image-only thumbnails, no card shell or overlay text. */
+.v2-task-page .child-completed-task-history {
+  background: transparent !important;
+  border-color: transparent !important;
+  box-shadow: none !important;
+  padding: 0 !important;
+}
+
+.v2-task-page .child-completed-task-history .v1-section-heading {
+  margin-bottom: 12px;
+}
+
+.v2-task-page .child-completed-task-history .child-completed-task-grid,
+.v2-task-page .child-completed-task-history .child-completed-task-grid.child-task-carousel,
+.child-completed-task-grid {
+  display: flex !important;
+  flex-wrap: wrap !important;
+  align-items: flex-start;
+  gap: 12px !important;
+  overflow: visible !important;
+  padding: 0 !important;
+  scroll-snap-type: none !important;
+}
+
+.v2-task-page .child-completed-task-history .child-completed-task-card,
+.v2-task-page .child-completed-task-history .child-completed-task-grid.child-task-carousel .child-completed-task-card,
+.child-task-history .child-completed-task-card,
+.child-completed-task-card {
+  display: block !important;
+  flex: 0 0 clamp(112px, 14vw, 150px) !important;
+  width: clamp(112px, 14vw, 150px) !important;
+  height: clamp(112px, 14vw, 150px) !important;
+  min-width: 0 !important;
+  min-height: 0 !important;
+  padding: 0 !important;
+  border: 0 !important;
+  border-radius: 16px !important;
+  background: transparent !important;
+  box-shadow: none !important;
+  overflow: visible !important;
+}
+
+.v2-task-page .child-completed-task-image-button {
+  display: block !important;
+  width: 100% !important;
+  height: 100% !important;
+  border: 0 !important;
+  border-radius: 16px !important;
+  background: transparent !important;
+  padding: 0 !important;
+  box-shadow: none !important;
+  overflow: hidden !important;
+  cursor: zoom-in;
+}
+
+.v2-task-page .child-task-history article > .child-completed-task-media,
+.v2-task-page .child-completed-task-media,
+.child-completed-task-media {
+  display: grid !important;
+  width: 100% !important;
+  height: 100% !important;
+  min-height: 0 !important;
+  place-items: center;
+  border: 0 !important;
+  border-radius: 16px !important;
+  background: #eef1ed !important;
+  box-shadow: none !important;
+  padding: 0 !important;
+  overflow: hidden !important;
+  color: #647064;
+  font-size: 34px;
+}
+
+.v2-task-page .child-completed-task-media img,
+.child-completed-task-media img {
+  display: block !important;
+  width: 100% !important;
+  height: 100% !important;
+  border-radius: 16px !important;
+  object-fit: cover !important;
+}
+
+.v2-task-page .child-completed-task-card strong,
+.v2-task-page .child-completed-task-card span,
+.v2-task-page .child-completed-task-card time,
+.v2-task-page .child-completed-task-card .child-completed-label,
+.v2-task-page .child-completed-task-card .child-completed-check {
+  display: none !important;
+}
+
+@media (max-width: 640px) {
+  .v2-task-page .child-completed-task-history .child-completed-task-card,
+  .v2-task-page .child-completed-task-history .child-completed-task-grid.child-task-carousel .child-completed-task-card,
+  .child-task-history .child-completed-task-card,
+  .child-completed-task-card {
+    flex-basis: clamp(96px, 28vw, 128px) !important;
+    width: clamp(96px, 28vw, 128px) !important;
+    height: clamp(96px, 28vw, 128px) !important;
+  }
+}

@@ -667,30 +667,33 @@ function PiggyProductForm({ childId, product, onClose }: { childId: string; prod
       <section className="local-form-dialog piggy-product-dialog" role="dialog" aria-modal="true" onMouseDown={(event) => event.stopPropagation()}>
         <header><div><small>{dataModeBadgeLabel}</small><h2>{product ? '修改商品' : '新增商品'}</h2></div><button type="button" onClick={onClose}>×</button></header>
         <form onSubmit={saveProduct}>
-          <label className="is-full">商品名稱<input maxLength={50} value={form.name} onChange={(event) => setForm({ ...form, name: event.target.value })} /></label>
-          <label>價格<input required type="number" min="1" step="1" value={form.price} onChange={(event) => setForm({ ...form, price: event.target.value })} /></label>
-          <label>狀態<select value={form.shelfStatus} onChange={(event) => setForm({ ...form, shelfStatus: event.target.value as LocalPiggyProduct['shelf_status'] })}><option value="backlog">待購買</option><option value="shelf">商品架</option></select></label>
-          <label className="is-full piggy-upload-field"><Upload size={16} /> 主圖<input type="file" accept="image/*,.heic,.heif" onChange={(event) => {
-            const input = event.currentTarget;
-            const files = captureSelectedFiles(input, 1);
-            selectProductImages(files, true);
-          }} /></label>
-          {mainImage ? <ProductImagePreview image={mainImage} index={1} total={1} /> : form.mainMediaId ? <PiggyMediaImage className="piggy-form-preview" mediaId={form.mainMediaId} alt="商品主圖" /> : null}
-          <label className="is-full piggy-upload-field"><Upload size={16} /> 其他圖片，最多 5 張<input multiple type="file" accept="image/*,.heic,.heif" onChange={(event) => {
-            const input = event.currentTarget;
-            const files = captureSelectedFiles(input, 5);
-            selectProductImages(files, false);
-          }} /></label>
-          {galleryImages.length ? (
-            <div className="piggy-selected-photo-grid">
-              {galleryImages.map((image, index) => <ProductImagePreview key={image.id} image={image} index={index + 1} total={galleryImages.length} />)}
-            </div>
-          ) : null}
-          {form.status ? <p className="local-form-status">{form.status}</p> : null}
-          {form.error ? <p className="local-form-error">{form.error}</p> : null}
+          <div className="piggy-product-form-scroll">
+            <label className="is-full">商品名稱<input maxLength={50} value={form.name} onChange={(event) => setForm({ ...form, name: event.target.value })} /></label>
+            <label>價格<input required type="number" min="1" step="1" value={form.price} onChange={(event) => setForm({ ...form, price: event.target.value })} /></label>
+            <label>狀態<select value={form.shelfStatus} onChange={(event) => setForm({ ...form, shelfStatus: event.target.value as LocalPiggyProduct['shelf_status'] })}><option value="backlog">待購買</option><option value="shelf">商品架</option></select></label>
+            <label className="is-full piggy-upload-field"><Upload size={16} /> 主圖<input type="file" accept="image/*,.heic,.heif" onChange={(event) => {
+              const input = event.currentTarget;
+              const files = captureSelectedFiles(input, 1);
+              selectProductImages(files, true);
+            }} /></label>
+            {mainImage ? <ProductImagePreview image={mainImage} index={1} total={1} /> : form.mainMediaId ? <PiggyMediaImage className="piggy-form-preview" mediaId={form.mainMediaId} alt="商品主圖" /> : null}
+            <label className="is-full piggy-upload-field"><Upload size={16} /> 其他圖片，最多 5 張<input multiple type="file" accept="image/*,.heic,.heif" onChange={(event) => {
+              const input = event.currentTarget;
+              const files = captureSelectedFiles(input, 5);
+              selectProductImages(files, false);
+            }} /></label>
+            {galleryImages.length ? (
+              <div className="piggy-selected-photo-grid">
+                {galleryImages.map((image, index) => <ProductImagePreview key={image.id} image={image} index={index + 1} total={galleryImages.length} />)}
+              </div>
+            ) : null}
+            {form.status ? <p className="local-form-status">{form.status}</p> : null}
+            {form.error ? <p className="local-form-error">{form.error}</p> : null}
+            <div className="piggy-product-form-bottom-spacer" aria-hidden="true" />
+          </div>
           <footer>
             <button type="button" onClick={onClose} disabled={submitLock.isLocked(saveLockKey)}>取消</button>
-            <button className="ds-primary-button" type="submit" disabled={submitLock.isLocked(saveLockKey)}>
+            <button className="ds-primary-button piggy-product-save-button" type="submit" disabled={submitLock.isLocked(saveLockKey)}>
               {submitLock.isLocked(saveLockKey) ? '商品儲存中' : '儲存商品'}
             </button>
           </footer>

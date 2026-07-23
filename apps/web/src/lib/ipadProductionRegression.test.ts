@@ -19,8 +19,27 @@ describe('iPad production regression hardening', () => {
     expect(completedCard).not.toContain('task.reward_stars');
     expect(completedCard).not.toContain('child-completed-label');
     expect(completedCard).not.toContain('child-completed-check');
+    expect(styles).toContain('Completed child tasks: image-only thumbnails');
+    expect(styles).toContain('background: transparent !important');
+    expect(styles).toContain('box-shadow: none !important');
+    expect(styles).toContain('padding: 0 !important');
     expect(styles).toContain('.v2-task-page .child-completed-task-media img');
     expect(styles).toContain('object-fit: cover');
+  });
+
+  it('keeps the piggy product dialog footer tappable on iPhone Safari', () => {
+    const piggyPage = readRepoFile('apps/web/src/pages/PiggyBankPage.tsx');
+    const styles = readRepoFile('apps/web/src/styles/index.css');
+
+    expect(piggyPage).toContain('piggy-product-form-scroll');
+    expect(piggyPage).toContain('piggy-product-save-button');
+    expect(piggyPage).toContain("submitLock.acquire(saveLockKey)");
+    expect(styles).toContain('iOS product dialog hit-area safety');
+    expect(styles).toContain('100dvh');
+    expect(styles).toContain('env(safe-area-inset-bottom');
+    expect(styles).toContain('min-height: 52px');
+    expect(styles).toContain('pointer-events: auto');
+    expect(styles).toContain('grid-template-rows: minmax(0, 1fr) auto');
   });
 
   it('loads parent share photos from media_asset_id with signed-url reload UI', () => {
