@@ -3135,6 +3135,21 @@ body.piggy-v2-scroll-locked {
   color: #6c725f;
   font-size: .82rem;
 }
+
+.mailbox-image-error-actions {
+  display: flex;
+  grid-column: 1 / -1;
+  justify-content: flex-start;
+}
+
+.mailbox-image-error-actions button {
+  min-height: 42px;
+  border-radius: 12px;
+  background: #fff3e9;
+  padding: 0 14px;
+  color: #9b4d32;
+  font-weight: 900;
+}
 .mailbox-form-dialog,
 .special-day-form-dialog {
   max-height: min(92dvh, 760px);
@@ -8108,6 +8123,16 @@ button.ds-primary-button {
   background: #fff0f0;
   padding: 0.7rem;
   color: #9b3737;
+}
+
+.local-form-status {
+  grid-column: 1 / -1;
+  margin: 0;
+  border-radius: 12px;
+  background: #edf5de;
+  padding: 0.7rem;
+  color: #65784a;
+  font-weight: 900;
 }
 
 .local-form-hint {
@@ -21448,6 +21473,147 @@ body.modal-open {
   color: #6f6256;
   font-weight: 800;
   gap: 5px;
+}
+
+@media (max-width: 767px) {
+  .special-days-page {
+    width: 100%;
+    max-width: 100%;
+    min-width: 0;
+    box-sizing: border-box;
+    padding-bottom: calc(112px + env(safe-area-inset-bottom));
+  }
+
+  .special-days-page *,
+  .special-days-page *::before,
+  .special-days-page *::after {
+    min-width: 0;
+    box-sizing: border-box;
+  }
+
+  .special-days-hero {
+    width: 100%;
+    max-width: 100%;
+    min-height: 0;
+    flex-direction: column;
+    align-items: stretch;
+    padding: 16px;
+    gap: 14px;
+    transform: none;
+  }
+
+  .special-days-hero > div {
+    width: 100%;
+    max-width: 100%;
+  }
+
+  .special-days-hero h1 {
+    font-size: 28px;
+    line-height: 1.15;
+  }
+
+  .special-days-hero p {
+    overflow-wrap: anywhere;
+  }
+
+  .special-days-hero button {
+    width: 100%;
+    min-height: 48px;
+    justify-content: center;
+    white-space: normal;
+  }
+
+  .special-filter-bar {
+    width: 100%;
+    max-width: 100%;
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .special-filter-tabs {
+    width: 100%;
+    max-width: 100%;
+  }
+
+  .special-filter-tabs button {
+    max-width: 100%;
+    white-space: normal;
+  }
+
+  .special-days-stats {
+    width: 100%;
+    max-width: 100%;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .special-days-stats article {
+    min-height: 104px;
+    padding: 14px;
+  }
+
+  .special-days-grid {
+    width: 100%;
+    max-width: 100%;
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .special-panel {
+    width: 100%;
+    max-width: 100%;
+    padding: 14px;
+  }
+
+  .special-panel > header {
+    align-items: flex-start;
+    gap: 8px;
+  }
+
+  .special-day-card {
+    width: 100%;
+    max-width: 100%;
+    grid-template-columns: 60px minmax(0, 1fr);
+    align-items: start;
+    gap: 10px;
+    padding: 10px;
+  }
+
+  .special-day-card > img,
+  .special-day-card > span {
+    width: 60px;
+    height: 60px;
+    border-radius: 14px;
+  }
+
+  .special-day-card strong,
+  .special-day-card p,
+  .special-day-card time,
+  .special-day-card small {
+    overflow-wrap: anywhere;
+  }
+
+  .special-day-card b {
+    grid-column: 1 / -1;
+    justify-self: start;
+    max-width: 100%;
+    white-space: normal;
+  }
+
+  .special-day-card footer {
+    grid-column: 1 / -1;
+    flex-wrap: wrap;
+  }
+
+  .special-day-card footer button {
+    min-height: 42px;
+    flex: 1 1 128px;
+    justify-content: center;
+    white-space: normal;
+  }
+}
+
+@media (max-width: 360px) {
+  .special-days-stats {
+    grid-template-columns: minmax(0, 1fr);
+  }
 }
 
 .special-form-preview {

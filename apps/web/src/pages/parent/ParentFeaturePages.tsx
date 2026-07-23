@@ -6,7 +6,7 @@ import { LocalShareAlbum } from '../../components/LocalShareAlbum';
 import { LocalShareMedia as LocalShareMediaView } from '../../components/LocalShareMedia';
 import { dataMode, dataModeBadgeLabel, dataModeLabel, dataRepository } from '../../lib/dataRepository';
 import { useDreamCoverMigration } from '../../lib/dreamCoverMigration';
-import { captureFirstSelectedFile } from '../../lib/fileInput';
+import { captureFirstSelectedFile, clearFileInput } from '../../lib/fileInput';
 import { compressImageFile } from '../../lib/imageCompression';
 import { ImageUploadPipelineError, prepareImageFileForUpload, uploadStageMessage } from '../../lib/imageUploadPipeline';
 import { mailboxRepository, type MailboxRecordingDraft } from '../../lib/mailboxRepository';
@@ -1273,6 +1273,8 @@ export function ParentMailboxPage() {
     .sort((a, b) => b.created_at.localeCompare(a.created_at));
   const [showForm, setShowForm] = useState(false);
   const [formError, setFormError] = useState('');
+  const [formStatus, setFormStatus] = useState('');
+  const imageInputRef = useRef<HTMLInputElement | null>(null);
   const recorderRef = useRef<MediaRecorder | null>(null);
   const streamRef = useRef<MediaStream | null>(null);
   const chunksRef = useRef<Blob[]>([]);
@@ -1316,6 +1318,7 @@ export function ParentMailboxPage() {
       recording_seconds: 0
     });
     setFormError('');
+    setFormStatus('');
     setSendResult('');
     setShowForm(true);
   };
@@ -1324,7 +1327,10 @@ export function ParentMailboxPage() {
     stopActiveRecording(false);
     mailboxRepository.releaseRecordingDraft(form.recording);
     if (form.file_preview_url) URL.revokeObjectURL(form.file_preview_url);
+    clearFileInput(imageInputRef.current);
     setShowForm(false);
+    setFormError('');
+    setFormStatus('');
   };
 
   const clearRecordingTimer = () => {
@@ -1440,6 +1446,7 @@ export function ParentMailboxPage() {
     const lockKey = `mailbox:send:${form.child_id}:${form.type}`;
     if (!acquire(lockKey)) return;
     setFormError('');
+    setFormStatus('');
     setSendResult('');
     const recipients = activeChildren.filter((child) => child.id === form.child_id);
     if (!recipients.length) {
@@ -1464,6 +1471,7 @@ export function ParentMailboxPage() {
         const clientRequestId = `mailbox:parent:${messageId}`;
         let media: { media_id: string; mime_type: string; file_name?: string } | null = null;
         if (form.type === 'audio' && form.recording) {
+          setFormStatus('語音上傳中');
           const mediaId = await mailboxRepository.saveMailboxRecording({ ownerId: messageId, childId: child.id, recording: form.recording });
           uploadedMediaIds.push(mediaId);
           media = {
@@ -1472,6 +1480,7 @@ export function ParentMailboxPage() {
             file_name: form.recording.file_name
           };
         } else if (form.type === 'image' && form.file) {
+          setFormStatus('圖片上傳中');
           const prepared = await prepareImageFileForUpload(form.file, {
             fallbackBaseName: 'mailbox-image',
             ownerType: 'mailbox',
@@ -1489,11 +1498,12 @@ export function ParentMailboxPage() {
           uploadedMediaIds.push(mediaId);
           media = { media_id: mediaId, mime_type: prepared.mimeType, file_name: prepared.normalizedFileName };
         }
+        setFormStatus('訊息建立中');
         mailboxRepository.createMailboxMessage({
           id: messageId,
           client_request_id: clientRequestId,
           child_id: child.id,
-          title: form.title || mailboxDefaultTitle(form.type),
+          title: form.title || (form.type === 'image' ? null : mailboxDefaultTitle(form.type)),
           message: form.message || (form.type === 'card' ? '你今天很棒，繼續加油！' : null),
           card_type: form.type,
           template_key: form.type === 'card' ? 'local-encouragement-card' : null,
@@ -1501,6 +1511,7 @@ export function ParentMailboxPage() {
         });
       }
       setSelectedChildId(recipients[0].id);
+      setFormStatus('已送給孩子');
       setSendResult('已送給孩子');
       closeMailboxForm();
     } catch (caught) {
@@ -1512,6 +1523,13 @@ export function ParentMailboxPage() {
   };
 
   const isSending = isLocked(`mailbox:send:${form.child_id}:${form.type}`);
+  const hasMailboxPayload =
+    form.type === 'image'
+      ? Boolean(form.file)
+      : form.type === 'audio'
+        ? Boolean(form.recording && form.recording_accepted)
+        : Boolean(form.title.trim() || form.message.trim() || form.type === 'card');
+  const canSendMailbox = Boolean(form.child_id && hasMailboxPayload);
 
   return <div className="pf-page pf-mailbox">
     <Header icon="💌" title="寫給孩子" subtitle="用正式信箱把文字、鼓勵卡、圖片與語音送到孩子裝置" action="新增訊息" onAction={() => openForm('text')} />
@@ -1567,6 +1585,8 @@ export function ParentMailboxPage() {
               訊息類型
               <select value={form.type} onChange={(event) => {
                 stopActiveRecording(false);
+                if (form.file_preview_url) URL.revokeObjectURL(form.file_preview_url);
+                clearFileInput(imageInputRef.current);
                 setForm({
                   ...form,
                   type: event.target.value as LocalMailboxMessage['card_type'],
@@ -1599,17 +1619,21 @@ export function ParentMailboxPage() {
               />
             ) : null}
             {form.type === 'image' ? (
-              <label className="is-full">圖片拍照／圖庫選取<input required type="file" accept={mailboxAccept(form.type)} onChange={(event) => {
+              <label className="is-full">圖片拍照／圖庫選取<input ref={imageInputRef} required type="file" accept={mailboxAccept(form.type)} onChange={(event) => {
                 const input = event.currentTarget;
-                const file = captureFirstSelectedFile(input);
+                const file = captureFirstSelectedFile(input, { clear: false });
                 const previousUrl = form.file_preview_url;
                 if (previousUrl) URL.revokeObjectURL(previousUrl);
+                setFormError('');
+                setFormStatus('');
                 setForm({ ...form, file, file_preview_url: file ? URL.createObjectURL(file) : null });
               }} /></label>
             ) : null}
             {form.file_preview_url ? <figure className="mailbox-image-preview"><img src={form.file_preview_url} alt="已選圖片預覽" /><figcaption>{form.file?.name} · {form.file ? formatBytes(form.file.size) : ''}</figcaption></figure> : null}
+            {formStatus ? <p className="local-form-status">{formStatus}</p> : null}
             {formError ? <p className="local-form-error">{formError}</p> : null}
-            <footer><button type="button" onClick={closeMailboxForm} disabled={isSending}>取消</button><button className="ds-primary-button" type="submit" disabled={isSending}>{isSending ? '傳送中' : '送給孩子'}</button></footer>
+            {formError ? <div className="mailbox-image-error-actions is-full"><button type="submit" disabled={isSending || !canSendMailbox}>{isSending ? '傳送中' : '重新傳送'}</button></div> : null}
+            <footer><button type="button" onClick={closeMailboxForm} disabled={isSending}>取消</button><button className="ds-primary-button" type="submit" disabled={isSending || !canSendMailbox}>{isSending ? '傳送中' : '送給孩子'}</button></footer>
           </form>
         </section>
       </div>
@@ -1651,9 +1675,27 @@ function ParentMailboxMediaPreview({ message }: { message: LocalMailboxMessage }
 }
 
 function formatMailboxSendError(caught: unknown) {
-  if (caught instanceof ImageUploadPipelineError) return caught.userMessage || uploadStageMessage(caught.stage);
-  if (caught instanceof Error) return caught.message || '訊息傳送失敗';
+  if (caught instanceof ImageUploadPipelineError) {
+    const diagnostics = caught.diagnostics;
+    return [
+      caught.userMessage || uploadStageMessage(caught.stage),
+      formatStatusCode(diagnostics.uploadStatus ?? diagnostics.rpcStatus, diagnostics.uploadCode ?? diagnostics.rpcCode),
+      diagnostics.uploadMessage || diagnostics.rpcMessage
+    ].filter(Boolean).join('；');
+  }
+  if (caught instanceof Error) {
+    const record = caught as Error & { status?: string | number; code?: string | number };
+    return [caught.message || '訊息傳送失敗', formatStatusCode(record.status, record.code)].filter(Boolean).join('；');
+  }
   return '訊息傳送失敗';
+}
+
+function formatStatusCode(status?: string | number | null, code?: string | number | null) {
+  const parts = [
+    status === undefined || status === null || status === '' ? null : `HTTP ${status}`,
+    code === undefined || code === null || code === '' ? null : `code ${code}`
+  ].filter(Boolean);
+  return parts.length ? parts.join(' / ') : '';
 }
 
 function formatBytes(bytes: number) {

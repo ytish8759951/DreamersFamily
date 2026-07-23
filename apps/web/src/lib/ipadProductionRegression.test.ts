@@ -124,4 +124,37 @@ describe('iPad production regression hardening', () => {
     expect(localData).toContain('input.client_request_id ?? `special-day:create:${specialDayId}`');
     expect(localData).toContain('specialDay.client_request_id = input.client_request_id');
   });
+
+  it('keeps parent mailbox image-only messages submittable on iOS file inputs', () => {
+    const mailboxPage = readRepoFile('apps/web/src/pages/parent/ParentFeaturePages.tsx');
+    const styles = readRepoFile('apps/web/src/styles/index.css');
+
+    expect(mailboxPage).toContain('captureFirstSelectedFile(input, { clear: false })');
+    expect(mailboxPage).toContain('clearFileInput(imageInputRef.current)');
+    expect(mailboxPage).toContain("form.type === 'image'");
+    expect(mailboxPage).toContain('Boolean(form.file)');
+    expect(mailboxPage).toContain('圖片上傳中');
+    expect(mailboxPage).toContain('訊息建立中');
+    expect(mailboxPage).toContain('重新傳送');
+    expect(mailboxPage).toContain('formatStatusCode');
+    expect(mailboxPage).toContain('client_request_id: clientRequestId');
+    expect(styles).toContain('.mailbox-image-error-actions');
+    expect(styles).toContain('.local-form-status');
+  });
+
+  it('keeps parent special days mobile layout single-column without desktop overflow', () => {
+    const specialDaysPage = readRepoFile('apps/web/src/pages/parent/SpecialDays.tsx');
+    const styles = readRepoFile('apps/web/src/styles/index.css');
+
+    expect(specialDaysPage).not.toContain('const nextReminder = upcoming[0] ?? null');
+    expect(specialDaysPage).not.toContain('Stat label="下一個提醒"');
+    expect(specialDaysPage.indexOf('<h2>即將到來</h2>')).toBeLessThan(specialDaysPage.indexOf('<h2>最近重要日子</h2>'));
+    expect(specialDaysPage.indexOf('<h2>最近重要日子</h2>')).toBeLessThan(specialDaysPage.indexOf('<h2>歷史回顧</h2>'));
+    expect(specialDaysPage.indexOf('<h2>歷史回顧</h2>')).toBeLessThan(specialDaysPage.indexOf('<h2>站內通知</h2>'));
+    expect(styles).toContain('@media (max-width: 767px)');
+    expect(styles).toContain('.special-days-grid');
+    expect(styles).toContain('grid-template-columns: minmax(0, 1fr)');
+    expect(styles).toContain('padding-bottom: calc(112px + env(safe-area-inset-bottom))');
+    expect(styles).toContain('@media (max-width: 360px)');
+  });
 });

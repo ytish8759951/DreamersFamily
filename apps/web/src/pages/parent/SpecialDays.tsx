@@ -98,7 +98,6 @@ export function SpecialDays() {
   const upcoming = visibleDays.filter((day) => daysUntil(day.date) >= 0);
   const history = visibleDays.filter((day) => daysUntil(day.date) < 0).sort((a, b) => b.date.localeCompare(a.date));
   const recent = visibleDays.slice().sort((a, b) => b.updated_at.localeCompare(a.updated_at)).slice(0, 5);
-  const nextReminder = upcoming[0] ?? null;
   const notifications = state.notifications
     .filter((notification) => notification.source_type === 'special_day' && (!childFilter || notification.child_id === childFilter))
     .slice(0, 5);
@@ -198,7 +197,6 @@ export function SpecialDays() {
         <Stat label="即將到來" value={`${upcoming.length} 筆`} icon="📅" tone="green" />
         <Stat label="歷史回顧" value={`${history.length} 筆`} icon="🕰" tone="blue" />
         <Stat label="最近重要日子" value={`${recent.length} 筆`} icon="⭐" tone="pink" />
-        <Stat label="下一個提醒" value={nextReminder ? nextReminder.date : '-'} icon="🔔" tone="yellow" />
       </section>
 
       <section className="special-days-grid">
@@ -206,16 +204,13 @@ export function SpecialDays() {
           <header><h2>即將到來</h2><small>{upcoming.length} 筆</small></header>
           {upcoming.length ? upcoming.map((day) => <DayCard key={day.id} day={day} childName={childName(day.child_id)} onEdit={() => openEdit(day)} onDelete={() => deleteDay(day)} />) : <Empty text="目前沒有即將到來的重要日子" />}
         </article>
-        <article className="special-panel special-history">
-          <header><h2>歷史回顧</h2><small>{history.length} 筆</small></header>
-          {history.length ? history.map((day) => <DayCard key={day.id} day={day} childName={childName(day.child_id)} onEdit={() => openEdit(day)} onDelete={() => deleteDay(day)} />) : <Empty text="目前沒有歷史重要日子" />}
-        </article>
-      </section>
-
-      <section className="special-days-grid">
         <article className="special-panel">
           <header><h2>最近重要日子</h2><small>{recent.length} 筆</small></header>
           {recent.length ? recent.map((day) => <DayCard key={day.id} day={day} childName={childName(day.child_id)} onEdit={() => openEdit(day)} onDelete={() => deleteDay(day)} />) : <Empty text="尚未建立重要日子" />}
+        </article>
+        <article className="special-panel special-history">
+          <header><h2>歷史回顧</h2><small>{history.length} 筆</small></header>
+          {history.length ? history.map((day) => <DayCard key={day.id} day={day} childName={childName(day.child_id)} onEdit={() => openEdit(day)} onDelete={() => deleteDay(day)} />) : <Empty text="目前沒有歷史重要日子" />}
         </article>
         <article className="special-panel">
           <header><h2>站內通知</h2><small>{notifications.length} 則</small></header>
