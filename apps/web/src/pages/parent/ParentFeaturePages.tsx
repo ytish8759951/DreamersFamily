@@ -301,7 +301,7 @@ export function ParentTasksPage() {
     <div className="pf-page pf-task">
       <Header title="任務管理" subtitle="管理孩子每天的任務與獎勵" action="新增任務" onAction={openCreateTask} />
       <Stats items={[
-        { label: '📋 總任務', value: String(scopedTasks.length), tone: 'blue' },
+        { label: '📋 總任務', value: String(openTasks.length), tone: 'blue' },
         { label: '✓ 已完成', value: String(approvedCount), tone: 'green' },
         { label: '◷ 待審核', value: String(submittedCount), tone: 'pink' },
         { label: '⭐ 已發放星星', value: String(totalStars), tone: 'yellow' }
@@ -475,7 +475,7 @@ function TaskRow({ task, childName, showChildColumn, onApprove }: { task: LocalT
       <LocalTaskMedia
         mediaId={task.thumbnail_media_id ?? task.task_image_media_id ?? null}
         alt={task.title || '任務圖片'}
-        fallback={taskIcon(task.category)}
+        fallback={taskPlaceholderIcon()}
         className={`pf-task-thumb is-${taskTone(task.category)}`}
       />
       <p><strong>{task.title || '任務'}</strong><small>{childName} · ⭐ {task.reward_stars}</small></p>
@@ -498,8 +498,8 @@ function taskTone(category: LocalTask['category']): Tone {
   return ({ daily: 'blue', habit: 'green', household: 'yellow', challenge: 'pink' } as const)[category];
 }
 
-function taskIcon(category: LocalTask['category']) {
-  return ({ daily: '🧸', habit: '🪥', household: '🎒', challenge: '🏆' } as const)[category];
+function taskPlaceholderIcon() {
+  return '⭐';
 }
 
 function taskStatusLabel(status: LocalTask['status']) {

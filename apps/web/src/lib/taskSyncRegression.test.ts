@@ -6,6 +6,7 @@ import { describe, expect, it } from 'vitest';
 const repoRoot = resolve(dirname(fileURLToPath(import.meta.url)), '..', '..', '..', '..');
 const appRoot = resolve(repoRoot, 'apps', 'web');
 const migration029 = readFileSync(resolve(repoRoot, 'supabase', 'migrations', '029_task_sync_daily_instances.sql'), 'utf8');
+const migration030 = readFileSync(resolve(repoRoot, 'supabase', 'migrations', '030_task_media_and_daily_canonicalization.sql'), 'utf8');
 const supabaseData = readFileSync(resolve(appRoot, 'src', 'lib', 'supabaseData.ts'), 'utf8');
 const childPage = readFileSync(resolve(appRoot, 'src', 'pages', 'child', 'ChildPage.tsx'), 'utf8');
 const parentTasks = readFileSync(resolve(appRoot, 'src', 'pages', 'parent', 'ParentFeaturePages.tsx'), 'utf8');
@@ -14,24 +15,23 @@ const taskRules = readFileSync(resolve(appRoot, 'src', 'lib', 'taskRules.ts'), '
 describe('task sync and daily task regression guards', () => {
   it('keeps daily task instances unique by template, child, and Taipei occurrence date', () => {
     expect(migration029).toContain('daily_template_id');
-    expect(migration029).toContain('occurrence_date');
-    expect(migration029).toContain('daily_template_active');
-    expect(migration029).toContain('create unique index if not exists uq_daily_task_instance');
-    expect(migration029).toContain('on public.tasks(family_id, child_id, daily_template_id, occurrence_date)');
+    expect(migration030).toContain('drop index if exists public.uq_daily_task_instance');
+    expect(migration030).toContain('coalesce(daily_template_active, false) = false');
+    expect(migration030).toContain('on public.tasks(family_id, child_id, daily_template_id, occurrence_date)');
     expect(migration029).toContain("timezone('Asia/Taipei', now())");
   });
 
-  it('backfills parent repository snapshot tasks into formal Supabase tasks', () => {
-    expect(migration029).toContain("parent_row.settings -> 'repository_state' -> 'tasks'");
-    expect(migration029).toContain('jsonb_populate_recordset');
-    expect(migration029).toContain('on conflict (id) do nothing');
+  it('backfills parent repository snapshot task media into formal Supabase tasks', () => {
+    expect(migration030).toContain("parent_row.settings -> 'repository_state' -> 'tasks'");
+    expect(migration030).toContain('task_image_media_id');
+    expect(migration030).toContain('thumbnail_media_id');
+    expect(migration030).toContain('update public.media_assets as media');
   });
 
   it('uses controlled RPCs for parent task creation, daily ensure, and task approval stars', () => {
-    expect(migration029).toContain('create or replace function public.upsert_parent_task_from_repository');
-    expect(migration029).toContain('create or replace function public.ensure_daily_task_instances');
+    expect(migration030).toContain('create or replace function public.upsert_parent_task_from_repository');
+    expect(migration030).toContain('create or replace function public._ensure_daily_task_instances');
     expect(migration029).toContain('create or replace function public.approve_task_with_stars');
-    expect(migration029).toContain('transaction_type, reason, task_id');
     expect(migration029).toContain("'task_reward'");
     expect(migration029).toContain("v_key := 'task:' || v_task.id::text || ':stars'");
   });
@@ -50,9 +50,10 @@ describe('task sync and daily task regression guards', () => {
     expect(childPage).toContain('任務載入中，請稍候');
   });
 
-  it('Supabase repository writes task rows through RPC instead of relying only on parent snapshots', () => {
-    expect(supabaseData).toContain('upsert_parent_task_from_repository');
-    expect(supabaseData).toContain('approve_task_with_stars');
-    expect(supabaseData).toContain('ensure_daily_task_instances');
+  it('treats formal task rows as source of truth and does not let stale snapshots override them', () => {
+    expect(supabaseData).toContain('const tableTaskIds = new Set(tableTasks.map((task) => task.id))');
+    expect(supabaseData).toContain('tableTasks.forEach((task) => merge(task, true))');
+    expect(supabaseData).toContain('task_image_media_id: row.task_image_media_id ?? null');
+    expect(supabaseData).toContain('thumbnail_media_id: row.thumbnail_media_id ?? null');
   });
 });

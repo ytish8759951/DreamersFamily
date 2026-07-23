@@ -440,7 +440,7 @@ function TaskCard({
         <LocalTaskMedia
           mediaId={task.thumbnail_media_id ?? task.task_image_media_id ?? null}
           alt={task.title || '任務圖片'}
-          fallback={childTaskIcon(task.category)}
+          fallback={childTaskPlaceholderIcon()}
           className={`v1-task-media v1-tone-${childTaskTone(task.category)}`}
         />
       </div>
@@ -469,7 +469,7 @@ function CompletedTaskCard({ task }: { task: LocalTask }) {
       <LocalTaskMedia
         mediaId={task.thumbnail_media_id ?? task.task_image_media_id ?? null}
         alt={task.title || '任務圖片'}
-        fallback={childTaskIcon(task.category)}
+        fallback={childTaskPlaceholderIcon()}
         className={`child-completed-task-media v1-tone-${childTaskTone(task.category)}`}
       />
       <div>
@@ -510,8 +510,8 @@ function childTaskTone(category: LocalTask['category']) {
   return ({ daily: 'blue', habit: 'yellow', household: 'pink', challenge: 'green' } as const)[category];
 }
 
-function childTaskIcon(category: LocalTask['category']) {
-  return ({ daily: '🧸', habit: '🪥', household: '🧹', challenge: '🏆' } as const)[category];
+function childTaskPlaceholderIcon() {
+  return '⭐';
 }
 
 function childTaskBadgeLabel(category: LocalTask['category']) {

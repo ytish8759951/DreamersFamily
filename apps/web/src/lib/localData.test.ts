@@ -903,6 +903,34 @@ describe('local MVP data flows', () => {
     expect(todayTasks.filter((task) => task.category === 'daily')).toHaveLength(1);
   });
 
+  it('copies daily template media ids to generated daily instances', () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date('2026-07-22T08:00:00.000Z'));
+    const child = data.createChild({ display_name: 'Media daily child' });
+    const template = data.createTask({
+      child_id: child.id,
+      title: 'Daily photo task',
+      category: 'daily',
+      task_date: '2026-07-22',
+      reward_stars: 3,
+      task_image_media_id: 'daily-task-image-media-id',
+      thumbnail_media_id: 'daily-task-thumbnail-media-id'
+    });
+
+    vi.setSystemTime(new Date('2026-07-22T16:00:00.000Z'));
+    data.getState();
+    const instance = data
+      .listTasks(child.id)
+      .find((task) => task.id !== template.id && task.daily_template_id === template.id && task.occurrence_date === '2026-07-23');
+
+    expect(instance).toMatchObject({
+      task_image_media_id: 'daily-task-image-media-id',
+      thumbnail_media_id: 'daily-task-thumbnail-media-id',
+      daily_template_active: false
+    });
+    expect(getChildTodayTasks(data.listTasks(child.id), '2026-07-23').map((task) => task.id)).toEqual([instance!.id]);
+  });
+
   it('updates dream progress and moves funded dreams to completed', () => {
     const child = data.createChild({ display_name: '樂樂' });
     const dream = data.createDream({

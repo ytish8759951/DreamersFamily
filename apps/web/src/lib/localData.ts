@@ -1771,7 +1771,15 @@ export class LocalDataService implements LocalDataRepository {
         task_date: taskDate,
         daily_template_id: (input.category ?? 'daily') === 'daily' ? input.daily_template_id ?? taskId : null,
         occurrence_date: (input.category ?? 'daily') === 'daily' ? input.occurrence_date ?? taskDate : null,
-        template_snapshot: input.template_snapshot ?? null,
+        template_snapshot: input.template_snapshot ?? ((input.category ?? 'daily') === 'daily' ? {
+          title,
+          description: input.description?.trim() || null,
+          reward_stars: rewardStars,
+          reward_screen_minutes: rewardMinutes,
+          task_image_media_id: input.task_image_media_id ?? null,
+          thumbnail_media_id: input.thumbnail_media_id ?? null,
+          recurrence_rule: input.recurrence_rule ?? 'FREQ=DAILY'
+        } : null),
         daily_template_active: (input.category ?? 'daily') === 'daily' ? input.daily_template_id === undefined || input.daily_template_id === taskId : null,
         due_at: input.due_at ?? null,
         recurrence_rule: input.recurrence_rule ?? ((input.category ?? 'daily') === 'daily' ? 'FREQ=DAILY' : null),

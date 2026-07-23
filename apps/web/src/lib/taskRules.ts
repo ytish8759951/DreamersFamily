@@ -14,11 +14,15 @@ export function getTodayTaskDate(now = new Date()) {
 }
 
 export function isTaskOccurrenceToday(task: LocalTask, today = getTodayTaskDate()) {
-  return task.task_date === today;
+  return (task.occurrence_date ?? task.task_date) === today;
 }
 
 export function isPastDailyTask(task: LocalTask, today = getTodayTaskDate()) {
-  return task.category === 'daily' && task.task_date < today;
+  return task.category === 'daily' && (task.occurrence_date ?? task.task_date) < today;
+}
+
+function isDisplayableDailyTask(task: LocalTask) {
+  return task.category !== 'daily' || task.daily_template_active !== true || Boolean(task.occurrence_date);
 }
 
 export function getChildVisibleTasks(
@@ -28,6 +32,7 @@ export function getChildVisibleTasks(
 ) {
   return tasks
     .filter((task) => task.category === category)
+    .filter(isDisplayableDailyTask)
     .filter((task) => task.category !== 'daily' || isTaskOccurrenceToday(task, today))
     .filter((task) => activeTaskStatuses.includes(task.status))
     .sort((a, b) => a.created_at.localeCompare(b.created_at));
@@ -36,6 +41,7 @@ export function getChildVisibleTasks(
 export function getChildTodayTasks(tasks: LocalTask[], today = getTodayTaskDate()) {
   return tasks
     .filter((task) => task.category !== 'daily' || isTaskOccurrenceToday(task, today))
+    .filter(isDisplayableDailyTask)
     .filter((task) => task.category !== 'daily' || task.status !== 'expired')
     .filter((task) => task.category === 'daily' ? activeTaskStatuses.includes(task.status) : ['pending', 'submitted', 'rejected'].includes(task.status))
     .sort((a, b) => {
@@ -55,6 +61,7 @@ export function getChildHistoryTasks(tasks: LocalTask[], today = getTodayTaskDat
 export function getParentOpenTasks(tasks: LocalTask[], today = getTodayTaskDate()) {
   return tasks
     .filter((task) => {
+      if (!isDisplayableDailyTask(task)) return false;
       if (reviewableStatuses.includes(task.status)) return true;
       if (!['pending', 'rejected'].includes(task.status)) return false;
       return task.category !== 'daily' || isTaskOccurrenceToday(task, today);

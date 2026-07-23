@@ -286,6 +286,8 @@ interface SupabaseTaskRow {
   description: string | null;
   category: LocalTask['category'];
   task_date: string;
+  task_image_media_id?: UUID | null;
+  thumbnail_media_id?: UUID | null;
   daily_template_id?: UUID | null;
   occurrence_date?: string | null;
   template_snapshot?: Record<string, unknown> | null;
@@ -3940,6 +3942,8 @@ function toSupabaseTask(task: LocalTask): SupabaseTaskRow {
     description: task.description,
     category: task.category,
     task_date: task.task_date,
+    task_image_media_id: task.task_image_media_id ?? null,
+    thumbnail_media_id: task.thumbnail_media_id ?? null,
     daily_template_id: task.daily_template_id ?? null,
     occurrence_date: task.occurrence_date ?? (task.category === 'daily' ? task.task_date : null),
     template_snapshot: task.template_snapshot ?? null,
@@ -3968,8 +3972,8 @@ function fromSupabaseTask(row: SupabaseTaskRow): LocalTask {
     child_id: row.child_id,
     title: row.title,
     description: row.description,
-    task_image_media_id: null,
-    thumbnail_media_id: null,
+    task_image_media_id: row.task_image_media_id ?? null,
+    thumbnail_media_id: row.thumbnail_media_id ?? null,
     category: row.category,
     task_date: row.task_date,
     daily_template_id: row.daily_template_id ?? null,
@@ -4014,11 +4018,19 @@ function fromSupabaseTaskRecord(row: SupabaseTaskRecordRow): LocalTask | null {
 
 function mergeTasks(localTasks: LocalTask[], tableTasks: LocalTask[], payloadTasks: LocalTask[]) {
   const byId = new Map<string, LocalTask>();
-  [...localTasks, ...tableTasks, ...payloadTasks].forEach((task) => {
+  const tableTaskIds = new Set(tableTasks.map((task) => task.id));
+  const merge = (task: LocalTask, prefer = false) => {
     const normalized = { ...task, family_id: SUPABASE_FAMILY_ID };
     const existing = byId.get(task.id);
-    if (!existing || normalized.updated_at >= existing.updated_at) byId.set(task.id, normalized);
+    if (!existing || prefer || normalized.updated_at >= existing.updated_at) byId.set(task.id, normalized);
+  };
+  localTasks.forEach((task) => {
+    if (!tableTaskIds.has(task.id)) merge(task);
   });
+  payloadTasks.forEach((task) => {
+    if (!tableTaskIds.has(task.id)) merge(task);
+  });
+  tableTasks.forEach((task) => merge(task, true));
   return [...byId.values()].sort((first, second) => second.created_at.localeCompare(first.created_at));
 }
 
