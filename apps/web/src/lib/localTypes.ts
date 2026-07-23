@@ -245,6 +245,7 @@ export interface LocalMailboxMessage {
   sent_at: ISODateTime | null;
   opened_at: ISODateTime | null;
   archived_at: ISODateTime | null;
+  client_request_id?: string | null;
   created_at: ISODateTime;
   updated_at: ISODateTime;
 }
@@ -256,6 +257,7 @@ export interface LocalBadge {
   icon: string;
   description: string | null;
   reward_stars: number;
+  client_request_id?: string | null;
   created_by: UUID;
   created_at: ISODateTime;
   updated_at: ISODateTime;
@@ -270,6 +272,7 @@ export interface LocalChildBadge {
   note: string | null;
   awarded_by: UUID;
   awarded_at: ISODateTime;
+  client_request_id?: string | null;
 }
 
 export interface LocalSpecialDay {
@@ -460,6 +463,7 @@ export interface LocalPiggyIncome {
   source: string;
   amount: number;
   remaining_amount: number;
+  client_request_id?: string | null;
   created_by: UUID;
   created_at: ISODateTime;
 }
@@ -473,6 +477,7 @@ export interface LocalPiggyBankLog {
   note: string | null;
   product_id: UUID | null;
   purchase_id: UUID | null;
+  client_request_id?: string | null;
   created_at: ISODateTime;
 }
 
@@ -486,6 +491,7 @@ export interface LocalPiggyProduct {
   gallery_media_ids: UUID[];
   shelf_status: 'shelf' | 'backlog';
   shelf_slot: number | null;
+  client_request_id?: string | null;
   created_by: UUID;
   created_at: ISODateTime;
   updated_at: ISODateTime;
@@ -526,6 +532,7 @@ export interface LocalPiggyPurchase {
   requested_at: ISODateTime;
   purchased_at: ISODateTime | null;
   cancelled_at: ISODateTime | null;
+  client_request_id?: string | null;
 }
 
 export interface PiggyBankSummary {

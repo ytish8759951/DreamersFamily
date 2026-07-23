@@ -30,6 +30,12 @@ import {
   type CreateChildInput,
   type CreateTaskInput,
   type UpdateChildInput,
+  type AddPiggyIncomeInput,
+  type CreatePiggyProductInput,
+  type UpdatePiggyProductInput,
+  type CreateBadgeInput,
+  type AwardBadgeInput,
+  type CreateMailboxMessageInput,
   type ChildLoginChallengeResult,
   type ChildLoginChallengePreview,
   type CompleteChildLoginChallengeResult,
@@ -352,6 +358,9 @@ interface SupabasePiggyBankRecordRow {
   amount: number;
   record_type: string;
   note: string | null;
+  client_request_id?: string | null;
+  product_id?: UUID | null;
+  purchase_id?: UUID | null;
   payload: {
     kind?: 'income' | 'bank_log' | 'shelf_order' | 'display_settings';
     income?: LocalPiggyIncome;
@@ -369,6 +378,11 @@ interface SupabaseStoreItemRow {
   name: string;
   price: number;
   status: string;
+  main_media_id?: UUID | null;
+  gallery_media_ids?: UUID[] | null;
+  shelf_slot?: number | null;
+  client_request_id?: string | null;
+  deleted_at?: string | null;
   payload: { local_product?: LocalPiggyProduct } | null;
   created_at: string;
   updated_at: string;
@@ -381,6 +395,7 @@ interface SupabasePurchaseRow {
   store_item_id: UUID | null;
   status: LocalPiggyPurchase['status'];
   amount: number;
+  client_request_id?: string | null;
   payload: { local_purchase?: LocalPiggyPurchase } | null;
   created_at: string;
   updated_at: string;
@@ -477,11 +492,14 @@ interface SupabaseMailboxRow {
   sender_user_id: UUID;
   card_type: 'text' | 'photo' | 'audio' | 'video' | 'mixed';
   template_key: string | null;
+  sender_role?: LocalMailboxMessage['sender_role'] | null;
+  media_id?: UUID | null;
   media_bucket: string | null;
   media_path: string | null;
   media_mime_type: string | null;
   scheduled_at: string | null;
   archived_at: string | null;
+  client_request_id?: string | null;
 }
 
 interface SupabaseSpecialDayRow {
@@ -529,6 +547,7 @@ interface SupabaseTabletTimeRow {
   minutes: number;
   status: string | null;
   note: string | null;
+  client_request_id?: string | null;
   payload: {
     kind?: 'screen_time_log' | 'screen_time_request' | 'screen_time_schedule';
     screen_time_log?: LocalScreenTimeLog;
@@ -548,6 +567,9 @@ interface SupabaseBadgeRow {
   icon: string | null;
   image_media_id: UUID | null;
   is_system: boolean;
+  reward_stars?: number | null;
+  client_request_id?: string | null;
+  deleted_at?: string | null;
   created_at: string;
   updated_at?: string | null;
 }
@@ -562,6 +584,7 @@ interface SupabaseChildBadgeRow {
   source_entity_id: UUID | null;
   note: string | null;
   awarded_at: string;
+  client_request_id?: string | null;
 }
 
 interface ChildScopedRepositorySnapshot {
@@ -2405,8 +2428,25 @@ export class SupabaseDataRepository implements LocalDataRepository {
 
   deleteShare = this.delegateWrite('deleteShare');
   approveShare = this.delegateWrite('approveShare');
-  createMailboxMessage = this.delegateWrite('createMailboxMessage');
-  markMessageRead = this.delegateWrite('markMessageRead');
+  createMailboxMessage(input: CreateMailboxMessageInput): LocalMailboxMessage {
+    const message = this.cache.createMailboxMessage(input);
+    void this.persistMailboxMessage(message).catch((error) => {
+      console.warn('[supabase-repository] mailbox create RPC sync failed', error);
+      this.queuePush();
+      this.queueChildScopedPush();
+    });
+    return message;
+  }
+
+  markMessageRead(messageId: UUID): LocalMailboxMessage {
+    const message = this.cache.markMessageRead(messageId);
+    void this.persistMailboxMessage(message).catch((error) => {
+      console.warn('[supabase-repository] mailbox read RPC sync failed', error);
+      this.queuePush();
+      this.queueChildScopedPush();
+    });
+    return message;
+  }
   listMailboxMessages(childId?: UUID): LocalMailboxMessage[] {
     if (childId && this.canUseChildScopedSession(childId)) {
       return this.getChildScopedState(childId).encouragement_cards
@@ -2416,9 +2456,49 @@ export class SupabaseDataRepository implements LocalDataRepository {
     return this.cache.listMailboxMessages(childId);
   }
 
-  createBadge = this.delegateWrite('createBadge');
-  deleteBadge = this.delegateWrite('deleteBadge');
-  awardBadge = this.delegateWrite('awardBadge');
+  private async persistMailboxMessage(message: LocalMailboxMessage) {
+    if (!this.client) {
+      this.queuePush();
+      this.queueChildScopedPush();
+      return;
+    }
+    const session = getChildSession();
+    const childScoped = isChildSessionValid(session, message.child_id);
+    const { error } = await this.client.rpc('upsert_mailbox_message_from_repository', {
+      p_message: toSupabaseMailbox(message),
+      p_device_binding_id: childScoped ? session.deviceBindingId : null,
+      p_device_id: childScoped ? session.deviceId : null
+    });
+    if (error) throw error;
+    await this.hydrateFromSupabase();
+  }
+
+  createBadge(input: CreateBadgeInput): LocalBadge {
+    const badge = this.cache.createBadge(input);
+    void this.persistBadgeCatalog(badge).catch((error) => {
+      console.warn('[supabase-repository] badge catalog create RPC sync failed', error);
+      this.queuePush();
+    });
+    return badge;
+  }
+
+  deleteBadge(badgeId: UUID): LocalBadge {
+    const badge = this.cache.deleteBadge(badgeId);
+    void this.persistBadgeCatalog(badge).catch((error) => {
+      console.warn('[supabase-repository] badge catalog delete RPC sync failed', error);
+      this.queuePush();
+    });
+    return badge;
+  }
+
+  awardBadge(input: AwardBadgeInput): LocalChildBadge {
+    const childBadge = this.cache.awardBadge(input);
+    void this.persistChildBadgeAward(childBadge).catch((error) => {
+      console.warn('[supabase-repository] child badge award RPC sync failed', error);
+      this.queuePush();
+    });
+    return childBadge;
+  }
   getBadges(includeDeleted = false): LocalBadge[] {
     const session = getChildSession();
     if (!runtimeInfo.familyId && isChildSessionValid(session)) {
@@ -2437,6 +2517,31 @@ export class SupabaseDataRepository implements LocalDataRepository {
     }
     return this.cache.getChildBadges(childId);
   }
+
+  private async persistBadgeCatalog(badge: LocalBadge) {
+    if (!this.client) {
+      this.queuePush();
+      return;
+    }
+    const { error } = await this.client.rpc('upsert_badge_catalog_from_repository', {
+      p_badge: toSupabaseBadge(badge)
+    });
+    if (error) throw error;
+    await this.hydrateFromSupabase();
+  }
+
+  private async persistChildBadgeAward(childBadge: LocalChildBadge) {
+    if (!this.client) {
+      this.queuePush();
+      return;
+    }
+    const { error } = await this.client.rpc('award_child_badge_from_repository', {
+      p_child_badge: toSupabaseChildBadge(childBadge)
+    });
+    if (error) throw error;
+    await this.hydrateFromSupabase();
+  }
+
   createSpecialDay = this.delegateWrite('createSpecialDay');
   updateSpecialDay = this.delegateWrite('updateSpecialDay');
   deleteSpecialDay = this.delegateWrite('deleteSpecialDay');
@@ -2525,14 +2630,57 @@ export class SupabaseDataRepository implements LocalDataRepository {
   getWeeklyScreenTime = this.delegate('getWeeklyScreenTime');
   updatePlannedScreenTime = this.delegateWrite('updatePlannedScreenTime');
   redeemStarsForScreenTime = this.delegateWrite('redeemStarsForScreenTime');
-  addScreenTime = this.delegateWrite('addScreenTime');
-  deductScreenTimePenalty = this.delegateWrite('deductScreenTimePenalty');
-  recordScreenTimeUsed = this.delegateWrite('recordScreenTimeUsed');
+  addScreenTime(childId: UUID, date: string, minutes: number, note?: string | null): LocalScreenTimeLog {
+    const log = this.cache.addScreenTime(childId, date, minutes, note);
+    void this.persistTabletTimeLog(log).catch((error) => {
+      console.warn('[supabase-repository] tablet add RPC sync failed', error);
+      this.queuePush();
+      this.queueChildScopedPush();
+    });
+    return log;
+  }
+
+  deductScreenTimePenalty(childId: UUID, date: string, minutes: number, reason?: string | null): LocalScreenTimeLog {
+    const log = this.cache.deductScreenTimePenalty(childId, date, minutes, reason);
+    void this.persistTabletTimeLog(log).catch((error) => {
+      console.warn('[supabase-repository] tablet deduct RPC sync failed', error);
+      this.queuePush();
+      this.queueChildScopedPush();
+    });
+    return log;
+  }
+
+  recordScreenTimeUsed(childId: UUID, date: string, minutes: number): LocalScreenTimeLog {
+    const log = this.cache.recordScreenTimeUsed(childId, date, minutes);
+    void this.persistTabletTimeLog(log).catch((error) => {
+      console.warn('[supabase-repository] tablet use RPC sync failed', error);
+      this.queuePush();
+      this.queueChildScopedPush();
+    });
+    return log;
+  }
   getScreenTimeLogsByChild(childId: UUID): LocalScreenTimeLog[] {
     const state = this.getChildScopedState(childId);
     return state.screen_time_logs
       .filter((item) => item.child_id === childId)
       .sort((a, b) => b.created_at.localeCompare(a.created_at));
+  }
+
+  private async persistTabletTimeLog(log: LocalScreenTimeLog) {
+    if (!this.client) {
+      this.queuePush();
+      this.queueChildScopedPush();
+      return;
+    }
+    const session = getChildSession();
+    const childScoped = isChildSessionValid(session, log.child_id);
+    const { error } = await this.client.rpc('apply_tablet_time_log', {
+      p_log: toSupabaseTabletTimeLog(log),
+      p_device_binding_id: childScoped ? session.deviceBindingId : null,
+      p_device_id: childScoped ? session.deviceId : null
+    });
+    if (error) throw error;
+    await this.hydrateFromSupabase();
   }
 
   getTodayScreenTimeByChild(childId: UUID): WeeklyScreenTimeDay {
@@ -2575,7 +2723,16 @@ export class SupabaseDataRepository implements LocalDataRepository {
 
   listNotifications = this.delegate('listNotifications');
   markNotificationRead = this.delegateWrite('markNotificationRead');
-  addPiggyIncome = this.delegateWrite('addPiggyIncome');
+  addPiggyIncome(input: AddPiggyIncomeInput): LocalPiggyIncome {
+    const income = this.cache.addPiggyIncome(input);
+    const deposit = this.cache.getState().piggy_bank_logs.find((log) => log.client_request_id === `${income.client_request_id}:deposit`) ?? null;
+    void this.persistPiggyIncomeWithDeposit(income, deposit).catch((error) => {
+      console.warn('[supabase-repository] piggy income RPC sync failed', error);
+      this.queuePush();
+      this.queueChildScopedPush();
+    });
+    return income;
+  }
   depositPiggyCoin = this.delegateWrite('depositPiggyCoin');
   getPiggyBankSummary(childId: UUID): PiggyBankSummary {
     const state = this.getChildScopedState(childId);
@@ -2618,9 +2775,35 @@ export class SupabaseDataRepository implements LocalDataRepository {
     return this.cache.getPiggyBankLogs(childId);
   }
 
-  createPiggyProduct = this.delegateWrite('createPiggyProduct');
-  updatePiggyProduct = this.delegateWrite('updatePiggyProduct');
-  deletePiggyProduct = this.delegateWrite('deletePiggyProduct');
+  createPiggyProduct(input: CreatePiggyProductInput): LocalPiggyProduct {
+    const product = this.cache.createPiggyProduct(input);
+    void this.persistPiggyProduct(product).catch((error) => {
+      console.warn('[supabase-repository] piggy product create RPC sync failed', error);
+      this.queuePush();
+      this.queueChildScopedPush();
+    });
+    return product;
+  }
+
+  updatePiggyProduct(productId: UUID, input: UpdatePiggyProductInput): LocalPiggyProduct {
+    const product = this.cache.updatePiggyProduct(productId, input);
+    void this.persistPiggyProduct(product).catch((error) => {
+      console.warn('[supabase-repository] piggy product update RPC sync failed', error);
+      this.queuePush();
+      this.queueChildScopedPush();
+    });
+    return product;
+  }
+
+  deletePiggyProduct(productId: UUID): LocalPiggyProduct {
+    const product = this.cache.deletePiggyProduct(productId);
+    void this.persistPiggyProduct(product).catch((error) => {
+      console.warn('[supabase-repository] piggy product delete RPC sync failed', error);
+      this.queuePush();
+      this.queueChildScopedPush();
+    });
+    return product;
+  }
   listPiggyProducts(childId?: UUID, includeDeleted = false): LocalPiggyProduct[] {
     if (childId && this.canUseChildScopedSession(childId)) {
       return this.getChildScopedState(childId).piggy_products
@@ -2629,7 +2812,9 @@ export class SupabaseDataRepository implements LocalDataRepository {
     }
     return this.cache.listPiggyProducts(childId, includeDeleted);
   }
-  setPiggyProductShelfStatus = this.delegateWrite('setPiggyProductShelfStatus');
+  setPiggyProductShelfStatus(productId: UUID, shelfStatus: LocalPiggyProduct['shelf_status']): LocalPiggyProduct {
+    return this.updatePiggyProduct(productId, { shelf_status: shelfStatus });
+  }
   savePiggyShelfOrder = this.delegateWrite('savePiggyShelfOrder');
   getPiggyShelfProducts(childId: UUID): LocalPiggyProduct[] {
     return this.listPiggyProducts(childId).filter((product) => product.shelf_status === 'shelf');
@@ -2644,10 +2829,49 @@ export class SupabaseDataRepository implements LocalDataRepository {
     return this.cache.getPiggyProductDisplaySettings(childId);
   }
   savePiggyProductDisplaySettings = this.delegateWrite('savePiggyProductDisplaySettings');
-  requestPiggyPurchase = this.delegateWrite('requestPiggyPurchase');
-  cancelPiggyPurchase = this.delegateWrite('cancelPiggyPurchase');
-  completePiggyPurchase = this.delegateWrite('completePiggyPurchase');
-  confirmPiggyPurchaseArrived = this.delegateWrite('confirmPiggyPurchaseArrived');
+  requestPiggyPurchase(childId: UUID, productId: UUID): LocalPiggyPurchase {
+    const before = this.cache.getState().piggy_bank_logs.length;
+    const purchase = this.cache.requestPiggyPurchase(childId, productId);
+    const bankLog = this.cache.getState().piggy_bank_logs.slice(before).find((log) => log.purchase_id === purchase.id) ?? null;
+    void this.persistPiggyPurchaseEvent(purchase, bankLog).catch((error) => {
+      console.warn('[supabase-repository] piggy purchase request RPC sync failed', error);
+      this.queuePush();
+      this.queueChildScopedPush();
+    });
+    return purchase;
+  }
+
+  cancelPiggyPurchase(purchaseId: UUID): LocalPiggyPurchase {
+    const before = this.cache.getState().piggy_bank_logs.length;
+    const purchase = this.cache.cancelPiggyPurchase(purchaseId);
+    const bankLog = this.cache.getState().piggy_bank_logs.slice(before).find((log) => log.purchase_id === purchase.id) ?? null;
+    void this.persistPiggyPurchaseEvent(purchase, bankLog).catch((error) => {
+      console.warn('[supabase-repository] piggy purchase cancel RPC sync failed', error);
+      this.queuePush();
+      this.queueChildScopedPush();
+    });
+    return purchase;
+  }
+
+  completePiggyPurchase(purchaseId: UUID): LocalPiggyPurchase {
+    const purchase = this.cache.completePiggyPurchase(purchaseId);
+    void this.persistPiggyPurchaseEvent(purchase, null).catch((error) => {
+      console.warn('[supabase-repository] piggy purchase complete RPC sync failed', error);
+      this.queuePush();
+      this.queueChildScopedPush();
+    });
+    return purchase;
+  }
+
+  confirmPiggyPurchaseArrived(purchaseId: UUID): LocalPiggyPurchase {
+    const purchase = this.cache.confirmPiggyPurchaseArrived(purchaseId);
+    void this.persistPiggyPurchaseEvent(purchase, null).catch((error) => {
+      console.warn('[supabase-repository] piggy purchase arrived RPC sync failed', error);
+      this.queuePush();
+      this.queueChildScopedPush();
+    });
+    return purchase;
+  }
   listPiggyPurchases(childId?: UUID): LocalPiggyPurchase[] {
     if (childId && this.canUseChildScopedSession(childId)) {
       return this.getChildScopedState(childId).piggy_purchases
@@ -2656,6 +2880,60 @@ export class SupabaseDataRepository implements LocalDataRepository {
     }
     return this.cache.listPiggyPurchases(childId);
   }
+
+  private async persistPiggyIncomeWithDeposit(income: LocalPiggyIncome, deposit: LocalPiggyBankLog | null) {
+    if (!this.client || !deposit) {
+      this.queuePush();
+      this.queueChildScopedPush();
+      return;
+    }
+    const session = getChildSession();
+    const childScoped = isChildSessionValid(session, income.child_id);
+    const { error } = await this.client.rpc('create_piggy_income_with_deposit', {
+      p_income: toSupabasePiggyIncomeRecord(income),
+      p_deposit: toSupabasePiggyBankLogRecord(deposit),
+      p_device_binding_id: childScoped ? session.deviceBindingId : null,
+      p_device_id: childScoped ? session.deviceId : null
+    });
+    if (error) throw error;
+    await this.hydrateFromSupabase();
+  }
+
+  private async persistPiggyProduct(product: LocalPiggyProduct) {
+    if (!this.client) {
+      this.queuePush();
+      this.queueChildScopedPush();
+      return;
+    }
+    const session = getChildSession();
+    const childScoped = isChildSessionValid(session, product.child_id);
+    const { error } = await this.client.rpc('upsert_piggy_product_from_repository', {
+      p_product: toSupabaseStoreItem(product),
+      p_device_binding_id: childScoped ? session.deviceBindingId : null,
+      p_device_id: childScoped ? session.deviceId : null
+    });
+    if (error) throw error;
+    await this.hydrateFromSupabase();
+  }
+
+  private async persistPiggyPurchaseEvent(purchase: LocalPiggyPurchase, bankLog: LocalPiggyBankLog | null) {
+    if (!this.client) {
+      this.queuePush();
+      this.queueChildScopedPush();
+      return;
+    }
+    const session = getChildSession();
+    const childScoped = isChildSessionValid(session, purchase.child_id);
+    const { error } = await this.client.rpc('apply_piggy_purchase_event', {
+      p_purchase: toSupabasePurchase(purchase),
+      p_bank_log: bankLog ? toSupabasePiggyBankLogRecord(bankLog) : null,
+      p_device_binding_id: childScoped ? session.deviceBindingId : null,
+      p_device_id: childScoped ? session.deviceId : null
+    });
+    if (error) throw error;
+    await this.hydrateFromSupabase();
+  }
+
   getAnnualParentNote = this.delegate('getAnnualParentNote');
   saveAnnualParentNote = this.delegateWrite('saveAnnualParentNote');
   listAnnualParentNotes = this.delegate('listAnnualParentNotes');
@@ -4286,13 +4564,16 @@ function toSupabaseMailbox(message: LocalMailboxMessage): SupabaseMailboxRow {
     created_at: message.created_at,
     updated_at: message.updated_at,
     sender_user_id: SUPABASE_PARENT_ID,
+    sender_role: message.sender_role ?? 'parent',
     card_type: toSupabaseMailboxCardType(message.card_type),
     template_key: message.template_key,
+    media_id: message.media_id,
     media_bucket: message.media_bucket,
     media_path: message.media_path,
     media_mime_type: message.media_mime_type,
     scheduled_at: message.scheduled_at,
-    archived_at: message.archived_at
+    archived_at: message.archived_at,
+    client_request_id: message.client_request_id ?? null
   };
 }
 
@@ -4302,14 +4583,14 @@ function fromSupabaseMailbox(row: SupabaseMailboxRow): LocalMailboxMessage {
     family_id: SUPABASE_FAMILY_ID,
     child_id: row.child_id,
     sender_user_id: row.sender_user_id,
-    sender_role: 'parent',
+    sender_role: row.sender_role ?? 'parent',
     title: row.title,
     message: row.message,
     card_type: fromSupabaseMailboxCardType(row.card_type),
     template_key: row.template_key,
     media_bucket: row.media_bucket === 'family-media' ? 'family-media' : row.media_bucket === 'local-media' ? 'local-media' : null,
     media_path: row.media_path,
-    media_id: row.media_path,
+    media_id: row.media_id ?? row.media_path,
     media_mime_type: row.media_mime_type,
     local_data_url: null,
     status: row.status,
@@ -4317,6 +4598,7 @@ function fromSupabaseMailbox(row: SupabaseMailboxRow): LocalMailboxMessage {
     sent_at: row.sent_at,
     opened_at: row.opened_at,
     archived_at: row.archived_at,
+    client_request_id: row.client_request_id ?? null,
     created_at: row.created_at,
     updated_at: row.updated_at
   };
@@ -4449,6 +4731,7 @@ function toSupabaseTabletTimeLog(log: LocalScreenTimeLog): SupabaseTabletTimeRow
     minutes: log.minutes_delta,
     status: log.type ?? log.entry_type,
     note: log.reason ?? log.note ?? null,
+    client_request_id: log.idempotency_key,
     payload: { kind: 'screen_time_log', screen_time_log: log },
     created_at: log.created_at,
     updated_at: log.created_at
@@ -4464,6 +4747,7 @@ function toSupabaseTabletTimeRequest(request: LocalScreenTimeRequest): SupabaseT
     minutes: request.requested_minutes,
     status: request.status,
     note: request.note,
+    client_request_id: `screen-time-request:${request.id}`,
     payload: { kind: 'screen_time_request', screen_time_request: request },
     created_at: request.created_at,
     updated_at: request.updated_at
@@ -4479,6 +4763,7 @@ function toSupabaseTabletTimeSchedule(schedule: LocalScreenTimeSchedule): Supaba
     minutes: schedule.plannedMinutes,
     status: schedule.source ?? 'manual',
     note: schedule.date,
+    client_request_id: `screen-time-schedule:${schedule.child_id}:${schedule.date}`,
     payload: { kind: 'screen_time_schedule', screen_time_schedule: schedule },
     created_at: schedule.createdAt,
     updated_at: schedule.updatedAt
@@ -4571,11 +4856,12 @@ function fromSupabaseBadge(row: SupabaseBadgeRow): LocalBadge {
     name: row.name,
     icon: row.icon || '★',
     description: row.description,
-    reward_stars: 0,
+    reward_stars: row.reward_stars ?? 0,
+    client_request_id: row.client_request_id ?? null,
     created_by: SUPABASE_PARENT_ID,
     created_at: row.created_at,
     updated_at: row.updated_at ?? row.created_at,
-    deleted_at: null
+    deleted_at: row.deleted_at ?? null
   };
 }
 
@@ -4587,7 +4873,26 @@ function fromSupabaseChildBadge(row: SupabaseChildBadgeRow): LocalChildBadge {
     badge_id: row.badge_id,
     note: row.note,
     awarded_by: row.awarded_by ?? SUPABASE_PARENT_ID,
-    awarded_at: row.awarded_at
+    awarded_at: row.awarded_at,
+    client_request_id: row.client_request_id ?? null
+  };
+}
+
+function toSupabaseBadge(badge: LocalBadge): SupabaseBadgeRow {
+  return {
+    id: badge.id,
+    family_id: SUPABASE_FAMILY_ID,
+    code: badge.id,
+    name: badge.name || '徽章',
+    description: badge.description,
+    icon: badge.icon,
+    image_media_id: null,
+    is_system: false,
+    reward_stars: badge.reward_stars,
+    client_request_id: badge.client_request_id ?? null,
+    deleted_at: badge.deleted_at,
+    created_at: badge.created_at,
+    updated_at: badge.updated_at
   };
 }
 
@@ -4601,7 +4906,8 @@ function toSupabaseChildBadge(badge: LocalChildBadge): SupabaseChildBadgeRow {
     source_entity_type: null,
     source_entity_id: null,
     note: badge.note,
-    awarded_at: badge.awarded_at
+    awarded_at: badge.awarded_at,
+    client_request_id: badge.client_request_id ?? null
   };
 }
 
@@ -4613,6 +4919,9 @@ function toSupabasePiggyIncomeRecord(income: LocalPiggyIncome): SupabasePiggyBan
     amount: income.amount,
     record_type: 'income',
     note: income.source,
+    client_request_id: income.client_request_id ?? null,
+    product_id: null,
+    purchase_id: null,
     payload: { kind: 'income', income },
     created_at: income.created_at
   };
@@ -4626,6 +4935,9 @@ function toSupabasePiggyBankLogRecord(log: LocalPiggyBankLog): SupabasePiggyBank
     amount: log.amount,
     record_type: log.type,
     note: log.note,
+    client_request_id: log.client_request_id ?? null,
+    product_id: log.product_id,
+    purchase_id: log.purchase_id,
     payload: { kind: 'bank_log', bank_log: log },
     created_at: log.created_at
   };
@@ -4665,6 +4977,11 @@ function toSupabaseStoreItem(product: LocalPiggyProduct): SupabaseStoreItemRow {
     name: product.name || '未命名商品',
     price: product.price,
     status: product.deleted_at ? 'deleted' : product.shelf_status,
+    main_media_id: product.main_media_id,
+    gallery_media_ids: product.gallery_media_ids,
+    shelf_slot: product.shelf_slot,
+    client_request_id: product.client_request_id ?? null,
+    deleted_at: product.deleted_at,
     payload: { local_product: product },
     created_at: product.created_at,
     updated_at: product.updated_at
@@ -4679,6 +4996,7 @@ function toSupabasePurchase(purchase: LocalPiggyPurchase): SupabasePurchaseRow {
     store_item_id: purchase.product_id,
     status: purchase.status,
     amount: purchase.amount,
+    client_request_id: purchase.client_request_id ?? null,
     payload: { local_purchase: purchase },
     created_at: purchase.requested_at,
     updated_at: purchase.purchased_at ?? purchase.cancelled_at ?? purchase.requested_at
@@ -4739,14 +5057,15 @@ function fromSupabaseStoreItem(row: SupabaseStoreItemRow): LocalPiggyProduct {
     child_id: row.child_id,
     name: row.name,
     price: Number(row.price),
-    main_media_id: null,
-    gallery_media_ids: [],
+    main_media_id: row.main_media_id ?? null,
+    gallery_media_ids: row.gallery_media_ids ?? [],
     shelf_status: row.status === 'shelf' ? 'shelf' : 'backlog',
-    shelf_slot: null,
+    shelf_slot: row.shelf_slot ?? null,
+    client_request_id: row.client_request_id ?? null,
     created_by: SUPABASE_PARENT_ID,
     created_at: row.created_at,
     updated_at: row.updated_at,
-    deleted_at: row.status === 'deleted' ? row.updated_at : null
+    deleted_at: row.deleted_at ?? (row.status === 'deleted' ? row.updated_at : null)
   };
 }
 
@@ -4765,7 +5084,8 @@ function fromSupabasePurchase(row: SupabasePurchaseRow): LocalPiggyPurchase {
     },
     requested_at: row.created_at,
     purchased_at: row.status === 'arrived' || row.status === 'completed' || row.status === 'purchased' ? row.updated_at : null,
-    cancelled_at: row.status === 'cancelled' ? row.updated_at : null
+    cancelled_at: row.status === 'cancelled' ? row.updated_at : null,
+    client_request_id: row.client_request_id ?? null
   };
 }
 

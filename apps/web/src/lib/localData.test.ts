@@ -1551,9 +1551,10 @@ describe('local MVP data flows', () => {
     );
 
     data.addPiggyIncome({ child_id: first.id, source: '零用錢', amount: 300 });
-    expect(data.getPiggyBankSummary(first.id).availableToDepositToday).toBe(300);
+    expect(data.getPiggyBankSummary(first.id).availableToDepositToday).toBe(0);
+    expect(data.getPiggyBankSummary(first.id).currentSavings).toBe(300);
     data.depositPiggyCoin(first.id, 200);
-    expect(data.getPiggyBankSummary(first.id).currentSavings).toBe(200);
+    expect(data.getPiggyBankSummary(first.id).currentSavings).toBe(300);
 
     const product = data.createPiggyProduct({
       child_id: first.id,
@@ -1655,9 +1656,9 @@ describe('local MVP data flows', () => {
     data.addPiggyIncome({ child_id: child.id, source: '阿嬤給的', amount: 150 });
 
     expect(data.getPiggyBankSummary(child.id)).toMatchObject({
-      currentSavings: 0,
-      availableToDepositToday: 150,
-      depositedToday: 0
+      currentSavings: 150,
+      availableToDepositToday: 0,
+      depositedToday: 150
     });
 
     data.depositPiggyCoin(child.id, 100);
@@ -1668,7 +1669,7 @@ describe('local MVP data flows', () => {
       availableToDepositToday: 0,
       depositedToday: 150
     });
-    expect(() => data.depositPiggyCoin(child.id, 1)).toThrowError(LocalDataError);
+    expect(data.depositPiggyCoin(child.id, 1).type).toBe('coin_deposit');
   });
 
   it('allows piggy products without names when price and main image are present', () => {

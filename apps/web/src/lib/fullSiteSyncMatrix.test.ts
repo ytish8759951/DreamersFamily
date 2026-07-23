@@ -78,7 +78,8 @@ describe('full-site cross-device sync matrix', () => {
     const migrations = [
       readRepoFile('supabase/migrations/028_share_encouragement_stars_rpc.sql'),
       readRepoFile('supabase/migrations/029_task_sync_daily_instances.sql'),
-      readRepoFile('supabase/migrations/032_task_create_idempotency.sql')
+      readRepoFile('supabase/migrations/032_task_create_idempotency.sql'),
+      readRepoFile('supabase/migrations/033_piggy_transaction_sync.sql')
     ].join('\n');
 
     expect(source).toContain('client_request_id');
@@ -86,7 +87,8 @@ describe('full-site cross-device sync matrix', () => {
     expect(migrations).toContain('approve_task_with_stars');
     expect(migrations).toContain('ensure_daily_task_instances');
     expect(migrations).toContain('uq_daily_task_instance');
-    expect(matrix).toContain('Piggy purchase confirm/cancel/arrived/back-to-buyable should be one database transaction');
-    expect(matrix).toContain('Screen-time add/redeem/use should be one database transaction');
+    expect(matrix).toContain('create_piggy_income_with_deposit');
+    expect(matrix).toContain('apply_piggy_purchase_event');
+    expect(matrix).toContain('Screen-time star redemption and request approval should write');
   });
 });

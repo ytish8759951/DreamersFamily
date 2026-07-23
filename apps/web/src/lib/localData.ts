@@ -2280,6 +2280,7 @@ export class LocalDataService implements LocalDataRepository {
         sent_at: isScheduled ? null : timestamp,
         opened_at: null,
         archived_at: null,
+        client_request_id: id(),
         created_at: timestamp,
         updated_at: timestamp
       };
@@ -2337,6 +2338,7 @@ export class LocalDataService implements LocalDataRepository {
         icon: normalizeBadgeIcon(input.icon),
         description: input.description?.trim() || null,
         reward_stars: rewardStars,
+        client_request_id: id(),
         created_by: state.current_user_id,
         created_at: timestamp,
         updated_at: timestamp,
@@ -2373,7 +2375,8 @@ export class LocalDataService implements LocalDataRepository {
         badge_id: badge.id,
         note: input.note?.trim() || null,
         awarded_by: state.current_user_id,
-        awarded_at: timestamp
+        awarded_at: timestamp,
+        client_request_id: id()
       };
       state.child_badges.push(childBadge);
 
@@ -2872,7 +2875,14 @@ export class LocalDataService implements LocalDataRepository {
       if (!Number.isInteger(minutes) || minutes <= 0) {
         throw new LocalDataError('minutes must be a positive integer', 'VALIDATION_ERROR');
       }
-      return createScreenTimeLog(state, { childId, date: normalizedDate, type: 'manual_add', minutes, note });
+      return createScreenTimeLog(state, {
+        childId,
+        date: normalizedDate,
+        type: 'manual_add',
+        minutes,
+        note,
+        idempotencyKey: `screen-time-manual-add:${id()}`
+      });
     });
   }
 
@@ -2886,7 +2896,14 @@ export class LocalDataService implements LocalDataRepository {
       if (getLedgerBalance(state, childId) < minutes) {
         throw new LocalDataError('Screen time cannot be deducted below zero', 'INSUFFICIENT_SCREEN_TIME');
       }
-      return createScreenTimeLog(state, { childId, date: normalizedDate, type: 'penalty', minutes, note: reason });
+      return createScreenTimeLog(state, {
+        childId,
+        date: normalizedDate,
+        type: 'penalty',
+        minutes,
+        note: reason,
+        idempotencyKey: `screen-time-penalty:${id()}`
+      });
     });
   }
 
@@ -2900,7 +2917,14 @@ export class LocalDataService implements LocalDataRepository {
       if (getLedgerBalance(state, childId) < minutes) {
         throw new LocalDataError('Screen time cannot be used below zero', 'INSUFFICIENT_SCREEN_TIME');
       }
-      return createScreenTimeLog(state, { childId, date: normalizedDate, type: 'used', minutes, note: 'Used screen time' });
+      return createScreenTimeLog(state, {
+        childId,
+        date: normalizedDate,
+        type: 'used',
+        minutes,
+        note: 'Used screen time',
+        idempotencyKey: `screen-time-used:${id()}`
+      });
     });
   }
 
@@ -3010,17 +3034,31 @@ export class LocalDataService implements LocalDataRepository {
       validateNonNegativeInteger(input.amount, 'amount');
       if (input.amount <= 0) throw new LocalDataError('amount must be greater than zero', 'VALIDATION_ERROR');
       const timestamp = now();
+      const clientRequestId = id();
       const income: LocalPiggyIncome = {
         id: id(),
         family_id: state.family_id,
         child_id: input.child_id,
         source: requiredText(input.source, 'source'),
         amount: input.amount,
-        remaining_amount: input.amount,
+        remaining_amount: 0,
+        client_request_id: clientRequestId,
         created_by: state.current_user_id,
         created_at: timestamp
       };
       state.piggy_incomes.push(income);
+      state.piggy_bank_logs.push({
+        id: id(),
+        family_id: state.family_id,
+        child_id: input.child_id,
+        type: 'coin_deposit',
+        amount: input.amount,
+        note: income.source,
+        product_id: null,
+        purchase_id: null,
+        client_request_id: `${clientRequestId}:deposit`,
+        created_at: timestamp
+      });
       return income;
     });
   }
@@ -3031,6 +3069,11 @@ export class LocalDataService implements LocalDataRepository {
       validateNonNegativeInteger(amount, 'amount');
       if (amount <= 0) throw new LocalDataError('amount must be greater than zero', 'VALIDATION_ERROR');
       if (getPiggyAvailableToday(state, childId) < amount) {
+        const existingAutoDeposit = state.piggy_bank_logs
+          .filter((log) => log.child_id === childId && log.type === 'coin_deposit' && log.created_at.slice(0, 10) === today())
+          .sort((a, b) => b.created_at.localeCompare(a.created_at))
+          .find((log) => log.amount >= amount);
+        if (existingAutoDeposit) return existingAutoDeposit;
         throw new LocalDataError('Piggy deposit exceeds available income', 'INSUFFICIENT_PIGGY_AVAILABLE');
       }
 
@@ -3104,6 +3147,7 @@ export class LocalDataService implements LocalDataRepository {
         gallery_media_ids: (input.gallery_media_ids ?? []).slice(0, 5),
         shelf_status: shelfStatus,
         shelf_slot: shelfStatus === 'shelf' ? nextPiggyShelfSlot(state, childId) : null,
+        client_request_id: id(),
         created_by: state.current_user_id,
         created_at: timestamp,
         updated_at: timestamp,
@@ -3278,7 +3322,8 @@ export class LocalDataService implements LocalDataRepository {
         },
         requested_at: timestamp,
         purchased_at: null,
-        cancelled_at: null
+        cancelled_at: null,
+        client_request_id: id()
       };
       state.piggy_purchases.push(purchase);
       state.piggy_bank_logs.push({
@@ -3290,6 +3335,7 @@ export class LocalDataService implements LocalDataRepository {
         note: product.name,
         product_id: product.id,
         purchase_id: purchase.id,
+        client_request_id: `${purchase.client_request_id}:debit`,
         created_at: timestamp
       });
       return purchase;
@@ -3314,6 +3360,7 @@ export class LocalDataService implements LocalDataRepository {
         note: purchase.product_snapshot.name,
         product_id: purchase.product_id,
         purchase_id: purchase.id,
+        client_request_id: `${purchase.client_request_id ?? purchase.id}:refund`,
         created_at: timestamp
       });
       normalizePiggyShelf(state);
