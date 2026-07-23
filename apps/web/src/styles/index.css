@@ -5356,13 +5356,74 @@ p {
 
 /* Parent home V1 final */
 .ph-shell {
+  width: 100%;
+  max-width: 100%;
   min-height: 100vh;
   min-height: 100dvh;
   isolation: isolate;
+  overflow-x: clip;
   pointer-events: auto;
   background: #fff9f0;
   color: #2f2e2b;
   font-family: "Microsoft JhengHei", "Noto Sans TC", "Nunito", sans-serif;
+}
+
+.ph-shell *,
+.ph-shell *::before,
+.ph-shell *::after {
+  box-sizing: border-box;
+}
+
+.ph-shell small,
+.ph-shell strong,
+.ph-shell p,
+.ph-shell h1,
+.ph-shell h2,
+.ph-shell h3,
+.ph-shell label,
+.ph-shell input,
+.ph-shell textarea,
+.ph-shell time,
+.ph-shell b {
+  min-width: 0;
+  max-width: 100%;
+  overflow-wrap: anywhere;
+}
+
+.settings-mobile-form {
+  display: grid;
+  gap: 12px;
+}
+
+.settings-mobile-form label {
+  display: grid;
+  gap: 6px;
+  font-weight: 800;
+}
+
+.settings-mobile-form input,
+.settings-mobile-form textarea {
+  width: 100%;
+  border: 1px solid rgba(93, 73, 45, .16);
+  border-radius: 14px;
+  background: #fff9f0;
+  padding: 12px;
+  color: inherit;
+  font: inherit;
+}
+
+.settings-mobile-form footer {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+}
+
+.settings-mobile-form footer button {
+  min-height: 44px;
+  flex: 1 1 140px;
+  border-radius: 14px;
+  padding: 10px 14px;
+  font-weight: 900;
 }
 
 .ph-sidebar {
@@ -5479,6 +5540,7 @@ p {
 }
 
 .ph-content {
+  width: calc(100% - 258px);
   min-height: 100vh;
   min-height: 100dvh;
   margin-left: 258px;
@@ -5951,6 +6013,7 @@ p {
   }
 
   .ph-content {
+    width: 100%;
     margin-left: 0;
   }
 
@@ -21475,6 +21538,49 @@ body.modal-open {
   gap: 5px;
 }
 
+@media (max-width: 1100px) {
+  .ph-shell,
+  .ph-content,
+  .ph-main,
+  .ph-page,
+  .pf-page,
+  .screen-time-admin,
+  .special-days-page,
+  .memory-book-page,
+  .v1-page,
+  .v2-dream-page {
+    width: 100%;
+    max-width: 100%;
+    min-width: 0;
+    box-sizing: border-box;
+  }
+
+  .ph-shell *,
+  .ph-shell *::before,
+  .ph-shell *::after {
+    min-width: 0;
+    max-width: 100%;
+    box-sizing: border-box;
+    overflow-wrap: anywhere;
+  }
+
+  .ph-topbar button,
+  .ph-topbar a,
+  .ph-mobile-drawer nav a,
+  .ph-page button,
+  .ph-page a,
+  .pf-page button,
+  .screen-time-admin button,
+  .special-days-page button,
+  .memory-book-page button,
+  .growth-add-button,
+  .growth-column-empty button,
+  .growth-record-card footer button {
+    min-height: 44px;
+    touch-action: manipulation;
+  }
+}
+
 @media (max-width: 767px) {
   .special-days-page {
     width: 100%;
@@ -21613,6 +21719,242 @@ body.modal-open {
 @media (max-width: 360px) {
   .special-days-stats {
     grid-template-columns: minmax(0, 1fr);
+  }
+}
+
+/* Parent mobile regression safety layer: keep every parent route vertically scrollable without page-level overflow. */
+@media (max-width: 767px) {
+  .ph-shell,
+  .ph-content,
+  .ph-main,
+  .ph-page,
+  .pf-page,
+  .screen-time-admin,
+  .special-days-page,
+  .memory-book-page,
+  .v1-page,
+  .v2-dream-page,
+  .piggy-parent-page {
+    width: 100%;
+    max-width: 100%;
+    min-width: 0;
+    box-sizing: border-box;
+  }
+
+  .ph-shell *,
+  .ph-shell *::before,
+  .ph-shell *::after {
+    min-width: 0;
+    box-sizing: border-box;
+  }
+
+  .ph-main {
+    overflow-x: clip;
+    padding: 10px 10px calc(88px + env(safe-area-inset-bottom));
+  }
+
+  .ph-mobile-drawer {
+    width: min(92vw, 340px);
+    max-width: 100vw;
+    padding-bottom: env(safe-area-inset-bottom);
+  }
+
+  .ph-mobile-drawer nav {
+    flex: 1 1 auto;
+    min-height: 0;
+    padding-bottom: calc(18px + env(safe-area-inset-bottom));
+  }
+
+  .ph-mobile-drawer nav a,
+  .ph-topbar button,
+  .ph-topbar a,
+  .pf-page button,
+  .screen-time-admin button,
+  .special-days-page button,
+  .memory-book-page button,
+  .growth-add-button,
+  .growth-column-empty button,
+  .growth-record-card footer button,
+  .local-form-dialog button {
+    min-height: 44px;
+    touch-action: manipulation;
+  }
+
+  .ph-brand,
+  .ph-brand > div,
+  .ph-brand strong,
+  .ph-topbar,
+  .pf-page,
+  .pf-page *,
+  .screen-time-admin,
+  .screen-time-admin *,
+  .special-days-page,
+  .special-days-page *,
+  .memory-book-page,
+  .memory-book-page *,
+  .growth-columns,
+  .growth-columns *,
+  .local-form-dialog,
+  .local-form-dialog * {
+    max-width: 100%;
+    overflow-wrap: anywhere;
+  }
+
+  .pf-grid,
+  .pf-stats,
+  .pf-middle,
+  .pf-bottom,
+  .pf-task-main,
+  .pf-share-grid,
+  .pf-mail-middle,
+  .pf-mail-bottom,
+  .pf-send,
+  .pf-dream-main,
+  .growth-columns,
+  .screen-time-toolbar,
+  .screen-time-stats,
+  .screen-time-actions,
+  .screen-time-ledger-section,
+  .memory-book-filters,
+  .memory-book-cover-grid,
+  .memory-book-content,
+  .memory-book-entry-list {
+    grid-template-columns: minmax(0, 1fr) !important;
+    width: 100%;
+    max-width: 100%;
+  }
+
+  .pf-page,
+  .screen-time-admin,
+  .special-days-page,
+  .memory-book-page,
+  .growth-columns {
+    gap: 12px;
+  }
+
+  .pf-hero,
+  .pf-dream-hero,
+  .screen-time-admin-hero,
+  .memory-book-cover,
+  .memory-book-month > header,
+  .growth-column > header {
+    grid-template-columns: minmax(0, 1fr) !important;
+    flex-direction: column;
+    align-items: stretch;
+  }
+
+  .pf-hero,
+  .pf-panel,
+  .screen-time-panel,
+  .special-panel,
+  .growth-column,
+  .growth-record-card,
+  .memory-book-cover,
+  .memory-book-month,
+  .memory-book-entry,
+  .local-form-dialog {
+    width: 100%;
+    max-width: 100%;
+  }
+
+  .pf-stats,
+  .screen-time-stats {
+    grid-template-columns: repeat(2, minmax(0, 1fr)) !important;
+  }
+
+  .pf-panel > header,
+  .pf-messages article,
+  .screen-time-panel > header,
+  .screen-time-ledger-section > header,
+  .memory-book-month > header,
+  .memory-book-entry,
+  .growth-record-card footer {
+    flex-wrap: wrap;
+  }
+
+  .screen-time-table,
+  .screen-time-ledger {
+    width: 100%;
+    max-width: 100%;
+  }
+
+  .screen-time-row,
+  .screen-time-ledger-row {
+    grid-template-columns: minmax(0, 1fr) minmax(0, 1fr) !important;
+    align-items: start;
+  }
+
+  .screen-time-row > *,
+  .screen-time-ledger-row > * {
+    overflow-wrap: anywhere;
+    white-space: normal;
+  }
+
+  .pf-page img,
+  .pf-page video,
+  .screen-time-admin img,
+  .special-days-page img,
+  .memory-book-page img,
+  .memory-book-page video,
+  .growth-record-card img,
+  .local-form-dialog img,
+  .local-form-dialog video {
+    max-width: 100%;
+    height: auto;
+  }
+
+  .local-form-backdrop {
+    align-items: stretch;
+    place-items: stretch;
+    padding: max(10px, env(safe-area-inset-top)) 10px max(10px, env(safe-area-inset-bottom));
+  }
+
+  .local-form-dialog {
+    max-height: calc(100dvh - 20px - env(safe-area-inset-top) - env(safe-area-inset-bottom));
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+    margin: auto 0;
+    padding: 14px;
+  }
+
+  .local-form-dialog > header {
+    flex: none;
+  }
+
+  .local-form-dialog form {
+    min-height: 0;
+    overflow-y: auto;
+    grid-template-columns: minmax(0, 1fr) !important;
+    padding-bottom: calc(76px + env(safe-area-inset-bottom));
+    -webkit-overflow-scrolling: touch;
+  }
+
+  .local-form-dialog form > footer {
+    position: sticky;
+    bottom: calc(-1 * env(safe-area-inset-bottom));
+    z-index: 4;
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+    margin: 0 -14px -14px;
+    border-top: 1px solid rgba(93, 73, 45, .1);
+    background: rgba(255, 255, 255, .98);
+    padding: 10px 14px calc(10px + env(safe-area-inset-bottom));
+    gap: 10px;
+  }
+
+  .local-form-dialog form > footer button {
+    width: 100%;
+    min-height: 52px;
+    pointer-events: auto;
+  }
+}
+
+@media (max-width: 360px) {
+  .pf-stats,
+  .screen-time-stats,
+  .special-days-stats {
+    grid-template-columns: minmax(0, 1fr) !important;
   }
 }
 
