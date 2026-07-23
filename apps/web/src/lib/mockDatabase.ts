@@ -232,7 +232,9 @@ function normalizeState(state: LocalDatabaseState): LocalDatabaseState {
     screen_time_logs: state.screen_time_logs ?? [],
     growth_records: (state.growth_records ?? []).map((record) => ({
       ...record,
-      growth_photo_media_ids: record.growth_photo_media_ids ?? []
+      growth_photo_media_ids: record.growth_photo_media_ids ?? [],
+      deleted_at: record.deleted_at ?? null,
+      client_request_id: record.client_request_id ?? null
     })),
     notifications: state.notifications ?? [],
     device_bindings: state.device_bindings ?? [],

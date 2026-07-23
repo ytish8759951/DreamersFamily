@@ -2133,7 +2133,8 @@ export class LocalDataService implements LocalDataRepository {
         created_by_device_id: sourceType === 'child_device' ? `local-device:${input.child_id}` : null,
         created_at: timestamp,
         updated_at: timestamp,
-        deleted_at: null
+        deleted_at: null,
+        client_request_id: `share:create:${input.id ?? timestamp}`
       };
       state.shares.push(share);
 
@@ -2421,8 +2422,9 @@ export class LocalDataService implements LocalDataRepository {
     return this.db.transaction((state) => {
       const childId = resolveRequiredChildId(state, input.child_id);
       const timestamp = now();
+      const specialDayId = id();
       const specialDay: LocalSpecialDay = {
-        id: id(),
+        id: specialDayId,
         family_id: state.family_id,
         child_id: childId,
         childId,
@@ -2437,7 +2439,8 @@ export class LocalDataService implements LocalDataRepository {
         created_by: state.current_user_id,
         created_at: timestamp,
         updated_at: timestamp,
-        deleted_at: null
+        deleted_at: null,
+        client_request_id: `special-day:create:${specialDayId}`
       };
       state.special_days.push(specialDay);
       pushNotification(state, {
@@ -2675,8 +2678,9 @@ export class LocalDataService implements LocalDataRepository {
         throw new LocalDataError('Not enough stars to request screen time', 'INSUFFICIENT_STARS');
       }
       const timestamp = now();
+      const requestId = id();
       const request: LocalScreenTimeRequest = {
-        id: id(),
+        id: requestId,
         family_id: state.family_id,
         child_id: input.child_id,
         requested_minutes: requestedMinutes,
@@ -2689,7 +2693,8 @@ export class LocalDataService implements LocalDataRepository {
         screen_time_log_id: null,
         created_by_device_id: state.device_id,
         created_at: timestamp,
-        updated_at: timestamp
+        updated_at: timestamp,
+        client_request_id: `screen-time-request:${requestId}`
       };
       state.screen_time_requests.push(request);
       pushNotification(state, {
@@ -2945,8 +2950,9 @@ export class LocalDataService implements LocalDataRepository {
     return this.db.transaction((state) => {
       requireChild(state, input.child_id);
       const timestamp = now();
+      const recordId = id();
       const record: LocalGrowthRecord = {
-        id: id(),
+        id: recordId,
         family_id: state.family_id,
         child_id: input.child_id,
         date: validateDate(input.date, 'date'),
@@ -2955,6 +2961,8 @@ export class LocalDataService implements LocalDataRepository {
         growth_photo_media_ids: input.growth_photo_media_ids ?? [],
         reading_count: validateNonNegativeInteger(input.reading_count, 'reading_count'),
         note: input.note?.trim() || null,
+        deleted_at: null,
+        client_request_id: `growth:create:${recordId}`,
         created_at: timestamp,
         updated_at: timestamp
       };
@@ -2976,6 +2984,7 @@ export class LocalDataService implements LocalDataRepository {
       if (input.growth_photo_media_ids !== undefined) record.growth_photo_media_ids = input.growth_photo_media_ids;
       if (input.reading_count !== undefined) record.reading_count = validateNonNegativeInteger(input.reading_count, 'reading_count');
       if (input.note !== undefined) record.note = input.note?.trim() || null;
+      record.deleted_at = null;
       record.updated_at = now();
       return record;
     });
@@ -2984,7 +2993,8 @@ export class LocalDataService implements LocalDataRepository {
   deleteGrowthRecord(growthRecordId: UUID) {
     return this.db.transaction((state) => {
       const record = requireGrowthRecord(state, growthRecordId);
-      state.growth_records = state.growth_records.filter((item) => item.id !== growthRecordId);
+      record.deleted_at = now();
+      record.updated_at = record.deleted_at;
       return record;
     });
   }
@@ -2992,7 +3002,7 @@ export class LocalDataService implements LocalDataRepository {
   getGrowthRecords(childId?: UUID) {
     return this.db
       .read()
-      .growth_records.filter((record) => !childId || record.child_id === childId)
+      .growth_records.filter((record) => !record.deleted_at && (!childId || record.child_id === childId))
       .sort((a, b) => b.date.localeCompare(a.date) || b.created_at.localeCompare(a.created_at));
   }
 
@@ -3000,7 +3010,7 @@ export class LocalDataService implements LocalDataRepository {
     const state = this.db.read();
     requireChild(state, childId, true);
     return state.growth_records
-      .filter((record) => record.child_id === childId)
+      .filter((record) => !record.deleted_at && record.child_id === childId)
       .sort((a, b) => b.date.localeCompare(a.date) || b.created_at.localeCompare(a.created_at))[0] ?? null;
   }
 

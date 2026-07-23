@@ -40,7 +40,8 @@ describe('full-site cross-device sync matrix', () => {
 
     for (const section of requiredSections) expect(matrix).toContain(section);
     for (const column of requiredColumns) expect(matrix).toContain(column);
-    expect(matrix).toContain('Follow-Up Required Before Claiming Full Transactional Coverage');
+    expect(matrix).toContain('Verification Status');
+    expect(matrix).toContain('Full-site sync must not be claimed complete');
   });
 
   it('keeps parent Supabase hydrate and Realtime subscribed to formal shared tables', () => {
@@ -79,7 +80,8 @@ describe('full-site cross-device sync matrix', () => {
       readRepoFile('supabase/migrations/028_share_encouragement_stars_rpc.sql'),
       readRepoFile('supabase/migrations/029_task_sync_daily_instances.sql'),
       readRepoFile('supabase/migrations/032_task_create_idempotency.sql'),
-      readRepoFile('supabase/migrations/033_piggy_transaction_sync.sql')
+      readRepoFile('supabase/migrations/033_piggy_transaction_sync.sql'),
+      readRepoFile('supabase/migrations/034_formal_sync_hardening.sql')
     ].join('\n');
 
     expect(source).toContain('client_request_id');
@@ -89,6 +91,10 @@ describe('full-site cross-device sync matrix', () => {
     expect(migrations).toContain('uq_daily_task_instance');
     expect(matrix).toContain('create_piggy_income_with_deposit');
     expect(matrix).toContain('apply_piggy_purchase_event');
-    expect(matrix).toContain('Screen-time star redemption and request approval should write');
+    expect(matrix).toContain('review_screen_time_redemption_request');
+    expect(migrations).toContain('create_share_from_repository');
+    expect(migrations).toContain('upsert_growth_record_from_repository');
+    expect(migrations).toContain('upsert_special_day_from_repository');
+    expect(migrations).toContain('review_screen_time_redemption_request');
   });
 });

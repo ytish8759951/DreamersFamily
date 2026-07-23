@@ -223,6 +223,7 @@ export interface LocalShare {
   created_at: ISODateTime;
   updated_at: ISODateTime;
   deleted_at: ISODateTime | null;
+  client_request_id?: string | null;
 }
 
 export interface LocalMailboxMessage {
@@ -292,6 +293,7 @@ export interface LocalSpecialDay {
   created_at: ISODateTime;
   updated_at: ISODateTime;
   deleted_at: ISODateTime | null;
+  client_request_id?: string | null;
 }
 
 export interface LocalFamilySettings {
@@ -369,6 +371,7 @@ export interface LocalScreenTimeRequest {
   created_by_device_id: UUID | null;
   created_at: ISODateTime;
   updated_at: ISODateTime;
+  client_request_id?: string | null;
 }
 
 export interface WeeklyScreenTimeDay {
@@ -392,6 +395,8 @@ export interface LocalGrowthRecord {
   growth_photo_media_ids: UUID[];
   reading_count: number;
   note: string | null;
+  deleted_at: ISODateTime | null;
+  client_request_id?: string | null;
   created_at: ISODateTime;
   updated_at: ISODateTime;
 }

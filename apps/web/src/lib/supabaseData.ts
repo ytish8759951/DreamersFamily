@@ -36,6 +36,13 @@ import {
   type CreateBadgeInput,
   type AwardBadgeInput,
   type CreateMailboxMessageInput,
+  type CreateShareInput,
+  type CreateSpecialDayInput,
+  type UpdateSpecialDayInput,
+  type CreateGrowthRecordInput,
+  type UpdateGrowthRecordInput,
+  type CreateScreenTimeRequestInput,
+  type ReviewScreenTimeRequestInput,
   type ChildLoginChallengeResult,
   type ChildLoginChallengePreview,
   type CompleteChildLoginChallengeResult,
@@ -457,6 +464,7 @@ interface SupabaseShareRow {
   created_at: string;
   updated_at: string;
   deleted_at: string | null;
+  client_request_id?: string | null;
 }
 
 interface SupabaseShareMediaRow {
@@ -519,6 +527,8 @@ interface SupabaseSpecialDayRow {
   created_at: string;
   updated_at: string;
   archived_at: string | null;
+  client_request_id?: string | null;
+  image_media_id?: UUID | null;
 }
 
 interface SupabaseGrowthRecordRow {
@@ -535,6 +545,8 @@ interface SupabaseGrowthRecordRow {
   source_type: 'parent' | 'child_device' | 'system';
   created_by: UUID | null;
   source_child_device_id: UUID | null;
+  client_request_id?: string | null;
+  deleted_at?: string | null;
   created_at: string;
   updated_at: string;
 }
@@ -2408,7 +2420,15 @@ export class SupabaseDataRepository implements LocalDataRepository {
   addDreamDeposit = this.delegateWrite('addDreamDeposit');
   completeDream = this.delegateWrite('completeDream');
   listDreams = this.delegate('listDreams');
-  createShare = this.delegateWrite('createShare');
+  createShare(input: CreateShareInput): ShareWithMedia {
+    const share = this.cache.createShare(input);
+    void this.persistShareCreate(share).catch((error) => {
+      console.warn('[supabase-repository] share create RPC sync failed', error);
+      this.queuePush();
+      this.queueChildScopedPush();
+    });
+    return share;
+  }
   updateShareMediaStorage = this.delegateWrite('updateShareMediaStorage');
   listShares(childId?: UUID): ShareWithMedia[] {
     if (childId && this.canUseChildScopedSession(childId)) {
@@ -2426,8 +2446,54 @@ export class SupabaseDataRepository implements LocalDataRepository {
     return this.cache.listShares(childId);
   }
 
-  deleteShare = this.delegateWrite('deleteShare');
+  deleteShare(shareId: UUID): LocalShare {
+    const share = this.cache.deleteShare(shareId);
+    void this.persistShareDelete(share).catch((error) => {
+      console.warn('[supabase-repository] share delete RPC sync failed', error);
+      this.queuePush();
+      this.queueChildScopedPush();
+    });
+    return share;
+  }
   approveShare = this.delegateWrite('approveShare');
+
+  private async persistShareCreate(share: ShareWithMedia) {
+    if (!this.client) {
+      this.queuePush();
+      this.queueChildScopedPush();
+      return;
+    }
+    const session = getChildSession();
+    const childScoped = isChildSessionValid(session, share.child_id);
+    const { error } = await this.client.rpc('create_share_from_repository', {
+      p_share: toSupabaseShare({ ...share, client_request_id: share.client_request_id ?? `share:create:${share.id}` }),
+      p_media: share.media.map((media, index) => toSupabaseShareMedia({ ...media, sort_order: index })),
+      p_device_binding_id: childScoped ? session.deviceBindingId : null,
+      p_device_id: childScoped ? session.deviceId : null
+    });
+    if (error) throw error;
+    await this.hydrateFromSupabase();
+  }
+
+  private async persistShareDelete(share: LocalShare) {
+    if (!this.client) {
+      this.queuePush();
+      this.queueChildScopedPush();
+      return;
+    }
+    const session = getChildSession();
+    const childScoped = isChildSessionValid(session, share.child_id);
+    const { error } = await this.client.rpc('delete_share_from_repository', {
+      p_share_id: share.id,
+      p_family_id: share.family_id,
+      p_child_id: share.child_id,
+      p_client_request_id: `share:delete:${share.id}`,
+      p_device_binding_id: childScoped ? session.deviceBindingId : null,
+      p_device_id: childScoped ? session.deviceId : null
+    });
+    if (error) throw error;
+    await this.hydrateFromSupabase();
+  }
   createMailboxMessage(input: CreateMailboxMessageInput): LocalMailboxMessage {
     const message = this.cache.createMailboxMessage(input);
     void this.persistMailboxMessage(message).catch((error) => {
@@ -2542,9 +2608,37 @@ export class SupabaseDataRepository implements LocalDataRepository {
     await this.hydrateFromSupabase();
   }
 
-  createSpecialDay = this.delegateWrite('createSpecialDay');
-  updateSpecialDay = this.delegateWrite('updateSpecialDay');
-  deleteSpecialDay = this.delegateWrite('deleteSpecialDay');
+  createSpecialDay(input: CreateSpecialDayInput): LocalSpecialDay {
+    const day = this.cache.createSpecialDay(input);
+    void this.persistSpecialDay(day, 'upsert').catch((error) => {
+      console.warn('[supabase-repository] special day create RPC sync failed', error);
+      this.queuePush();
+      this.queueChildScopedPush();
+    });
+    return day;
+  }
+
+  updateSpecialDay(specialDayId: UUID, input: UpdateSpecialDayInput): LocalSpecialDay {
+    const day = this.cache.updateSpecialDay(specialDayId, input);
+    day.client_request_id = `special-day:update:${day.id}:${day.updated_at}`;
+    void this.persistSpecialDay(day, 'upsert').catch((error) => {
+      console.warn('[supabase-repository] special day update RPC sync failed', error);
+      this.queuePush();
+      this.queueChildScopedPush();
+    });
+    return day;
+  }
+
+  deleteSpecialDay(specialDayId: UUID): LocalSpecialDay {
+    const day = this.cache.deleteSpecialDay(specialDayId);
+    day.client_request_id = `special-day:delete:${day.id}`;
+    void this.persistSpecialDay(day, 'delete').catch((error) => {
+      console.warn('[supabase-repository] special day delete RPC sync failed', error);
+      this.queuePush();
+      this.queueChildScopedPush();
+    });
+    return day;
+  }
   getSpecialDays(childId?: UUID | null, includeDeleted = false): LocalSpecialDay[] {
     if (childId && this.canUseChildScopedSession(childId)) {
       return this.getChildScopedState(childId).special_days
@@ -2562,6 +2656,24 @@ export class SupabaseDataRepository implements LocalDataRepository {
         .slice(0, limit);
     }
     return this.cache.getUpcomingSpecialDays(childId, limit);
+  }
+
+  private async persistSpecialDay(day: LocalSpecialDay, operation: 'upsert' | 'delete') {
+    if (!this.client) {
+      this.queuePush();
+      this.queueChildScopedPush();
+      return;
+    }
+    const session = getChildSession();
+    const childScoped = Boolean(day.child_id) && isChildSessionValid(session, day.child_id);
+    const { error } = await this.client.rpc('upsert_special_day_from_repository', {
+      p_day: toSupabaseSpecialDay(day),
+      p_operation: operation,
+      p_device_binding_id: childScoped ? session.deviceBindingId : null,
+      p_device_id: childScoped ? session.deviceId : null
+    });
+    if (error) throw error;
+    await this.hydrateFromSupabase();
   }
   getSettings = this.delegate('getSettings');
   updateSettings = this.delegateWrite('updateSettings');
@@ -2616,8 +2728,25 @@ export class SupabaseDataRepository implements LocalDataRepository {
   }
 
   updateScreenTime = this.delegateWrite('updateScreenTime');
-  createScreenTimeRequest = this.delegateWrite('createScreenTimeRequest');
-  reviewScreenTimeRequest = this.delegateWrite('reviewScreenTimeRequest');
+  createScreenTimeRequest(input: CreateScreenTimeRequestInput): LocalScreenTimeRequest {
+    const request = this.cache.createScreenTimeRequest(input);
+    void this.persistScreenTimeRequest(request).catch((error) => {
+      console.warn('[supabase-repository] screen time request RPC sync failed', error);
+      this.queuePush();
+      this.queueChildScopedPush();
+    });
+    return request;
+  }
+
+  reviewScreenTimeRequest(requestId: UUID, input: ReviewScreenTimeRequestInput): LocalScreenTimeRequest {
+    const request = this.cache.reviewScreenTimeRequest(requestId, input);
+    void this.persistScreenTimeReview(request).catch((error) => {
+      console.warn('[supabase-repository] screen time review RPC sync failed', error);
+      this.queuePush();
+      this.queueChildScopedPush();
+    });
+    return request;
+  }
   listScreenTimeRequests = this.delegate('listScreenTimeRequests');
   getScreenTimeBalance(childId: UUID): number {
     const state = this.getChildScopedState(childId);
@@ -2683,6 +2812,45 @@ export class SupabaseDataRepository implements LocalDataRepository {
     await this.hydrateFromSupabase();
   }
 
+  private async persistScreenTimeRequest(request: LocalScreenTimeRequest) {
+    if (!this.client) {
+      this.queuePush();
+      this.queueChildScopedPush();
+      return;
+    }
+    const session = getChildSession();
+    const childScoped = isChildSessionValid(session, request.child_id);
+    const { error } = await this.client.rpc('create_screen_time_redemption_request', {
+      p_request: toSupabaseScreenTimeRequestPayload(request),
+      p_device_binding_id: childScoped ? session.deviceBindingId : null,
+      p_device_id: childScoped ? session.deviceId : null
+    });
+    if (error) throw error;
+    await this.hydrateFromSupabase();
+  }
+
+  private async persistScreenTimeReview(request: LocalScreenTimeRequest) {
+    if (!this.client) {
+      this.queuePush();
+      this.queueChildScopedPush();
+      return;
+    }
+    const state = this.cache.getState();
+    const log = request.screen_time_log_id
+      ? state.screen_time_logs.find((item) => item.id === request.screen_time_log_id) ?? null
+      : null;
+    const star = state.stars.find((item) => item.idempotency_key === `screen-time-request:${request.id}:stars`) ?? null;
+    const { error } = await this.client.rpc('review_screen_time_redemption_request', {
+      p_request: toSupabaseScreenTimeRequestPayload(request),
+      p_star: star ? toSupabaseStar(star) : null,
+      p_log: log ? toSupabaseTabletTimeLog(log) : null,
+      p_device_binding_id: null,
+      p_device_id: null
+    });
+    if (error) throw error;
+    await this.hydrateFromSupabase();
+  }
+
   getTodayScreenTimeByChild(childId: UUID): WeeklyScreenTimeDay {
     const state = this.getChildScopedState(childId);
     const date = todayIsoDate();
@@ -2701,13 +2869,41 @@ export class SupabaseDataRepository implements LocalDataRepository {
     };
   }
 
-  createGrowthRecord = this.delegateWrite('createGrowthRecord');
-  updateGrowthRecord = this.delegateWrite('updateGrowthRecord');
-  deleteGrowthRecord = this.delegateWrite('deleteGrowthRecord');
+  createGrowthRecord(input: CreateGrowthRecordInput): LocalGrowthRecord {
+    const record = this.cache.createGrowthRecord(input);
+    void this.persistGrowthRecord(record, 'upsert').catch((error) => {
+      console.warn('[supabase-repository] growth create RPC sync failed', error);
+      this.queuePush();
+      this.queueChildScopedPush();
+    });
+    return record;
+  }
+
+  updateGrowthRecord(growthRecordId: UUID, input: UpdateGrowthRecordInput): LocalGrowthRecord {
+    const record = this.cache.updateGrowthRecord(growthRecordId, input);
+    record.client_request_id = `growth:update:${record.id}:${record.updated_at}`;
+    void this.persistGrowthRecord(record, 'upsert').catch((error) => {
+      console.warn('[supabase-repository] growth update RPC sync failed', error);
+      this.queuePush();
+      this.queueChildScopedPush();
+    });
+    return record;
+  }
+
+  deleteGrowthRecord(growthRecordId: UUID): LocalGrowthRecord {
+    const record = this.cache.deleteGrowthRecord(growthRecordId);
+    record.client_request_id = `growth:delete:${record.id}`;
+    void this.persistGrowthRecord(record, 'delete').catch((error) => {
+      console.warn('[supabase-repository] growth delete RPC sync failed', error);
+      this.queuePush();
+      this.queueChildScopedPush();
+    });
+    return record;
+  }
   getGrowthRecords(childId?: UUID): LocalGrowthRecord[] {
     if (childId && this.canUseChildScopedSession(childId)) {
       return this.getChildScopedState(childId).growth_records
-        .filter((record) => record.child_id === childId)
+        .filter((record) => !record.deleted_at && record.child_id === childId)
         .sort((a, b) => b.date.localeCompare(a.date) || b.created_at.localeCompare(a.created_at));
     }
     return this.cache.getGrowthRecords(childId);
@@ -2719,6 +2915,24 @@ export class SupabaseDataRepository implements LocalDataRepository {
 
   getGrowthRecordsByChild(childId: UUID): LocalGrowthRecord[] {
     return this.getGrowthRecords(childId);
+  }
+
+  private async persistGrowthRecord(record: LocalGrowthRecord, operation: 'upsert' | 'delete') {
+    if (!this.client) {
+      this.queuePush();
+      this.queueChildScopedPush();
+      return;
+    }
+    const session = getChildSession();
+    const childScoped = isChildSessionValid(session, record.child_id);
+    const { error } = await this.client.rpc('upsert_growth_record_from_repository', {
+      p_record: toSupabaseGrowthRecord(record),
+      p_operation: operation,
+      p_device_binding_id: childScoped ? session.deviceBindingId : null,
+      p_device_id: childScoped ? session.deviceId : null
+    });
+    if (error) throw error;
+    await this.hydrateFromSupabase();
   }
 
   listNotifications = this.delegate('listNotifications');
@@ -3465,7 +3679,6 @@ export class SupabaseDataRepository implements LocalDataRepository {
   private async pushGrowthTabletTables(state: LocalDatabaseState) {
     if (!this.client) return;
 
-    await deleteMissingRows(this.client, 'growth_records', state.growth_records.map((record) => record.id));
     const growthRecords = state.growth_records.map(toSupabaseGrowthRecord);
     if (growthRecords.length) {
       const { error } = await this.client.from('growth_records').upsert(growthRecords, { onConflict: 'id' });
@@ -4458,8 +4671,12 @@ function fromSupabaseDreamFund(row: SupabaseDreamFundRow): LocalDreamFund {
 
 function toSupabaseShare(share: LocalShare): SupabaseShareRow {
   const sourceType: LocalShare['source_type'] = share.source_type === 'parent' ? 'parent' : 'system';
+  const status: LocalShare['status'] =
+    (share.status === 'approved' || share.status === 'rejected') && !share.reviewed_at
+      ? 'pending_review'
+      : share.status;
   const reviewedAt =
-    share.status === 'approved' || share.status === 'rejected'
+    status === 'approved' || status === 'rejected'
       ? share.reviewed_at ?? share.updated_at
       : share.reviewed_at;
   return {
@@ -4470,17 +4687,18 @@ function toSupabaseShare(share: LocalShare): SupabaseShareRow {
     caption: share.caption,
     share_type: share.share_type,
     source_type: sourceType,
-    status: share.status,
+    status,
     submitted_at: share.submitted_at,
     reviewed_by: reviewedAt ? SUPABASE_PARENT_ID : null,
     reviewed_at: reviewedAt,
     rejection_reason: share.rejection_reason,
-    published_at: share.status === 'approved' ? share.published_at ?? share.updated_at : share.published_at,
+    published_at: status === 'approved' ? share.published_at ?? share.updated_at : share.published_at,
     created_by_user_id: sourceType === 'parent' ? SUPABASE_PARENT_ID : null,
     created_by_device_id: null,
     created_at: share.created_at,
     updated_at: share.updated_at,
-    deleted_at: share.deleted_at
+    deleted_at: share.deleted_at,
+    client_request_id: share.client_request_id ?? `share:create:${share.id}`
   };
 }
 
@@ -4505,7 +4723,8 @@ function fromSupabaseShare(row: SupabaseShareRow): LocalShare {
     created_by_device_id: row.created_by_device_id,
     created_at: row.created_at,
     updated_at: row.updated_at,
-    deleted_at: row.deleted_at
+    deleted_at: row.deleted_at,
+    client_request_id: row.client_request_id ?? null
   };
 }
 
@@ -4618,10 +4837,12 @@ function toSupabaseSpecialDay(day: LocalSpecialDay): SupabaseSpecialDayRow {
     reminder_enabled: true,
     remind_days_before: 7,
     cover_path: day.image_media_id ?? null,
+    image_media_id: day.image_media_id ?? null,
     created_by: SUPABASE_PARENT_ID,
     created_at: day.created_at,
     updated_at: day.updated_at,
-    archived_at: day.deleted_at
+    archived_at: day.deleted_at,
+    client_request_id: day.client_request_id ?? `special-day:upsert:${day.id}`
   };
 }
 
@@ -4636,14 +4857,15 @@ function fromSupabaseSpecialDay(row: SupabaseSpecialDayRow): LocalSpecialDay {
     date: row.event_date,
     type,
     description: row.description,
-    image_media_id: row.cover_path,
+    image_media_id: row.image_media_id ?? row.cover_path,
     image_data_url: null,
     created_by: row.created_by,
     createdBy: 'parent',
     source: type === 'birthday' ? 'child_birthday' : 'manual',
     created_at: row.created_at,
     updated_at: row.updated_at,
-    deleted_at: row.archived_at
+    deleted_at: row.archived_at,
+    client_request_id: row.client_request_id ?? null
   };
 }
 
@@ -4690,6 +4912,8 @@ function toSupabaseGrowthRecord(record: LocalGrowthRecord): SupabaseGrowthRecord
     source_type: 'parent',
     created_by: SUPABASE_PARENT_ID,
     source_child_device_id: null,
+    client_request_id: record.client_request_id ?? `growth:upsert:${record.id}`,
+    deleted_at: record.deleted_at ?? null,
     created_at: record.created_at,
     updated_at: record.updated_at
   };
@@ -4707,6 +4931,8 @@ function fromSupabaseGrowthRecord(row: SupabaseGrowthRecordRow, fallback?: Local
     growth_photo_media_ids: content.growth_photo_media_ids ?? fallback?.growth_photo_media_ids ?? [],
     reading_count: content.reading_count ?? fallback?.reading_count ?? 0,
     note: content.note ?? fallback?.note ?? null,
+    deleted_at: row.deleted_at ?? fallback?.deleted_at ?? null,
+    client_request_id: row.client_request_id ?? fallback?.client_request_id ?? null,
     created_at: row.created_at,
     updated_at: row.updated_at
   };
@@ -4862,6 +5088,14 @@ function fromSupabaseBadge(row: SupabaseBadgeRow): LocalBadge {
     created_at: row.created_at,
     updated_at: row.updated_at ?? row.created_at,
     deleted_at: row.deleted_at ?? null
+  };
+}
+
+function toSupabaseScreenTimeRequestPayload(request: LocalScreenTimeRequest) {
+  return {
+    ...request,
+    family_id: SUPABASE_FAMILY_ID,
+    client_request_id: request.client_request_id ?? `screen-time-request:${request.id}`
   };
 }
 
