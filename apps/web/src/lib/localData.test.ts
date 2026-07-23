@@ -1551,10 +1551,10 @@ describe('local MVP data flows', () => {
     );
 
     data.addPiggyIncome({ child_id: first.id, source: '零用錢', amount: 300 });
-    expect(data.getPiggyBankSummary(first.id).availableToDepositToday).toBe(0);
-    expect(data.getPiggyBankSummary(first.id).currentSavings).toBe(300);
+    expect(data.getPiggyBankSummary(first.id).availableToDepositToday).toBe(300);
+    expect(data.getPiggyBankSummary(first.id).currentSavings).toBe(0);
     data.depositPiggyCoin(first.id, 200);
-    expect(data.getPiggyBankSummary(first.id).currentSavings).toBe(300);
+    expect(data.getPiggyBankSummary(first.id).currentSavings).toBe(200);
 
     const product = data.createPiggyProduct({
       child_id: first.id,
@@ -1656,20 +1656,40 @@ describe('local MVP data flows', () => {
     data.addPiggyIncome({ child_id: child.id, source: '阿嬤給的', amount: 150 });
 
     expect(data.getPiggyBankSummary(child.id)).toMatchObject({
-      currentSavings: 150,
-      availableToDepositToday: 0,
-      depositedToday: 150
+      currentSavings: 0,
+      availableToDepositToday: 150,
+      depositedToday: 0
     });
 
     data.depositPiggyCoin(child.id, 100);
+
+    expect(data.getPiggyBankSummary(child.id)).toMatchObject({
+      currentSavings: 100,
+      availableToDepositToday: 50,
+      depositedToday: 100
+    });
+    expect(data.depositPiggyCoin(child.id, 50).type).toBe('coin_deposit');
+    expect(() => data.depositPiggyCoin(child.id, 1)).toThrowError(LocalDataError);
+  });
+
+  it('keeps parent piggy income in available funds until the child deposits coins', () => {
+    const child = data.createChild({ display_name: 'QA child' });
+
+    data.addPiggyIncome({ child_id: child.id, source: 'QA income', amount: 100 });
+
+    expect(data.getPiggyBankSummary(child.id)).toMatchObject({
+      currentSavings: 0,
+      availableToDepositToday: 100,
+      depositedToday: 0
+    });
+
     data.depositPiggyCoin(child.id, 50);
 
     expect(data.getPiggyBankSummary(child.id)).toMatchObject({
-      currentSavings: 150,
-      availableToDepositToday: 0,
-      depositedToday: 150
+      currentSavings: 50,
+      availableToDepositToday: 50,
+      depositedToday: 50
     });
-    expect(data.depositPiggyCoin(child.id, 1).type).toBe('coin_deposit');
   });
 
   it('allows piggy products without names when price and main image are present', () => {

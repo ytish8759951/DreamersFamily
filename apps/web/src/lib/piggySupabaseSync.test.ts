@@ -23,6 +23,7 @@ describe('piggy Supabase transaction sync hardening', () => {
     expect(migration).toContain('uq_store_items_request');
     expect(migration).toContain('uq_purchases_request');
     expect(migration).toContain('create_piggy_income_with_deposit');
+    expect(readRepoFile('supabase/migrations/039_piggy_available_deposit_rpc.sql')).toContain('deposit_piggy_coin_from_repository');
     expect(migration).toContain('upsert_piggy_product_from_repository');
     expect(migration).toContain('apply_piggy_purchase_event');
     expect(migration).toContain('Piggy balance is insufficient');
@@ -31,8 +32,10 @@ describe('piggy Supabase transaction sync hardening', () => {
   it('routes piggy writes through dedicated Supabase RPC helpers instead of delegateWrite only', () => {
     const source = readRepoFile('apps/web/src/lib/supabaseData.ts');
 
-    expect(source).toContain('persistPiggyIncomeWithDeposit');
-    expect(source).toContain("rpc('create_piggy_income_with_deposit'");
+    expect(source).toContain('persistPiggyIncome');
+    expect(source).toContain("rpc('create_piggy_income_from_repository'");
+    expect(source).toContain('persistPiggyCoinDeposit');
+    expect(source).toContain("rpc('deposit_piggy_coin_from_repository'");
     expect(source).toContain('persistPiggyProduct');
     expect(source).toContain("rpc('upsert_piggy_product_from_repository'");
     expect(source).toContain('persistPiggyPurchaseEvent');

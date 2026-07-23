@@ -405,7 +405,7 @@ function Notebook({
             <strong>{currentSavings}</strong>
           </div>
           <div className="piggy-v2-summary-card is-available">
-            <span>今天可投入</span>
+            <span>目前可投入</span>
             <strong>{availableToday}</strong>
           </div>
         </section>

@@ -185,6 +185,7 @@ export interface LocalDreamFund {
 
 export interface LocalShareMedia {
   id: UUID;
+  media_asset_id?: UUID | null;
   family_id: UUID;
   child_id: UUID;
   share_id: UUID;

@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { getErrorDiagnostics, getErrorMessage } from '../lib/errorDiagnostics';
 import { shareRepository } from '../lib/shareRepository';
 
@@ -32,9 +32,11 @@ export function LocalShareMedia({
   const [errorMessage, setErrorMessage] = useState('');
   const [reloadKey, setReloadKey] = useState(0);
   const [isLightboxOpen, setLightboxOpen] = useState(false);
+  const elementRetryRef = useRef(0);
 
   useEffect(() => {
     let cancelled = false;
+    elementRetryRef.current = 0;
     setObjectUrl(null);
     setLoadState('loading');
     setErrorMessage('');
@@ -47,7 +49,7 @@ export function LocalShareMedia({
         }
         if (!url) {
           setLoadState('missing');
-          setErrorMessage('找不到媒體檔案，可能尚未上傳完成或舊資料只存在原裝置。');
+          setErrorMessage('找不到這個分享媒體，請重新整理後再試。');
           return;
         }
         setObjectUrl(url);
@@ -64,7 +66,7 @@ export function LocalShareMedia({
         });
         if (!cancelled) {
           setLoadState('error');
-          setErrorMessage(`媒體載入失敗：${getErrorMessage(error)}`);
+          setErrorMessage(`${mediaType === 'photo' ? '照片' : '媒體'}載入失敗：${getErrorMessage(error)}`);
         }
       });
 
@@ -81,15 +83,23 @@ export function LocalShareMedia({
 
   const handleElementError = () => {
     if (loadState !== 'ready') return;
+    if (elementRetryRef.current < 1) {
+      elementRetryRef.current += 1;
+      shareRepository.releaseMediaUrl(mediaId);
+      setObjectUrl(null);
+      setLoadState('loading');
+      setReloadKey((value) => value + 1);
+      return;
+    }
     setLoadState('error');
-    setErrorMessage('媒體網址已過期或檔案無法讀取，請重新載入。');
+    setErrorMessage(`${mediaType === 'photo' ? '照片' : '媒體'}網址已過期或無法讀取，請重新載入。`);
     shareRepository.releaseMediaUrl(mediaId);
   };
 
-  if (loadState === 'loading') return <MediaStatus className={className} text="媒體載入中..." />;
+  if (loadState === 'loading') return <MediaStatus className={className} text={mediaType === 'photo' ? '照片載入中' : '媒體載入中'} />;
   if (loadState === 'missing') return <MediaStatus className={className} text={errorMessage} />;
-  if (loadState === 'error') return <MediaStatus className={className} text={errorMessage || '媒體載入失敗'} onRetry={retry} />;
-  if (!objectUrl) return <MediaStatus className={className} text="沒有可播放的媒體網址" />;
+  if (loadState === 'error') return <MediaStatus className={className} text={errorMessage || '照片載入失敗'} onRetry={retry} />;
+  if (!objectUrl) return <MediaStatus className={className} text="媒體網址尚未就緒" />;
 
   if (mediaType === 'photo') {
     const image = <img src={objectUrl} alt={alt} onError={handleElementError} />;

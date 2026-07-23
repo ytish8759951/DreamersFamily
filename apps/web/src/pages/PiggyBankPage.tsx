@@ -10,6 +10,7 @@ import { compressImageFile } from '../lib/imageCompression';
 import { piggyRepository } from '../lib/piggyRepository';
 import { purchaseRepository } from '../lib/purchaseRepository';
 import type { LocalDatabaseState, LocalPiggyBankLog, LocalPiggyProduct, LocalPiggyPurchase } from '../lib/localTypes';
+import { useSubmitLock } from '../lib/useSubmitLock';
 import { useLocalDataState } from '../lib/useLocalData';
 
 const coinValues: PiggyCoinValue[] = [100, 50, 10, 5, 1];
@@ -47,6 +48,7 @@ export function ChildPiggyBankPage() {
   const [draftDisplayIds, setDraftDisplayIds] = useState<string[]>([]);
   const [productPickerOpen, setProductPickerOpen] = useState(false);
   const [arrangeNotice, setArrangeNotice] = useState('');
+  const submitLock = useSubmitLock();
   const currentSavings = summary?.currentSavings ?? 0;
   const availableToday = summary?.availableToDepositToday ?? 0;
   const filledCoins = useMemo(() => buildPiggyCoinsFromLogs(bankLogs), [bankLogs]);
@@ -114,6 +116,8 @@ export function ChildPiggyBankPage() {
 
   const depositCoin = (value: number) => {
     if (!selectedChild) return false;
+    const lockKey = `piggy-deposit:${selectedChild.id}:${value}`;
+    if (!submitLock.acquire(lockKey)) return false;
     try {
       piggyRepository.depositPiggyCoin(selectedChild.id, value);
       const animation = { id: Date.now(), value };
@@ -123,8 +127,10 @@ export function ChildPiggyBankPage() {
       triggerShake();
       window.setTimeout(() => setFallingCoin(null), 520);
       window.setTimeout(() => setDepositBurst(null), 720);
+      window.setTimeout(() => submitLock.release(lockKey), 900);
       return true;
     } catch {
+      submitLock.release(lockKey);
       setBounceCoin(value);
       window.setTimeout(() => setBounceCoin(null), 420);
       return false;
@@ -133,11 +139,14 @@ export function ChildPiggyBankPage() {
 
   const buyProduct = (product: LocalPiggyProduct) => {
     if (!selectedChild) return;
+    const lockKey = `piggy-buy:${selectedChild.id}:${product.id}`;
+    if (!submitLock.acquire(lockKey)) return;
     try {
       purchaseRepository.requestPiggyPurchase(selectedChild.id, product.id);
       playCoinSound('buy');
     } catch {
       // Disabled buttons should prevent this; keep child UI silent.
+      submitLock.release(lockKey);
     }
   };
 
@@ -421,6 +430,9 @@ export function ParentPiggyBankPage() {
   const activeChildren = state.children.filter((child) => child.status === 'active');
   const [childId, setChildId] = useState(state.active_child_id ?? activeChildren[0]?.id ?? '');
   const [incomeForm, setIncomeForm] = useState({ source: '', amount: '100' });
+  const [incomeStatus, setIncomeStatus] = useState<'idle' | 'done' | 'error'>('idle');
+  const [incomeError, setIncomeError] = useState('');
+  const submitLock = useSubmitLock();
   const [productFormOpen, setProductFormOpen] = useState(false);
   const [editingProduct, setEditingProduct] = useState<LocalPiggyProduct | null>(null);
   const selectedChild = activeChildren.find((child) => child.id === childId) ?? null;
@@ -437,8 +449,33 @@ export function ParentPiggyBankPage() {
   const addIncome = (event: FormEvent) => {
     event.preventDefault();
     if (!childId) return;
-    piggyRepository.addPiggyIncome({ child_id: childId, source: incomeForm.source, amount: Number(incomeForm.amount) });
-    setIncomeForm({ source: '', amount: '100' });
+    const lockKey = `piggy-income:${childId}`;
+    if (!submitLock.acquire(lockKey)) return;
+    setIncomeStatus('idle');
+    setIncomeError('');
+    try {
+      piggyRepository.addPiggyIncome({ child_id: childId, source: incomeForm.source, amount: Number(incomeForm.amount) });
+      setIncomeForm({ source: '', amount: '100' });
+      setIncomeStatus('done');
+      window.setTimeout(() => {
+        submitLock.release(lockKey);
+        setIncomeStatus('idle');
+      }, 1200);
+    } catch (caught) {
+      setIncomeError(caught instanceof Error ? caught.message : '新增收入失敗，請再試一次。');
+      setIncomeStatus('error');
+      submitLock.release(lockKey);
+    }
+  };
+
+  const runParentPiggyWrite = (key: string, action: () => void) => {
+    if (!submitLock.acquire(key)) return;
+    try {
+      action();
+      window.setTimeout(() => submitLock.release(key), 900);
+    } catch {
+      submitLock.release(key);
+    }
   };
 
   return (
@@ -461,7 +498,10 @@ export function ParentPiggyBankPage() {
             <label>孩子<select value={childId} onChange={(event) => setChildId(event.target.value)}>{activeChildren.map((child) => <option key={child.id} value={child.id}>{child.display_name}</option>)}</select></label>
             <label>來源<input required value={incomeForm.source} onChange={(event) => setIncomeForm({ ...incomeForm, source: event.target.value })} placeholder="媽媽給的" /></label>
             <label>金額<input required type="number" min="1" step="1" value={incomeForm.amount} onChange={(event) => setIncomeForm({ ...incomeForm, amount: event.target.value })} /></label>
-            <button className="piggy-primary-button" type="submit"><Plus size={16} /> 新增收入</button>
+            {incomeError ? <p className="local-form-error">{incomeError}</p> : null}
+            <button className="piggy-primary-button" type="submit" disabled={submitLock.isLocked(`piggy-income:${childId}`)}>
+              <Plus size={16} /> {submitLock.isLocked(`piggy-income:${childId}`) ? (incomeStatus === 'done' ? '已完成' : '處理中') : '新增收入'}
+            </button>
           </form>
         </article>
         <article className="piggy-admin-panel">
@@ -471,15 +511,21 @@ export function ParentPiggyBankPage() {
               <article key={purchase.id}>
                 <PiggyMediaImage mediaId={purchase.product_snapshot.main_media_id} alt={purchase.product_snapshot.name} />
                 <div><strong>{childName(state, purchase.child_id)}</strong><span>{purchase.product_snapshot.name}</span><small>{formatMoney(purchase.amount)} · {formatDate(purchase.requested_at)}</small></div>
-                <button onClick={() => purchaseRepository.completePiggyPurchase(purchase.id)}><Check size={16} /> 已購買 / 已到貨</button>
-                <button onClick={() => purchaseRepository.cancelPiggyPurchase(purchase.id)}>取消退款</button>
+                <button disabled={submitLock.isLocked(`piggy-purchase-complete:${purchase.id}`)} onClick={() => runParentPiggyWrite(`piggy-purchase-complete:${purchase.id}`, () => purchaseRepository.completePiggyPurchase(purchase.id))}>
+                  <Check size={16} /> {submitLock.isLocked(`piggy-purchase-complete:${purchase.id}`) ? '處理中' : '已購買 / 已到貨'}
+                </button>
+                <button disabled={submitLock.isLocked(`piggy-purchase-cancel:${purchase.id}`)} onClick={() => runParentPiggyWrite(`piggy-purchase-cancel:${purchase.id}`, () => purchaseRepository.cancelPiggyPurchase(purchase.id))}>
+                  {submitLock.isLocked(`piggy-purchase-cancel:${purchase.id}`) ? '處理中' : '取消退款'}
+                </button>
               </article>
             ))}
             {arrived.map((purchase) => (
               <article key={purchase.id}>
                 <PiggyMediaImage mediaId={purchase.product_snapshot.main_media_id} alt={purchase.product_snapshot.name} />
                 <div><strong>{childName(state, purchase.child_id)}</strong><span>{purchase.product_snapshot.name}</span><small>已到貨，等待孩子確認</small></div>
-                <button onClick={() => purchaseRepository.cancelPiggyPurchase(purchase.id)}>取消退款</button>
+                <button disabled={submitLock.isLocked(`piggy-purchase-cancel:${purchase.id}`)} onClick={() => runParentPiggyWrite(`piggy-purchase-cancel:${purchase.id}`, () => purchaseRepository.cancelPiggyPurchase(purchase.id))}>
+                  {submitLock.isLocked(`piggy-purchase-cancel:${purchase.id}`) ? '處理中' : '取消退款'}
+                </button>
               </article>
             ))}
             {!pending.length && !arrived.length ? <EmptyPiggy text="目前沒有待購買商品" /> : null}
@@ -494,8 +540,12 @@ export function ParentPiggyBankPage() {
               <PiggyMediaImage mediaId={product.main_media_id} alt={product.name} />
               <div><strong>{product.name}</strong><span>{formatMoney(product.price)}</span><small>{product.shelf_status === 'shelf' ? '商品架' : '待購買'}</small></div>
               <button onClick={() => { setEditingProduct(product); setProductFormOpen(true); }}>修改</button>
-              <button onClick={() => piggyRepository.setPiggyProductShelfStatus(product.id, product.shelf_status === 'shelf' ? 'backlog' : 'shelf')}>{product.shelf_status === 'shelf' ? '放回待購買' : '放上商品架'}</button>
-              <button aria-label={`刪除 ${product.name}`} onClick={() => piggyRepository.deletePiggyProduct(product.id)}><Trash2 size={16} /></button>
+              <button disabled={submitLock.isLocked(`piggy-product-shelf:${product.id}`)} onClick={() => runParentPiggyWrite(`piggy-product-shelf:${product.id}`, () => piggyRepository.setPiggyProductShelfStatus(product.id, product.shelf_status === 'shelf' ? 'backlog' : 'shelf'))}>
+                {submitLock.isLocked(`piggy-product-shelf:${product.id}`) ? '處理中' : product.shelf_status === 'shelf' ? '放回待購買' : '放上商品架'}
+              </button>
+              <button disabled={submitLock.isLocked(`piggy-product-delete:${product.id}`)} aria-label={`刪除 ${product.name}`} onClick={() => runParentPiggyWrite(`piggy-product-delete:${product.id}`, () => piggyRepository.deletePiggyProduct(product.id))}>
+                <Trash2 size={16} />
+              </button>
             </article>
           ))}
           {!products.length ? <EmptyPiggy text="尚未新增商品，請先建立第一個商品。" /> : null}
@@ -519,6 +569,8 @@ function PiggyProductForm({ childId, product, onClose }: { childId: string; prod
     shelfStatus: product?.shelf_status ?? 'backlog' as LocalPiggyProduct['shelf_status'],
     error: ''
   });
+  const submitLock = useSubmitLock();
+  const saveLockKey = product ? `piggy-product:update:${product.id}` : `piggy-product:create:${childId}`;
 
   const uploadProductImages = async (files: File[], main: boolean) => {
     if (!files.length) return;
@@ -537,8 +589,10 @@ function PiggyProductForm({ childId, product, onClose }: { childId: string; prod
 
   const saveProduct = async (event: FormEvent) => {
     event.preventDefault();
+    if (!submitLock.acquire(saveLockKey)) return;
     if (!form.mainMediaId) {
       setForm((current) => ({ ...current, error: '請先上傳商品主圖' }));
+      submitLock.release(saveLockKey);
       return;
     }
     try {
@@ -554,6 +608,7 @@ function PiggyProductForm({ childId, product, onClose }: { childId: string; prod
       onClose();
     } catch (caught) {
       setForm((current) => ({ ...current, error: caught instanceof Error ? caught.message : '商品儲存失敗' }));
+      submitLock.release(saveLockKey);
     }
   };
 
@@ -577,7 +632,12 @@ function PiggyProductForm({ childId, product, onClose }: { childId: string; prod
             void uploadProductImages(files, false);
           }} /></label>
           {form.error ? <p className="local-form-error">{form.error}</p> : null}
-          <footer><button type="button" onClick={onClose}>取消</button><button className="ds-primary-button" type="submit">儲存商品</button></footer>
+          <footer>
+            <button type="button" onClick={onClose} disabled={submitLock.isLocked(saveLockKey)}>取消</button>
+            <button className="ds-primary-button" type="submit" disabled={submitLock.isLocked(saveLockKey)}>
+              {submitLock.isLocked(saveLockKey) ? '處理中' : '儲存商品'}
+            </button>
+          </footer>
         </form>
       </section>
     </div>

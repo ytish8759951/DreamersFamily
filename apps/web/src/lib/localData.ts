@@ -276,10 +276,9 @@ function getPiggySavings(state: LocalDatabaseState, childId: UUID) {
 }
 
 function getPiggyAvailableToday(state: LocalDatabaseState, childId: UUID) {
-  const date = today();
   return sum(
     state.piggy_incomes
-      .filter((income) => income.child_id === childId && income.created_at.slice(0, 10) === date)
+      .filter((income) => income.child_id === childId)
       .map((income) => income.remaining_amount)
   );
 }
@@ -3051,24 +3050,12 @@ export class LocalDataService implements LocalDataRepository {
         child_id: input.child_id,
         source: requiredText(input.source, 'source'),
         amount: input.amount,
-        remaining_amount: 0,
+        remaining_amount: input.amount,
         client_request_id: clientRequestId,
         created_by: state.current_user_id,
         created_at: timestamp
       };
       state.piggy_incomes.push(income);
-      state.piggy_bank_logs.push({
-        id: id(),
-        family_id: state.family_id,
-        child_id: input.child_id,
-        type: 'coin_deposit',
-        amount: input.amount,
-        note: income.source,
-        product_id: null,
-        purchase_id: null,
-        client_request_id: `${clientRequestId}:deposit`,
-        created_at: timestamp
-      });
       return income;
     });
   }
@@ -3079,18 +3066,12 @@ export class LocalDataService implements LocalDataRepository {
       validateNonNegativeInteger(amount, 'amount');
       if (amount <= 0) throw new LocalDataError('amount must be greater than zero', 'VALIDATION_ERROR');
       if (getPiggyAvailableToday(state, childId) < amount) {
-        const existingAutoDeposit = state.piggy_bank_logs
-          .filter((log) => log.child_id === childId && log.type === 'coin_deposit' && log.created_at.slice(0, 10) === today())
-          .sort((a, b) => b.created_at.localeCompare(a.created_at))
-          .find((log) => log.amount >= amount);
-        if (existingAutoDeposit) return existingAutoDeposit;
         throw new LocalDataError('Piggy deposit exceeds available income', 'INSUFFICIENT_PIGGY_AVAILABLE');
       }
 
       let remaining = amount;
-      const todayValue = today();
       state.piggy_incomes
-        .filter((income) => income.child_id === childId && income.created_at.slice(0, 10) === todayValue && income.remaining_amount > 0)
+        .filter((income) => income.child_id === childId && income.remaining_amount > 0)
         .sort((a, b) => a.created_at.localeCompare(b.created_at))
         .forEach((income) => {
           if (remaining <= 0) return;
@@ -3108,6 +3089,7 @@ export class LocalDataService implements LocalDataRepository {
         note: null,
         product_id: null,
         purchase_id: null,
+        client_request_id: `piggy-deposit:${id()}`,
         created_at: now()
       };
       state.piggy_bank_logs.push(log);

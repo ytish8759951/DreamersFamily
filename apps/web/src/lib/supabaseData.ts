@@ -469,6 +469,7 @@ interface SupabaseShareRow {
 
 interface SupabaseShareMediaRow {
   id: UUID;
+  media_asset_id?: UUID | null;
   family_id: UUID;
   child_id: UUID;
   share_id: UUID;
@@ -2939,15 +2940,22 @@ export class SupabaseDataRepository implements LocalDataRepository {
   markNotificationRead = this.delegateWrite('markNotificationRead');
   addPiggyIncome(input: AddPiggyIncomeInput): LocalPiggyIncome {
     const income = this.cache.addPiggyIncome(input);
-    const deposit = this.cache.getState().piggy_bank_logs.find((log) => log.client_request_id === `${income.client_request_id}:deposit`) ?? null;
-    void this.persistPiggyIncomeWithDeposit(income, deposit).catch((error) => {
+    void this.persistPiggyIncome(income).catch((error) => {
       console.warn('[supabase-repository] piggy income RPC sync failed', error);
       this.queuePush();
       this.queueChildScopedPush();
     });
     return income;
   }
-  depositPiggyCoin = this.delegateWrite('depositPiggyCoin');
+  depositPiggyCoin(childId: UUID, amount: number): LocalPiggyBankLog {
+    const log = this.cache.depositPiggyCoin(childId, amount);
+    void this.persistPiggyCoinDeposit(log).catch((error) => {
+      console.warn('[supabase-repository] piggy coin deposit RPC sync failed', error);
+      this.queuePush();
+      this.queueChildScopedPush();
+    });
+    return log;
+  }
   getPiggyBankSummary(childId: UUID): PiggyBankSummary {
     const state = this.getChildScopedState(childId);
     const date = todayIsoDate();
@@ -2960,7 +2968,7 @@ export class SupabaseDataRepository implements LocalDataRepository {
       currentSavings,
       availableToDepositToday: sum(
         state.piggy_incomes
-          .filter((income) => income.child_id === childId && income.created_at.slice(0, 10) === date)
+          .filter((income) => income.child_id === childId)
           .map((income) => income.remaining_amount)
       ),
       depositedToday: sum(
@@ -3095,17 +3103,33 @@ export class SupabaseDataRepository implements LocalDataRepository {
     return this.cache.listPiggyPurchases(childId);
   }
 
-  private async persistPiggyIncomeWithDeposit(income: LocalPiggyIncome, deposit: LocalPiggyBankLog | null) {
-    if (!this.client || !deposit) {
+  private async persistPiggyIncome(income: LocalPiggyIncome) {
+    if (!this.client) {
       this.queuePush();
       this.queueChildScopedPush();
       return;
     }
     const session = getChildSession();
     const childScoped = isChildSessionValid(session, income.child_id);
-    const { error } = await this.client.rpc('create_piggy_income_with_deposit', {
+    const { error } = await this.client.rpc('create_piggy_income_from_repository', {
       p_income: toSupabasePiggyIncomeRecord(income),
-      p_deposit: toSupabasePiggyBankLogRecord(deposit),
+      p_device_binding_id: childScoped ? session.deviceBindingId : null,
+      p_device_id: childScoped ? session.deviceId : null
+    });
+    if (error) throw error;
+    await this.hydrateFromSupabase();
+  }
+
+  private async persistPiggyCoinDeposit(log: LocalPiggyBankLog) {
+    if (!this.client) {
+      this.queuePush();
+      this.queueChildScopedPush();
+      return;
+    }
+    const session = getChildSession();
+    const childScoped = isChildSessionValid(session, log.child_id);
+    const { error } = await this.client.rpc('deposit_piggy_coin_from_repository', {
+      p_deposit: toSupabasePiggyBankLogRecord(log),
       p_device_binding_id: childScoped ? session.deviceBindingId : null,
       p_device_id: childScoped ? session.deviceId : null
     });
@@ -4731,6 +4755,7 @@ function fromSupabaseShare(row: SupabaseShareRow): LocalShare {
 function toSupabaseShareMedia(media: LocalShareMedia): SupabaseShareMediaRow {
   return {
     id: media.id,
+    media_asset_id: media.media_asset_id ?? media.id,
     family_id: SUPABASE_FAMILY_ID,
     child_id: media.child_id,
     share_id: media.share_id,
@@ -4751,6 +4776,7 @@ function toSupabaseShareMedia(media: LocalShareMedia): SupabaseShareMediaRow {
 function fromSupabaseShareMedia(row: SupabaseShareMediaRow): LocalShareMedia {
   return {
     id: row.id,
+    media_asset_id: row.media_asset_id ?? row.id,
     family_id: SUPABASE_FAMILY_ID,
     child_id: row.child_id,
     share_id: row.share_id,

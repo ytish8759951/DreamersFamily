@@ -9447,28 +9447,51 @@ button.ds-primary-button {
 
 .v2-task-page .child-completed-task-card {
   position: relative;
-  display: grid;
-  grid-template-columns: 64px minmax(0, 1fr);
-  gap: 12px;
-  align-items: center;
-  min-height: 78px;
-  padding: 10px 34px 10px 12px;
+  display: block;
+  aspect-ratio: 1 / 1;
+  min-height: 0;
+  overflow: hidden;
+  padding: 0;
   border: 1px solid #ece1d2;
   border-radius: 14px;
   background: rgba(255, 253, 247, .92);
   box-shadow: 0 10px 22px rgba(121, 91, 54, .09);
 }
 
+.v2-task-page .child-completed-task-image-button {
+  display: block;
+  width: 100%;
+  height: 100%;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  cursor: pointer;
+}
+
 .v2-task-page .child-completed-task-media {
-  width: 58px;
-  height: 58px;
-  border-radius: 12px;
+  display: block;
+  width: 100%;
+  height: 100%;
+  border-radius: 0;
   font-size: 34px;
-  object-fit: contain;
+}
+
+.v2-task-page .child-completed-task-media img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.v2-task-page .child-completed-task-card .local-task-media-fallback {
+  display: grid;
+  width: 100%;
+  height: 100%;
+  place-items: center;
+  font-size: 38px;
 }
 
 .v2-task-page .child-completed-task-card strong {
-  display: block;
+  display: none;
   overflow: hidden;
   color: #202020;
   font-size: 15px;
@@ -9479,7 +9502,7 @@ button.ds-primary-button {
 }
 
 .v2-task-page .child-completed-task-card span {
-  display: block;
+  display: none;
   margin-top: 3px;
   color: #5d4b2e;
   font-size: 13px;
@@ -9487,21 +9510,60 @@ button.ds-primary-button {
 }
 
 .v2-task-page .child-completed-task-card time {
-  display: block;
+  display: none;
   margin-top: 3px;
   color: #777;
   font-size: 12px;
   font-weight: 700;
 }
 
+.v2-task-page .child-completed-task-card .child-completed-task-media {
+  display: block;
+}
+
+.v2-task-page .child-completed-task-card .local-task-media-fallback {
+  display: grid;
+}
+
 .v2-task-page .child-completed-check {
+  display: none;
+}
+
+.v2-task-page .child-completed-task-lightbox {
+  position: fixed;
+  inset: 0;
+  z-index: 80;
+  display: grid;
+  place-items: center;
+  padding: 24px;
+  background: rgba(0, 0, 0, .72);
+}
+
+.v2-task-page .child-completed-task-lightbox > button {
   position: absolute;
-  top: 10px;
-  right: 10px;
-  color: #86a270;
-  fill: #86a270;
-  stroke: #fff;
-  stroke-width: 2.4;
+  top: 18px;
+  right: 18px;
+  width: 44px;
+  height: 44px;
+  border: 0;
+  border-radius: 999px;
+  background: #fff;
+  color: #111;
+  font-size: 28px;
+  line-height: 1;
+}
+
+.v2-task-page .child-completed-task-lightbox-media {
+  display: block;
+  max-width: min(92vw, 860px);
+  max-height: 86vh;
+}
+
+.v2-task-page .child-completed-task-lightbox-media img {
+  max-width: min(92vw, 860px);
+  max-height: 86vh;
+  object-fit: contain;
+  border-radius: 12px;
 }
 
 .v2-task-page .child-completed-more-button {

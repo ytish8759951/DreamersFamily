@@ -29,14 +29,14 @@ export function LocalShareAlbum({ media, title, className }: LocalShareAlbumProp
 
   return (
     <>
-      <section className={`local-share-album ${className ?? ''}`.trim()} aria-label={`照片相簿，共 ${photos.length} 張`}>
+      <section className={`local-share-album ${className ?? ''}`.trim()} aria-label={`分享相簿，共 ${photos.length} 張`}>
         <div className="local-share-album-strip" ref={stripRef} onScroll={() => syncActive(stripRef.current)}>
           {photos.map((photo, index) => (
             <div className="local-share-album-slide" key={photo.id}>
               <LocalShareMediaView
-                mediaId={photo.id}
+                mediaId={photo.media_asset_id ?? photo.id}
                 mediaType="photo"
-                alt={`${title ?? '照片分享'} ${index + 1}`}
+                alt={`${title ?? '分享照片'} ${index + 1}`}
                 lightbox={false}
                 onPhotoClick={() => {
                   setActiveIndex(index);
@@ -44,14 +44,14 @@ export function LocalShareAlbum({ media, title, className }: LocalShareAlbumProp
                   window.requestAnimationFrame(() => goTo(index, lightboxStripRef.current));
                 }}
               />
-              <span className="local-share-album-count">{index + 1}／{photos.length}</span>
+              <span className="local-share-album-count">{index + 1}/{photos.length}</span>
             </div>
           ))}
         </div>
         {photos.length > 1 ? (
           <>
-            <button type="button" className="local-share-album-nav is-prev" onClick={() => goTo(activeIndex - 1)} aria-label="上一張照片">‹</button>
-            <button type="button" className="local-share-album-nav is-next" onClick={() => goTo(activeIndex + 1)} aria-label="下一張照片">›</button>
+            <button type="button" className="local-share-album-nav is-prev" onClick={() => goTo(activeIndex - 1)} aria-label="上一張照片" />
+            <button type="button" className="local-share-album-nav is-next" onClick={() => goTo(activeIndex + 1)} aria-label="下一張照片" />
             <div className="local-share-album-dots" aria-hidden="true">
               {photos.map((photo, index) => <i key={photo.id} className={index === activeIndex ? 'is-active' : ''} />)}
             </div>
@@ -60,12 +60,12 @@ export function LocalShareAlbum({ media, title, className }: LocalShareAlbumProp
       </section>
       {lightboxOpen ? (
         <div className="local-share-album-lightbox" role="dialog" aria-modal="true" onClick={() => setLightboxOpen(false)}>
-          <button type="button" aria-label="關閉照片預覽" onClick={() => setLightboxOpen(false)}>x</button>
+          <button type="button" aria-label="關閉相簿" onClick={() => setLightboxOpen(false)}>x</button>
           <div className="local-share-album-strip" ref={lightboxStripRef} onClick={(event) => event.stopPropagation()} onScroll={() => syncActive(lightboxStripRef.current)}>
             {photos.map((photo, index) => (
               <div className="local-share-album-slide" key={photo.id}>
-                <LocalShareMediaView mediaId={photo.id} mediaType="photo" alt={`${title ?? '照片分享'} ${index + 1}`} lightbox={false} />
-                <span className="local-share-album-count">{index + 1}／{photos.length}</span>
+                <LocalShareMediaView mediaId={photo.media_asset_id ?? photo.id} mediaType="photo" alt={`${title ?? '分享照片'} ${index + 1}`} lightbox={false} />
+                <span className="local-share-album-count">{index + 1}/{photos.length}</span>
               </div>
             ))}
           </div>

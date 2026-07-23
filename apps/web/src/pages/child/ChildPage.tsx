@@ -464,22 +464,32 @@ function TaskCard({
 }
 
 function CompletedTaskCard({ task }: { task: LocalTask }) {
+  const [previewOpen, setPreviewOpen] = useState(false);
+  const mediaId = task.thumbnail_media_id ?? task.task_image_media_id ?? null;
   return (
-    <article className="child-completed-task-card">
-      <LocalTaskMedia
-        mediaId={task.thumbnail_media_id ?? task.task_image_media_id ?? null}
-        alt={task.title || '任務圖片'}
-        fallback={childTaskPlaceholderIcon()}
-        className={`child-completed-task-media v1-tone-${childTaskTone(task.category)}`}
-      />
-      <div>
-        <strong>{task.title || '任務'}</strong>
-        <span>+{task.reward_stars} ⭐</span>
-        <time>{formatChildTaskDate(taskCompletedTime(task))}</time>
-      </div>
-      <CheckCircle2 className="child-completed-check" size={24} />
-      <span className="child-completed-label">完成</span>
-    </article>
+    <>
+      <article className="child-completed-task-card">
+        <button type="button" className="child-completed-task-image-button" aria-label="查看完成任務圖片" onClick={() => setPreviewOpen(true)}>
+          <LocalTaskMedia
+            mediaId={mediaId}
+            alt={task.title || '任務圖片'}
+            fallback={childTaskPlaceholderIcon()}
+            className={`child-completed-task-media v1-tone-${childTaskTone(task.category)}`}
+          />
+        </button>
+      </article>
+      {previewOpen ? (
+        <div className="child-completed-task-lightbox" role="dialog" aria-modal="true" onClick={() => setPreviewOpen(false)}>
+          <button type="button" aria-label="關閉圖片" onClick={() => setPreviewOpen(false)}>×</button>
+          <LocalTaskMedia
+            mediaId={mediaId}
+            alt={task.title || '任務圖片'}
+            fallback={childTaskPlaceholderIcon()}
+            className={`child-completed-task-lightbox-media v1-tone-${childTaskTone(task.category)}`}
+          />
+        </div>
+      ) : null}
+    </>
   );
 }
 
@@ -534,10 +544,6 @@ function sortTodayTasks(tasks: LocalTask[]) {
     if (aDone !== bDone) return aDone ? 1 : -1;
     return a.task_date.localeCompare(b.task_date) || a.created_at.localeCompare(b.created_at);
   });
-}
-
-function taskCompletedTime(task: LocalTask) {
-  return task.reviewed_at ?? task.completed_at ?? task.updated_at;
 }
 
 type ShareFormMode = LocalShareMedia['media_type'];
