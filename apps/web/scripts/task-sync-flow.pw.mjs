@@ -235,3 +235,43 @@ test('iPad WebKit child sync drops expired daily templates and local ghost tasks
   expect(await page.evaluate(() => window.__visibleCount)).toBe(3);
   expect(await page.evaluate(() => window.__hasGhost)).toBe(false);
 });
+
+test('iPad WebKit parent create task locks duplicate touch and submit events', async ({ page }) => {
+  await page.setContent(`
+    <form id="task-form">
+      <button id="submit" type="submit">建立任務</button>
+      <script>
+        let locked = false;
+        let createCount = 0;
+        let requestIds = [];
+        document.querySelector('#task-form').addEventListener('submit', async (event) => {
+          event.preventDefault();
+          if (locked) return;
+          locked = true;
+          document.querySelector('#submit').disabled = true;
+          document.querySelector('#submit').textContent = '建立中';
+          const requestId = 'request-1';
+          requestIds.push(requestId);
+          await new Promise((resolve) => setTimeout(resolve, 20));
+          createCount += 1;
+        });
+        window.__taskCreateState = () => ({ createCount, requestIds, disabled: document.querySelector('#submit').disabled, label: document.querySelector('#submit').textContent });
+      </script>
+    </form>
+  `);
+
+  const button = page.locator('#submit');
+  await Promise.all([
+    button.dispatchEvent('touchstart'),
+    button.click({ force: true }),
+    button.click({ force: true }),
+    page.locator('#task-form').dispatchEvent('submit')
+  ]);
+  await page.waitForTimeout(40);
+  expect(await page.evaluate(() => window.__taskCreateState())).toEqual({
+    createCount: 1,
+    requestIds: ['request-1'],
+    disabled: true,
+    label: '建立中'
+  });
+});

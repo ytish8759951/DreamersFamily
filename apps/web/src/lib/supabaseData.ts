@@ -288,6 +288,7 @@ interface SupabaseTaskRow {
   task_date: string;
   task_image_media_id?: UUID | null;
   thumbnail_media_id?: UUID | null;
+  client_request_id?: string | null;
   daily_template_id?: UUID | null;
   occurrence_date?: string | null;
   template_snapshot?: Record<string, unknown> | null;
@@ -3944,6 +3945,7 @@ function toSupabaseTask(task: LocalTask): SupabaseTaskRow {
     task_date: task.task_date,
     task_image_media_id: task.task_image_media_id ?? null,
     thumbnail_media_id: task.thumbnail_media_id ?? null,
+    client_request_id: task.client_request_id ?? null,
     daily_template_id: task.daily_template_id ?? null,
     occurrence_date: task.occurrence_date ?? (task.category === 'daily' ? task.task_date : null),
     template_snapshot: task.template_snapshot ?? null,
@@ -3974,6 +3976,7 @@ function fromSupabaseTask(row: SupabaseTaskRow): LocalTask {
     description: row.description,
     task_image_media_id: row.task_image_media_id ?? null,
     thumbnail_media_id: row.thumbnail_media_id ?? null,
+    client_request_id: row.client_request_id ?? null,
     category: row.category,
     task_date: row.task_date,
     daily_template_id: row.daily_template_id ?? null,

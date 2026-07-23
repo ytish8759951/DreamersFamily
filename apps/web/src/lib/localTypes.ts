@@ -98,6 +98,7 @@ export interface LocalTask {
   description: string | null;
   task_image_media_id: UUID | null;
   thumbnail_media_id: UUID | null;
+  client_request_id?: string | null;
   category: 'daily' | 'habit' | 'household' | 'challenge';
   task_date: ISODate;
   daily_template_id?: UUID | null;

@@ -8,6 +8,7 @@ const appRoot = resolve(repoRoot, 'apps', 'web');
 const migration029 = readFileSync(resolve(repoRoot, 'supabase', 'migrations', '029_task_sync_daily_instances.sql'), 'utf8');
 const migration030 = readFileSync(resolve(repoRoot, 'supabase', 'migrations', '030_task_media_and_daily_canonicalization.sql'), 'utf8');
 const migration031 = readFileSync(resolve(repoRoot, 'supabase', 'migrations', '031_child_scoped_active_task_filter.sql'), 'utf8');
+const migration032 = readFileSync(resolve(repoRoot, 'supabase', 'migrations', '032_task_create_idempotency.sql'), 'utf8');
 const supabaseData = readFileSync(resolve(appRoot, 'src', 'lib', 'supabaseData.ts'), 'utf8');
 const childPage = readFileSync(resolve(appRoot, 'src', 'pages', 'child', 'ChildPage.tsx'), 'utf8');
 const parentTasks = readFileSync(resolve(appRoot, 'src', 'pages', 'parent', 'ParentFeaturePages.tsx'), 'utf8');
@@ -61,5 +62,15 @@ describe('task sync and daily task regression guards', () => {
     expect(supabaseData).toContain('tableTasks.forEach((task) => merge(task, true))');
     expect(supabaseData).toContain('task_image_media_id: row.task_image_media_id ?? null');
     expect(supabaseData).toContain('thumbnail_media_id: row.thumbnail_media_id ?? null');
+  });
+
+  it('makes parent task creation idempotent by client request id', () => {
+    expect(migration032).toContain('add column if not exists client_request_id text');
+    expect(migration032).toContain('create unique index if not exists uq_tasks_family_child_client_request');
+    expect(migration032).toContain('where client_request_id is not null');
+    expect(migration032).toContain('v_client_request_id');
+    expect(migration032).toContain('when unique_violation then');
+    expect(migration032).toContain("status = 'cancelled'");
+    expect(supabaseData).toContain('client_request_id: task.client_request_id ?? null');
   });
 });

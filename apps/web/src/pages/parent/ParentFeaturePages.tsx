@@ -91,6 +91,8 @@ export function ParentTasksPage() {
   const [childFilter, setChildFilter] = useState(ALL_CHILDREN_TASK_VALUE);
   const [showForm, setShowForm] = useState(false);
   const [formError, setFormError] = useState('');
+  const [isCreatingTask, setIsCreatingTask] = useState(false);
+  const creatingTaskRef = useRef(false);
   const activeChildren = state.children.filter((child) => child.status === 'active');
   const [taskForm, setTaskForm] = useState<TaskFormState>({
     child_id: '',
@@ -164,6 +166,9 @@ export function ParentTasksPage() {
 
   const createTask = async (event: FormEvent) => {
     event.preventDefault();
+    if (creatingTaskRef.current) return;
+    creatingTaskRef.current = true;
+    setIsCreatingTask(true);
     setFormError('');
     const taskChildren =
       taskForm.child_id === ALL_CHILDREN_TASK_VALUE
@@ -171,16 +176,21 @@ export function ParentTasksPage() {
         : activeChildren.filter((child) => child.id === taskForm.child_id);
     if (!taskChildren.length) {
       setFormError('請先新增孩子');
+      creatingTaskRef.current = false;
+      setIsCreatingTask(false);
       return;
     }
 
     const title = taskForm.title.trim();
     if (!title && !taskForm.task_image_file) {
       setFormError('請至少提供任務名稱或任務圖片');
+      creatingTaskRef.current = false;
+      setIsCreatingTask(false);
       return;
     }
 
     const uploadedTaskMediaIds: string[] = [];
+    const requestBatchId = crypto.randomUUID();
     try {
       const preparedTaskImage = taskForm.task_image_file
         ? await Promise.all([
@@ -224,7 +234,8 @@ export function ParentTasksPage() {
           task_date: taskForm.task_date,
           reward_stars: Number(taskForm.reward_stars),
           task_image_media_id: taskImageMediaId,
-          thumbnail_media_id: thumbnailMediaId
+          thumbnail_media_id: thumbnailMediaId,
+          client_request_id: `${requestBatchId}:${child.id}`
         });
       }
 
@@ -247,6 +258,9 @@ export function ParentTasksPage() {
         void taskRepository.deleteTaskMedia(mediaId);
       });
       setFormError(caught instanceof Error ? caught.message : '新增任務失敗');
+    } finally {
+      creatingTaskRef.current = false;
+      setIsCreatingTask(false);
     }
   };
 
@@ -458,7 +472,7 @@ export function ParentTasksPage() {
               {formError ? <p className="local-form-error">{formError}</p> : null}
               <footer>
                 <button type="button" onClick={() => setShowForm(false)}>取消</button>
-                <button className="ds-primary-button" type="submit"><Plus size={18} /> 建立任務</button>
+                <button className="ds-primary-button" type="submit" disabled={isCreatingTask}><Plus size={18} /> {isCreatingTask ? '建立中' : '建立任務'}</button>
               </footer>
             </form>
           </section>

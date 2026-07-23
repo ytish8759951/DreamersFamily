@@ -667,6 +667,7 @@ export interface CreateTaskInput {
   reward_screen_minutes?: number;
   task_image_media_id?: UUID | null;
   thumbnail_media_id?: UUID | null;
+  client_request_id?: string | null;
 }
 
 export interface CreateDreamInput {
@@ -1767,6 +1768,7 @@ export class LocalDataService implements LocalDataRepository {
         description: input.description?.trim() || null,
         task_image_media_id: input.task_image_media_id ?? null,
         thumbnail_media_id: input.thumbnail_media_id ?? null,
+        client_request_id: input.client_request_id ?? null,
         category: input.category ?? 'daily',
         task_date: taskDate,
         daily_template_id: (input.category ?? 'daily') === 'daily' ? input.daily_template_id ?? taskId : null,
@@ -3490,6 +3492,7 @@ export class LocalDataService implements LocalDataRepository {
           occurrence_date: targetDate,
           template_snapshot: buildDailyTemplateSnapshot(template),
           daily_template_active: false,
+          client_request_id: null,
           due_at: remapDailyDueAt(template.due_at, targetDate),
           status: 'pending',
           completion_note: null,
