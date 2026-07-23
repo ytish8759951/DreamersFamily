@@ -21,6 +21,7 @@ export const piggyRepository = {
   confirmPiggyPurchaseArrived: dataRepository.confirmPiggyPurchaseArrived.bind(dataRepository),
   saveProductImage,
   saveProductImageFile,
+  deleteProductImage,
   updateProductMediaOwner,
   getProductMediaUrl,
   releaseProductMediaUrl
@@ -39,19 +40,23 @@ async function saveProductImage(input: { ownerId: string; childId?: string | nul
   return media.id;
 }
 
-async function saveProductImageFile(input: { ownerId: string; childId?: string | null; file: File; blob?: Blob }) {
+async function saveProductImageFile(input: { ownerId: string; childId?: string | null; file: File; blob?: Blob; mimeType?: string; fileName?: string }) {
   const blob = input.blob ?? new Blob([await input.file.arrayBuffer()], { type: input.file.type || 'image/jpeg' });
   return saveProductImage({
     ownerId: input.ownerId,
     childId: input.childId,
     blob,
-    mimeType: blob.type || input.file.type || 'image/webp',
-    fileName: input.file.name
+    mimeType: input.mimeType || blob.type || input.file.type || 'image/jpeg',
+    fileName: input.fileName || input.file.name
   });
 }
 
 async function updateProductMediaOwner(mediaId: string, ownerId: string) {
   await mediaRepository.updateMedia({ id: mediaId, ownerType: 'piggy-product', ownerId });
+}
+
+async function deleteProductImage(mediaId: string) {
+  await mediaRepository.deleteMedia(mediaId);
 }
 
 function getProductMediaUrl(mediaId: string) {

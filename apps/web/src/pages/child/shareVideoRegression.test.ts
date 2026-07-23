@@ -6,6 +6,7 @@ import { describe, expect, it } from 'vitest';
 
 const sourcePath = resolve(dirname(fileURLToPath(import.meta.url)), 'ChildPage.tsx');
 const source = readFileSync(sourcePath, 'utf8');
+const pipelineSource = readFileSync(resolve(dirname(fileURLToPath(import.meta.url)), '../../lib/imageUploadPipeline.ts'), 'utf8');
 
 describe('child share video regression guards', () => {
   it('keeps child photo selection state-driven with preview and delayed input clearing', () => {
@@ -18,18 +19,16 @@ describe('child share video regression guards', () => {
     expect(source).toContain('const files = Array.from(input.files ?? []);');
     expect(source).toContain('void processSelectedPhotos(files);');
     expect(source).toContain('SHARE_PHOTO_MAX_COUNT = 10');
-    expect(source).toContain('一次最多選擇 10 張照片');
     expect(source).toContain('shareRepository.createPreviewUrl(file)');
-    expect(source).toContain('移除');
-    expect(source).toContain('目前檔案大小');
   });
 
-  it('supports iOS photo formats and HEIC conversion before upload', () => {
-    expect(source).toContain('image/heic');
-    expect(source).toContain('image/heif');
-    expect(source).toContain("['jpg', 'jpeg', 'png', 'webp', 'heic', 'heif']");
+  it('uses the shared iOS image pipeline for photo formats and HEIC conversion before upload', () => {
+    expect(pipelineSource).toContain('image/heic');
+    expect(pipelineSource).toContain('image/heif');
+    expect(pipelineSource).toContain("['jpg', 'jpeg', 'png', 'webp', 'heic', 'heif']");
     expect(source).toContain('prepareSharePhotoForUpload');
-    expect(source).toContain('convertSharePhotoToJpeg');
+    expect(source).toContain('prepareImageFileForUpload');
+    expect(pipelineSource).toContain('convertImageFileToJpeg');
     expect(source).toContain('HEIC/HEIF 照片轉換失敗');
   });
 
@@ -38,7 +37,6 @@ describe('child share video regression guards', () => {
     expect(source).toContain('ref={cameraInputRef}');
     expect(source).toContain('ref={libraryInputRef}');
     expect(source).toContain('capture="environment"');
-    expect(source).toContain('從照片圖庫選擇影片');
     expect(source).toContain('preload="metadata"');
     expect(source).not.toContain('function ShareVideoRecorder');
     expect(source).not.toContain("startShareRecording('video')");
@@ -58,7 +56,6 @@ describe('child share video regression guards', () => {
     expect(source).toContain('video/quicktime');
     expect(source).toContain("'m4v'");
     expect(source).toContain('影片檔案太大');
-    expect(source).toContain('系統允許的最大容量');
   });
 
   it('keeps child submitted videos playable with native controls', () => {

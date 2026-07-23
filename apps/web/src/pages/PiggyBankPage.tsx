@@ -6,7 +6,12 @@ import type { PiggyCoinValue } from '../components/piggy/PiggyUiAssets';
 import { dataModeBadgeLabel } from '../lib/dataRepository';
 import { resolveCurrentChildId } from '../lib/childSession';
 import { captureSelectedFiles } from '../lib/fileInput';
-import { compressImageFile } from '../lib/imageCompression';
+import {
+  ImageUploadPipelineError,
+  getImageFileValidationError,
+  logImageUploadDiagnostics,
+  prepareImageFileForUpload
+} from '../lib/imageUploadPipeline';
 import { piggyRepository } from '../lib/piggyRepository';
 import { purchaseRepository } from '../lib/purchaseRepository';
 import type { LocalDatabaseState, LocalPiggyBankLog, LocalPiggyProduct, LocalPiggyPurchase } from '../lib/localTypes';
@@ -19,6 +24,12 @@ const shelfSlots = [0, 1, 2, 3, 4, 5];
 type FallingCoin = {
   id: number;
   value: number;
+};
+
+type SelectedProductImage = {
+  id: string;
+  file: File;
+  previewUrl: string;
 };
 
 export function ChildPiggyBankPage() {
@@ -561,53 +572,92 @@ export function ParentPiggyBankPage() {
 }
 
 function PiggyProductForm({ childId, product, onClose }: { childId: string; product: LocalPiggyProduct | null; onClose: () => void }) {
+  const [productId] = useState(product?.id ?? createLocalId());
   const [form, setForm] = useState({
     name: product?.name ?? '',
     price: String(product?.price ?? 100),
     mainMediaId: product?.main_media_id ?? null as string | null,
     galleryMediaIds: product?.gallery_media_ids ?? [] as string[],
     shelfStatus: product?.shelf_status ?? 'backlog' as LocalPiggyProduct['shelf_status'],
-    error: ''
+    error: '',
+    status: ''
   });
+  const [mainImage, setMainImage] = useState<SelectedProductImage | null>(null);
+  const [galleryImages, setGalleryImages] = useState<SelectedProductImage[]>([]);
   const submitLock = useSubmitLock();
   const saveLockKey = product ? `piggy-product:update:${product.id}` : `piggy-product:create:${childId}`;
 
-  const uploadProductImages = async (files: File[], main: boolean) => {
-    if (!files.length) return;
-    try {
-      const ids: string[] = [];
-      for (const file of files.slice(0, main ? 1 : 5)) {
-        const blob = await compressImageFile(file);
-        const mediaId = await piggyRepository.saveProductImageFile({ ownerId: product?.id ?? 'new-piggy-product', childId, file, blob });
-        ids.push(mediaId);
-      }
-      setForm((current) => main ? { ...current, mainMediaId: ids[0], error: '' } : { ...current, galleryMediaIds: ids.slice(0, 5), error: '' });
-    } catch (caught) {
-      setForm((current) => ({ ...current, error: caught instanceof Error ? caught.message : '圖片上傳失敗' }));
+  const selectProductImages = (files: File[], main: boolean) => {
+    const selected = files.slice(0, main ? 1 : 5).map((file, index) => ({
+      id: `${Date.now()}-${index}-${file.name || 'camera-photo'}`,
+      file,
+      previewUrl: URL.createObjectURL(file)
+    }));
+    const firstError = selected.map((item, index) => {
+      const error = getImageFileValidationError(item.file);
+      return error ? `${main ? '主圖' : `第 ${index + 1} 張照片`}：${error}` : '';
+    }).find(Boolean);
+    if (main) {
+      if (mainImage) URL.revokeObjectURL(mainImage.previewUrl);
+      setMainImage(selected[0] ?? null);
+      setForm((current) => ({ ...current, mainMediaId: product?.main_media_id ?? null, error: firstError || '', status: selected[0] ? formatSelectedProductImage(selected[0].file, 1, 1) : '' }));
+      return;
     }
+    galleryImages.forEach((image) => URL.revokeObjectURL(image.previewUrl));
+    setGalleryImages(selected);
+    setForm((current) => ({ ...current, galleryMediaIds: product?.gallery_media_ids ?? [], error: firstError || '', status: selected.length ? `${selected.length} 張其他圖片已選擇，總大小 ${formatFileSize(selected.reduce((total, item) => total + item.file.size, 0))}` : '' }));
   };
 
   const saveProduct = async (event: FormEvent) => {
     event.preventDefault();
     if (!submitLock.acquire(saveLockKey)) return;
-    if (!form.mainMediaId) {
+    const ownerId = product?.id ?? productId;
+    if (!mainImage && !form.mainMediaId) {
       setForm((current) => ({ ...current, error: '請先上傳商品主圖' }));
       submitLock.release(saveLockKey);
       return;
     }
+    const uploadedMediaIds: string[] = [];
     try {
-      const input = { child_id: childId, name: form.name, price: Number(form.price), main_media_id: form.mainMediaId, gallery_media_ids: form.galleryMediaIds, shelf_status: form.shelfStatus };
+      setForm((current) => ({ ...current, error: '', status: '商品儲存中：照片格式處理中' }));
+      const nextMainMediaId = mainImage
+        ? await uploadProductImage(mainImage.file, ownerId, childId, '主圖', uploadedMediaIds)
+        : form.mainMediaId;
+      const nextGalleryMediaIds = galleryImages.length
+        ? await uploadProductImageList(galleryImages.map((item) => item.file), ownerId, childId, uploadedMediaIds)
+        : form.galleryMediaIds;
+      if (!nextMainMediaId) throw new Error('商品主圖建立失敗');
+      setForm((current) => ({ ...current, status: '商品儲存中：商品資料儲存中' }));
+      const input = {
+        id: product ? undefined : ownerId,
+        child_id: childId,
+        name: form.name,
+        price: Number(form.price),
+        main_media_id: nextMainMediaId,
+        gallery_media_ids: nextGalleryMediaIds,
+        shelf_status: form.shelfStatus,
+        client_request_id: `piggy-product:${ownerId}`
+      };
       const saved = product
         ? piggyRepository.updatePiggyProduct(product.id, input)
         : piggyRepository.createPiggyProduct(input);
-      await Promise.all(
-        [saved.main_media_id, ...saved.gallery_media_ids]
-          .filter((mediaId): mediaId is string => Boolean(mediaId))
-          .map((mediaId) => piggyRepository.updateProductMediaOwner(mediaId, saved.id))
-      );
+      logImageUploadDiagnostics('[piggy-product] product RPC completed', {
+        stage: 'owner-rpc',
+        ownerType: 'piggy-product',
+        childId,
+        ownerId: saved.id,
+        mediaAssetId: saved.main_media_id,
+        rpcStatus: 200
+      });
       onClose();
     } catch (caught) {
-      setForm((current) => ({ ...current, error: caught instanceof Error ? caught.message : '商品儲存失敗' }));
+      await Promise.allSettled(uploadedMediaIds.map((mediaId) => piggyRepository.deleteProductImage(mediaId)));
+      const message = caught instanceof ImageUploadPipelineError
+        ? caught.userMessage
+        : caught instanceof Error
+          ? `商品資料儲存失敗：${caught.message}`
+          : '商品資料儲存失敗，請再試一次。';
+      setForm((current) => ({ ...current, error: message, status: '' }));
       submitLock.release(saveLockKey);
     }
   };
@@ -620,28 +670,100 @@ function PiggyProductForm({ childId, product, onClose }: { childId: string; prod
           <label className="is-full">商品名稱<input maxLength={50} value={form.name} onChange={(event) => setForm({ ...form, name: event.target.value })} /></label>
           <label>價格<input required type="number" min="1" step="1" value={form.price} onChange={(event) => setForm({ ...form, price: event.target.value })} /></label>
           <label>狀態<select value={form.shelfStatus} onChange={(event) => setForm({ ...form, shelfStatus: event.target.value as LocalPiggyProduct['shelf_status'] })}><option value="backlog">待購買</option><option value="shelf">商品架</option></select></label>
-          <label className="is-full piggy-upload-field"><Upload size={16} /> 主圖<input type="file" accept="image/*" onChange={(event) => {
+          <label className="is-full piggy-upload-field"><Upload size={16} /> 主圖<input type="file" accept="image/*,.heic,.heif" onChange={(event) => {
             const input = event.currentTarget;
             const files = captureSelectedFiles(input, 1);
-            void uploadProductImages(files, true);
+            selectProductImages(files, true);
           }} /></label>
-          {form.mainMediaId ? <PiggyMediaImage className="piggy-form-preview" mediaId={form.mainMediaId} alt="商品主圖" /> : null}
-          <label className="is-full piggy-upload-field"><Upload size={16} /> 其他圖片，最多 5 張<input multiple type="file" accept="image/*" onChange={(event) => {
+          {mainImage ? <ProductImagePreview image={mainImage} index={1} total={1} /> : form.mainMediaId ? <PiggyMediaImage className="piggy-form-preview" mediaId={form.mainMediaId} alt="商品主圖" /> : null}
+          <label className="is-full piggy-upload-field"><Upload size={16} /> 其他圖片，最多 5 張<input multiple type="file" accept="image/*,.heic,.heif" onChange={(event) => {
             const input = event.currentTarget;
             const files = captureSelectedFiles(input, 5);
-            void uploadProductImages(files, false);
+            selectProductImages(files, false);
           }} /></label>
+          {galleryImages.length ? (
+            <div className="piggy-selected-photo-grid">
+              {galleryImages.map((image, index) => <ProductImagePreview key={image.id} image={image} index={index + 1} total={galleryImages.length} />)}
+            </div>
+          ) : null}
+          {form.status ? <p className="local-form-status">{form.status}</p> : null}
           {form.error ? <p className="local-form-error">{form.error}</p> : null}
           <footer>
             <button type="button" onClick={onClose} disabled={submitLock.isLocked(saveLockKey)}>取消</button>
             <button className="ds-primary-button" type="submit" disabled={submitLock.isLocked(saveLockKey)}>
-              {submitLock.isLocked(saveLockKey) ? '處理中' : '儲存商品'}
+              {submitLock.isLocked(saveLockKey) ? '商品儲存中' : '儲存商品'}
             </button>
           </footer>
         </form>
       </section>
     </div>
   );
+}
+
+function ProductImagePreview({ image, index, total }: { image: SelectedProductImage; index: number; total: number }) {
+  return (
+    <figure className="piggy-selected-photo-preview">
+      <img src={image.previewUrl} alt={`商品照片 ${index}`} />
+      <figcaption>
+        <b>{image.file.name || `相機照片 ${index}`}</b>
+        <small>{formatFileSize(image.file.size)} · {index}/{total}</small>
+      </figcaption>
+    </figure>
+  );
+}
+
+async function uploadProductImage(file: File, ownerId: string, childId: string, label: string, uploadedMediaIds: string[]) {
+  const prepared = await prepareImageFileForUpload(file, {
+    fallbackBaseName: `${label}-${ownerId}`,
+    ownerType: 'piggy-product',
+    childId,
+    ownerId
+  });
+  logImageUploadDiagnostics('[piggy-product] image prepared', {
+    stage: 'prepare',
+    ownerType: 'piggy-product',
+    childId,
+    ownerId,
+    originalFileName: prepared.originalFileName,
+    originalMimeType: prepared.originalMimeType,
+    originalBytes: prepared.originalBytes,
+    normalizedFileName: prepared.normalizedFileName,
+    normalizedMimeType: prepared.mimeType,
+    normalizedBytes: prepared.bytes
+  });
+  const mediaId = await piggyRepository.saveProductImageFile({
+    ownerId,
+    childId,
+    file,
+    blob: prepared.blob,
+    mimeType: prepared.mimeType,
+    fileName: prepared.normalizedFileName
+  });
+  uploadedMediaIds.push(mediaId);
+  return mediaId;
+}
+
+async function uploadProductImageList(files: File[], ownerId: string, childId: string, uploadedMediaIds: string[]) {
+  const ids: string[] = [];
+  for (let index = 0; index < files.slice(0, 5).length; index += 1) {
+    ids.push(await uploadProductImage(files[index], ownerId, childId, `其他圖片-${index + 1}`, uploadedMediaIds));
+  }
+  return ids;
+}
+
+function createLocalId() {
+  if (typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function') return crypto.randomUUID();
+  return `local-${Date.now()}-${Math.random().toString(16).slice(2)}`;
+}
+
+function formatSelectedProductImage(file: File, index: number, total: number) {
+  return `${file.name || `相機照片 ${index}`} · ${formatFileSize(file.size)} · ${index}/${total}`;
+}
+
+function formatFileSize(bytes: number) {
+  if (bytes >= 1024 * 1024) return `${(bytes / 1024 / 1024).toFixed(1)} MB`;
+  if (bytes >= 1024) return `${Math.round(bytes / 1024)} KB`;
+  return `${bytes} bytes`;
 }
 
 function ProductDetailModal({ product, onClose }: { product: LocalPiggyProduct; onClose: () => void }) {

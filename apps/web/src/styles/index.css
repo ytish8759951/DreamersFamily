@@ -13260,6 +13260,11 @@ body.modal-open {
 .piggy-history-card { grid-template-columns: 74px minmax(0, 1fr); }
 .piggy-image-placeholder { display: grid; place-items: center; border-radius: 8px; background: #eee4d3; color: #867968; font-size: 12px; font-weight: 900; }
 .piggy-form-preview { width: 110px; height: 88px; border-radius: 8px; object-fit: cover; }
+.piggy-selected-photo-grid { grid-column: 1 / -1; display: grid; grid-template-columns: repeat(auto-fill, minmax(92px, 1fr)); gap: 10px; }
+.piggy-selected-photo-preview { margin: 0; overflow: hidden; border: 1px solid #eadfce; border-radius: 10px; background: #fffdf8; }
+.piggy-selected-photo-preview img { display: block; width: 100%; aspect-ratio: 1 / 1; object-fit: cover; }
+.piggy-selected-photo-preview figcaption { display: grid; gap: 2px; padding: 7px; }
+.piggy-selected-photo-preview b, .piggy-selected-photo-preview small { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .piggy-upload-field { align-content: start; }
 .piggy-product-dialog .is-full { grid-column: 1 / -1; }
 .piggy-detail-modal { position: relative; width: min(460px, calc(100vw - 28px)); border-radius: 8px; background: #fffaf0; padding: 16px; }

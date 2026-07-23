@@ -691,6 +691,7 @@ export interface MigrateDreamCoverInput {
 
 export interface ShareMediaInput {
   id?: UUID;
+  media_asset_id?: UUID | null;
   media_type: LocalShareMedia['media_type'];
   bucket?: LocalShareMedia['bucket'];
   storage_path?: string;
@@ -817,12 +818,14 @@ export interface AddPiggyIncomeInput {
 }
 
 export interface CreatePiggyProductInput {
+  id?: UUID;
   child_id?: UUID;
   name?: string;
   price: number;
   main_media_id: UUID | null;
   gallery_media_ids?: UUID[];
   shelf_status?: LocalPiggyProduct['shelf_status'];
+  client_request_id?: string | null;
 }
 
 export interface ChildLoginChallengeResult {
@@ -2141,6 +2144,7 @@ export class LocalDataService implements LocalDataRepository {
         const mediaId = item.id ?? id();
         return {
           id: mediaId,
+          media_asset_id: item.media_asset_id ?? mediaId,
           family_id: state.family_id,
           child_id: input.child_id,
           share_id: share.id,
@@ -3130,7 +3134,7 @@ export class LocalDataService implements LocalDataRepository {
       const timestamp = now();
       const shelfStatus = input.shelf_status ?? 'backlog';
       const product: LocalPiggyProduct = {
-        id: id(),
+        id: input.id ?? id(),
         family_id: state.family_id,
         child_id: childId,
         name: input.name?.trim() ?? '',
@@ -3139,7 +3143,7 @@ export class LocalDataService implements LocalDataRepository {
         gallery_media_ids: (input.gallery_media_ids ?? []).slice(0, 5),
         shelf_status: shelfStatus,
         shelf_slot: shelfStatus === 'shelf' ? nextPiggyShelfSlot(state, childId) : null,
-        client_request_id: id(),
+        client_request_id: input.client_request_id ?? id(),
         created_by: state.current_user_id,
         created_at: timestamp,
         updated_at: timestamp,

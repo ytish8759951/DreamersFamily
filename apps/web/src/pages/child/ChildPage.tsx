@@ -33,7 +33,13 @@ import { useDreamCoverMigration } from '../../lib/dreamCoverMigration';
 import { getErrorDiagnostics, getErrorMessage } from '../../lib/errorDiagnostics';
 import { captureFirstSelectedFile, clearFileInput } from '../../lib/fileInput';
 import { growthRepository } from '../../lib/growthRepository';
-import { compressImageFile } from '../../lib/imageCompression';
+import {
+  getImageFileValidationError,
+  isHeicImageFile,
+  isSupportedImageFile,
+  logImageUploadDiagnostics,
+  prepareImageFileForUpload
+} from '../../lib/imageUploadPipeline';
 import { logVideoStorageDiagnostics } from '../../lib/localVideoStore';
 import { shareRepository, type ShareMediaChunk, type ShareRecordedMedia } from '../../lib/shareRepository';
 import { mailboxRepository } from '../../lib/mailboxRepository';
@@ -887,6 +893,7 @@ function SharePage() {
       const shareId = createLocalMediaId();
       const mediaInputs: Array<{
         id: string;
+        media_asset_id?: string | null;
         media_type: ShareFormMode;
         bucket: LocalShareMedia['bucket'];
         storage_path: string;
@@ -904,7 +911,7 @@ function SharePage() {
         for (let index = 0; index < total; index += 1) {
           setShareUploadStatus('preparing');
           setShareUploadProgress(`正在準備第 ${index + 1}／${total} 張照片`);
-          const preparedPhoto = await prepareSharePhotoForUpload(shareForm.photos[index]);
+          const preparedPhoto = await prepareSharePhotoForUpload(shareForm.photos[index], index, shareId, selectedChild.id);
           if (preparedPhoto.blob.size <= 0) throw new Error(`第 ${index + 1} 張照片準備失敗：檔案沒有內容。`);
           setShareUploadStatus('uploading');
           setShareUploadProgress(`正在上傳第 ${index + 1}／${total} 張照片`);
@@ -923,6 +930,7 @@ function SharePage() {
           if ((uploadedMedia.file_size_bytes ?? 0) <= 0) throw new Error(`第 ${index + 1} 張照片上傳失敗：Storage 檔案大小為 0。`);
           mediaInputs.push({
             id: uploadedMedia.id,
+            media_asset_id: uploadedMedia.id,
             media_type: 'photo',
             bucket: uploadedMedia.bucket as LocalShareMedia['bucket'],
             storage_path: uploadedMedia.storage_path,
@@ -983,6 +991,7 @@ function SharePage() {
         }
         mediaInputs.push({
           id: uploadedMedia.id,
+          media_asset_id: uploadedMedia.id,
           media_type: formMode,
           bucket: uploadedMedia.bucket as LocalShareMedia['bucket'],
           storage_path: uploadedMedia.storage_path,
@@ -1038,7 +1047,7 @@ function SharePage() {
       return;
     }
     const validationError = files.map((file, index) => {
-      const error = getSharePhotoFileError(file);
+      const error = getImageFileValidationError(file);
       return error ? `第 ${index + 1} 張：${error}` : '';
     }).find(Boolean);
     setSelectedPhotos((current) => {
@@ -1591,58 +1600,38 @@ function getShareFormValidationError(
   return '';
 }
 
-async function compressSharePhoto(file: File) {
-  return compressImageFile(file);
-}
-
-async function prepareSharePhotoForUpload(file: File) {
-  const validationError = getSharePhotoFileError(file);
+async function prepareSharePhotoForUpload(file: File, index: number, shareId: string, childId: string) {
+  const validationError = getImageFileValidationError(file);
   if (validationError) throw new Error(validationError);
   try {
-    if (isHeicSharePhoto(file)) {
-      const jpegBlob = await convertSharePhotoToJpeg(file);
-      return {
-        blob: jpegBlob,
-        mimeType: 'image/jpeg',
-        fileName: replaceFileExtension(file.name || 'share-photo.heic', 'jpg')
-      };
-    }
-    const blob = await compressSharePhoto(file);
+    const prepared = await prepareImageFileForUpload(file, {
+      fallbackBaseName: `share-photo-${index + 1}`,
+      ownerType: 'share',
+      childId,
+      ownerId: shareId
+    });
+    logImageUploadDiagnostics('[child/share] photo prepared', {
+      stage: 'prepare',
+      ownerType: 'share',
+      childId,
+      ownerId: shareId,
+      originalFileName: prepared.originalFileName,
+      originalMimeType: prepared.originalMimeType,
+      originalBytes: prepared.originalBytes,
+      normalizedFileName: prepared.normalizedFileName,
+      normalizedMimeType: prepared.mimeType,
+      normalizedBytes: prepared.bytes
+    });
     return {
-      blob,
-      mimeType: blob.type || defaultMimeType('photo'),
-      fileName: file.name || 'share-photo'
+      blob: prepared.blob,
+      mimeType: prepared.mimeType,
+      fileName: prepared.normalizedFileName
     };
   } catch (caught) {
-    if (isHeicSharePhoto(file)) {
+    if (isHeicImageFile(file)) {
       throw new Error('HEIC/HEIF 照片轉換失敗，請在照片 App 匯出為 JPEG 後再上傳。');
     }
-    throw new Error(getErrorMessage(caught, '照片準備失敗，請重新選擇照片後再試。'));
-  }
-}
-
-async function convertSharePhotoToJpeg(file: File) {
-  if (typeof createImageBitmap === 'undefined' || typeof document === 'undefined') {
-    throw new Error('目前瀏覽器無法轉換 HEIC/HEIF 照片。');
-  }
-  let bitmap: ImageBitmap | null = null;
-  try {
-    try {
-      bitmap = await createImageBitmap(file, { imageOrientation: 'from-image' });
-    } catch {
-      bitmap = await createImageBitmap(file);
-    }
-    const canvas = document.createElement('canvas');
-    canvas.width = bitmap.width;
-    canvas.height = bitmap.height;
-    const context = canvas.getContext('2d');
-    if (!context) throw new Error('照片轉換失敗，無法建立畫布。');
-    context.drawImage(bitmap, 0, 0);
-    const blob = await new Promise<Blob | null>((resolve) => canvas.toBlob(resolve, 'image/jpeg', 0.9));
-    if (!blob || blob.size <= 0) throw new Error('照片轉換失敗，沒有產生有效檔案。');
-    return blob;
-  } finally {
-    bitmap?.close();
+    throw new Error(`第 ${index + 1} 張照片上傳失敗：${getErrorMessage(caught, '照片格式處理失敗，請重新選擇照片後再試。')}`);
   }
 }
 
@@ -1692,22 +1681,8 @@ function getSharePhotoFileError(file: File | null) {
   if (file.size > SHARE_PHOTO_MAX_BYTES) {
     return `照片檔案太大，目前檔案大小 ${formatFileSize(file.size)}，系統允許的最大容量為 ${formatFileSize(SHARE_PHOTO_MAX_BYTES)}。請選擇較小的照片後再送出。`;
   }
-  if (isSupportedSharePhotoFile(file)) return '';
+  if (isSupportedImageFile(file)) return '';
   return '目前只支援 JPG、PNG、WebP、HEIC 或 HEIF 照片，請重新選擇照片。';
-}
-
-function isSupportedSharePhotoFile(file: File) {
-  const mimeType = file.type.toLowerCase();
-  const extension = file.name.split('.').pop()?.toLowerCase() ?? '';
-  if (['image/jpeg', 'image/png', 'image/webp', 'image/heic', 'image/heif'].includes(mimeType)) return true;
-  if (!mimeType && ['jpg', 'jpeg', 'png', 'webp', 'heic', 'heif'].includes(extension)) return true;
-  return ['jpg', 'jpeg', 'png', 'webp', 'heic', 'heif'].includes(extension);
-}
-
-function isHeicSharePhoto(file: File) {
-  const mimeType = file.type.toLowerCase();
-  const extension = file.name.split('.').pop()?.toLowerCase() ?? '';
-  return mimeType === 'image/heic' || mimeType === 'image/heif' || extension === 'heic' || extension === 'heif';
 }
 
 function isSupportedShareVideoFile(file: File) {

@@ -2,6 +2,7 @@ import { createClient, type SupabaseClient } from '@supabase/supabase-js';
 import { dataMode, dataRepository } from './dataRepository';
 import { getSupabaseConfig, supabaseClient } from './supabaseData';
 import { getChildSession, isChildSessionValid } from './childSessionRepository';
+import { ImageUploadPipelineError, logImageUploadDiagnostics, uploadStageMessage } from './imageUploadPipeline';
 import { startupTrace, traceStartupPromise, traceStartupPromiseAll } from './startupTrace';
 import type { LocalDatabaseState, UUID } from './localTypes';
 
@@ -572,20 +573,46 @@ async function saveSupabaseStorageMedia(record: UnifiedMediaRecord, input?: Part
       upsert: true
     });
   if (upload.error) {
-    console.error('[mediaRepository] family-media upload failed', {
+    const diagnostics = {
+      stage: 'storage-upload' as const,
+      ownerType: record.ownerType,
+      familyId: scope.familyId,
+      childId: scope.childId,
+      ownerId: scope.ownerId,
+      originalFileName: record.fileName ?? null,
+      originalMimeType: record.mimeType,
+      originalBytes: record.blob.size,
+      normalizedFileName: record.fileName ?? null,
+      normalizedMimeType: record.mimeType,
+      normalizedBytes: record.blob.size,
       path: storagePath,
+      storagePath,
       bytes: record.blob.size,
       mimeType: record.mimeType,
       status: 'statusCode' in upload.error ? upload.error.statusCode : undefined,
-      code: 'error' in upload.error ? upload.error.error : undefined,
+      uploadStatus: 'statusCode' in upload.error ? upload.error.statusCode : undefined,
+      code: 'error' in upload.error ? String(upload.error.error) : undefined,
+      uploadCode: 'error' in upload.error ? String(upload.error.error) : undefined,
       message: upload.error.message
-    });
-    throw upload.error;
+    };
+    logImageUploadDiagnostics('[mediaRepository] family-media upload failed', diagnostics);
+    throw new ImageUploadPipelineError('storage-upload', uploadStageMessage('storage-upload'), diagnostics, upload.error);
   }
-  console.info('[mediaRepository] family-media upload completed', {
-    path: storagePath,
-    bytes: record.blob.size,
-    mimeType: record.mimeType
+  logImageUploadDiagnostics('[mediaRepository] family-media upload completed', {
+    stage: 'storage-upload',
+    ownerType: record.ownerType,
+    familyId: scope.familyId,
+    childId: scope.childId,
+    ownerId: scope.ownerId,
+    originalFileName: record.fileName ?? null,
+    originalMimeType: record.mimeType,
+    originalBytes: record.blob.size,
+    normalizedFileName: record.fileName ?? null,
+    normalizedMimeType: record.mimeType,
+    normalizedBytes: record.blob.size,
+    storagePath,
+    uploadStatus: 200,
+    mediaAssetId: record.id
   });
 
   let thumbnailPath: string | null = null;
@@ -667,10 +694,10 @@ async function deleteSupabaseStorageMedia(media: RemoteMediaAsset) {
 
 async function findRemoteMedia(mediaId: string): Promise<RemoteMediaAsset | null> {
   if (dataMode !== 'supabase') return null;
-  const media = dataRepository.getState().share_media.find((item) => item.id === mediaId);
+  const media = dataRepository.getState().share_media.find((item) => item.id === mediaId || item.media_asset_id === mediaId);
   if (media?.bucket === 'family-media') {
     return {
-      id: media.id,
+      id: media.media_asset_id ?? media.id,
       family_id: media.family_id,
       child_id: media.child_id,
       entity_type: 'share',
@@ -725,19 +752,40 @@ async function upsertRemoteMediaAsset(input: {
   };
   const { error } = await client.from('media_assets').upsert(row, { onConflict: 'id' });
   if (error) {
-    console.error('[mediaRepository] media_assets upsert failed', {
-      id: input.record.id,
-      path: input.storagePath,
-      bytes: input.record.blob.size,
-      code: error.code,
-      message: error.message
-    });
-    throw error;
+    const diagnostics = {
+      stage: 'media-assets' as const,
+      ownerType: input.record.ownerType,
+      familyId: input.scope.familyId,
+      childId: input.scope.childId,
+      ownerId: input.scope.ownerId,
+      originalFileName: input.record.fileName ?? null,
+      originalMimeType: input.record.mimeType,
+      originalBytes: input.record.blob.size,
+      normalizedFileName: input.record.fileName ?? null,
+      normalizedMimeType: input.record.mimeType,
+      normalizedBytes: input.record.blob.size,
+      storagePath: input.storagePath,
+      mediaAssetId: input.record.id,
+      uploadCode: error.code,
+      uploadMessage: error.message
+    };
+    logImageUploadDiagnostics('[mediaRepository] media_assets upsert failed', diagnostics);
+    throw new ImageUploadPipelineError('media-assets', uploadStageMessage('media-assets'), diagnostics, error);
   }
-  console.info('[mediaRepository] media_assets upsert completed', {
-    id: input.record.id,
-    path: input.storagePath,
-    bytes: input.record.blob.size
+  logImageUploadDiagnostics('[mediaRepository] media_assets upsert completed', {
+    stage: 'media-assets',
+    ownerType: input.record.ownerType,
+    familyId: input.scope.familyId,
+    childId: input.scope.childId,
+    ownerId: input.scope.ownerId,
+    originalFileName: input.record.fileName ?? null,
+    originalMimeType: input.record.mimeType,
+    originalBytes: input.record.blob.size,
+    normalizedFileName: input.record.fileName ?? null,
+    normalizedMimeType: input.record.mimeType,
+    normalizedBytes: input.record.blob.size,
+    storagePath: input.storagePath,
+    mediaAssetId: input.record.id
   });
 }
 

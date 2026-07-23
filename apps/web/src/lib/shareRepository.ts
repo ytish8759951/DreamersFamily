@@ -110,6 +110,7 @@ async function saveShareMedia(input: SaveShareMediaInput) {
   }
   return {
     id: mediaId,
+    media_asset_id: mediaId,
     media_type: input.mediaType,
     bucket: savedMedia.bucket ?? 'local-media',
     storage_path: savedMedia.storagePath ?? '',

@@ -44,4 +44,33 @@ describe('iPad production regression hardening', () => {
     expect(piggyPage).toContain('piggy-buy');
     expect(piggyPage).toContain('處理中');
   });
+
+  it('uses the shared iOS image pipeline for piggy product photos before product RPC', () => {
+    const piggyPage = readRepoFile('apps/web/src/pages/PiggyBankPage.tsx');
+    const pipeline = readRepoFile('apps/web/src/lib/imageUploadPipeline.ts');
+
+    expect(pipeline).toContain('SUPPORTED_IMAGE_EXTENSIONS');
+    expect(pipeline).toContain('image/heic');
+    expect(pipeline).toContain('normalizeImageFileName');
+    expect(pipeline).toContain('imageOrientation');
+    expect(piggyPage).toContain('prepareImageFileForUpload');
+    expect(piggyPage).toContain('ownerId,');
+    expect(piggyPage).toContain('galleryImages.map((item) => item.file)');
+    expect(piggyPage).toContain('商品儲存中');
+    expect(piggyPage).toContain('piggyRepository.deleteProductImage');
+  });
+
+  it('keeps share multi-photo media asset ids unique and finalizes only after all uploads complete', () => {
+    const childSharePage = readRepoFile('apps/web/src/pages/child/ChildPage.tsx');
+    const shareRepository = readRepoFile('apps/web/src/lib/shareRepository.ts');
+    const localData = readRepoFile('apps/web/src/lib/localData.ts');
+
+    expect(childSharePage).toContain('for (let index = 0; index < total; index += 1)');
+    expect(childSharePage).toContain('media_asset_id: uploadedMedia.id');
+    expect(childSharePage).toContain('const createdShare = shareRepository.createShare');
+    expect(childSharePage.indexOf('mediaInputs.push')).toBeLessThan(childSharePage.indexOf('const createdShare = shareRepository.createShare'));
+    expect(childSharePage).toContain('第 ${index + 1} 張照片上傳失敗');
+    expect(shareRepository).toContain('media_asset_id: mediaId');
+    expect(localData).toContain('media_asset_id: item.media_asset_id ?? mediaId');
+  });
 });
