@@ -3766,9 +3766,9 @@ function fromChildScopedSupabaseSnapshot(
     .map(fromSupabaseDeviceBinding);
   const taskRecords = snapshot.task_records ?? [];
   const remoteTasks = mergeTasks(
-    baseState.tasks,
+    [],
     (snapshot.tasks ?? []).map(fromSupabaseTask),
-    taskRecords.map(fromSupabaseTaskRecord).filter((task): task is LocalTask => Boolean(task))
+    []
   );
   const piggyState = fromSupabasePiggyRows({
     baseState,

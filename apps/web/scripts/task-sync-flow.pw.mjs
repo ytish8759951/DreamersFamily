@@ -147,3 +147,91 @@ test('iPad WebKit task sync, daily rollover, isolation, and shared star ledger r
   await page.evaluate(() => window.sendShareEncouragementOnce('share-1', 3));
   await expect(page.locator('#ledger')).toHaveText('14');
 });
+
+test('iPad WebKit child sync drops expired daily templates and local ghost tasks', async ({ page }) => {
+  await page.setContent(`
+    <main>
+      <section id="child"></section>
+      <script>
+        const today = '2026-07-23';
+        const localGhost = {
+          id: 'ghost-daily-local',
+          child_id: 'child-0720',
+          category: 'daily',
+          status: 'pending',
+          occurrence_date: today,
+          daily_template_active: false,
+          reward_stars: 3,
+          task_image_media_id: null,
+          thumbnail_media_id: null
+        };
+        const rpcTasks = [
+          {
+            id: 'daily-template',
+            child_id: 'child-0720',
+            category: 'daily',
+            status: 'expired',
+            occurrence_date: null,
+            daily_template_active: true,
+            reward_stars: 3,
+            task_image_media_id: 'bear-image',
+            thumbnail_media_id: 'bear-thumb'
+          },
+          {
+            id: 'daily-instance',
+            child_id: 'child-0720',
+            category: 'daily',
+            status: 'pending',
+            occurrence_date: today,
+            daily_template_active: false,
+            reward_stars: 3,
+            task_image_media_id: 'bear-image',
+            thumbnail_media_id: 'bear-thumb'
+          },
+          {
+            id: 'habit-task',
+            child_id: 'child-0720',
+            category: 'habit',
+            status: 'pending',
+            occurrence_date: null,
+            daily_template_active: null,
+            reward_stars: 1,
+            task_image_media_id: 'habit-image',
+            thumbnail_media_id: 'habit-thumb'
+          },
+          {
+            id: 'household-task',
+            child_id: 'child-0720',
+            category: 'household',
+            status: 'pending',
+            occurrence_date: null,
+            daily_template_active: null,
+            reward_stars: 1,
+            task_image_media_id: 'household-image',
+            thumbnail_media_id: 'household-thumb'
+          }
+        ];
+        const childVisible = (tasks) => tasks
+          .filter((task) => task.child_id === 'child-0720')
+          .filter((task) => task.status !== 'cancelled' && task.status !== 'expired')
+          .filter((task) => task.category !== 'daily' || (!task.daily_template_active && task.occurrence_date === today));
+        window.renderFromRpc = () => {
+          const authoritativeTasks = rpcTasks.filter((task) => task.status !== 'expired');
+          const visible = childVisible(authoritativeTasks);
+          document.querySelector('#child').textContent = visible.map((task) => task.id + ':' + task.thumbnail_media_id).join('|');
+          window.__visibleCount = visible.length;
+          window.__hasGhost = visible.some((task) => task.id === localGhost.id);
+        };
+      </script>
+    </main>
+  `);
+
+  await page.evaluate(() => window.renderFromRpc());
+  await expect(page.locator('#child')).toContainText('daily-instance:bear-thumb');
+  await expect(page.locator('#child')).toContainText('habit-task:habit-thumb');
+  await expect(page.locator('#child')).toContainText('household-task:household-thumb');
+  await expect(page.locator('#child')).not.toContainText('daily-template');
+  await expect(page.locator('#child')).not.toContainText('ghost-daily-local');
+  expect(await page.evaluate(() => window.__visibleCount)).toBe(3);
+  expect(await page.evaluate(() => window.__hasGhost)).toBe(false);
+});

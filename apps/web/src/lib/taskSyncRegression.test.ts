@@ -7,6 +7,7 @@ const repoRoot = resolve(dirname(fileURLToPath(import.meta.url)), '..', '..', '.
 const appRoot = resolve(repoRoot, 'apps', 'web');
 const migration029 = readFileSync(resolve(repoRoot, 'supabase', 'migrations', '029_task_sync_daily_instances.sql'), 'utf8');
 const migration030 = readFileSync(resolve(repoRoot, 'supabase', 'migrations', '030_task_media_and_daily_canonicalization.sql'), 'utf8');
+const migration031 = readFileSync(resolve(repoRoot, 'supabase', 'migrations', '031_child_scoped_active_task_filter.sql'), 'utf8');
 const supabaseData = readFileSync(resolve(appRoot, 'src', 'lib', 'supabaseData.ts'), 'utf8');
 const childPage = readFileSync(resolve(appRoot, 'src', 'pages', 'child', 'ChildPage.tsx'), 'utf8');
 const parentTasks = readFileSync(resolve(appRoot, 'src', 'pages', 'parent', 'ParentFeaturePages.tsx'), 'utf8');
@@ -37,9 +38,12 @@ describe('task sync and daily task regression guards', () => {
   });
 
   it('ensures child scoped task reads are bound to the verified child and generate daily instances first', () => {
-    expect(migration029).toContain('create or replace function public.get_child_scoped_repository_state');
-    expect(migration029).toContain('perform public._ensure_daily_task_instances(v_child.family_id, v_child.id, null)');
-    expect(migration029).toContain('task_row.family_id = v_child.family_id and task_row.child_id = v_child.id');
+    expect(migration031).toContain('create or replace function public.get_child_scoped_repository_state');
+    expect(migration031).toContain('perform public._ensure_daily_task_instances(v_child.family_id, v_child.id, v_today)');
+    expect(migration031).toContain('task_row.family_id = v_child.family_id');
+    expect(migration031).toContain("task_row.status not in ('cancelled', 'expired')");
+    expect(migration031).toContain("task_row.category <> 'daily'");
+    expect(migration031).toContain('task_row.occurrence_date = v_today');
   });
 
   it('front-end task dates use Asia/Taipei and do not show a false 0/0 while loading', () => {
@@ -51,6 +55,8 @@ describe('task sync and daily task regression guards', () => {
   });
 
   it('treats formal task rows as source of truth and does not let stale snapshots override them', () => {
+    expect(supabaseData).toContain('const remoteTasks = mergeTasks(');
+    expect(supabaseData).toContain('[],');
     expect(supabaseData).toContain('const tableTaskIds = new Set(tableTasks.map((task) => task.id))');
     expect(supabaseData).toContain('tableTasks.forEach((task) => merge(task, true))');
     expect(supabaseData).toContain('task_image_media_id: row.task_image_media_id ?? null');
