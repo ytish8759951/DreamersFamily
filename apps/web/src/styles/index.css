@@ -3078,6 +3078,91 @@ body.piggy-v2-scroll-locked {
 .pf-mail-middle, .pf-mail-bottom { display: grid; gap: 14px; }
 .pf-mail-middle { grid-template-columns: 1.35fr .65fr; }
 .pf-mail-bottom { grid-template-columns: 1fr 1fr; }
+.pf-mailbox-toolbar {
+  display: flex;
+  align-items: end;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 12px 14px;
+  background: rgba(255, 252, 242, .92);
+  border: 1px solid rgba(116, 143, 93, .18);
+  border-radius: 18px;
+}
+.pf-mailbox-toolbar label {
+  display: grid;
+  gap: 6px;
+  color: #59614d;
+  font-size: .88rem;
+  font-weight: 800;
+}
+.pf-mailbox-toolbar select {
+  min-width: 180px;
+  height: 44px;
+  border: 1px solid rgba(116, 143, 93, .25);
+  border-radius: 12px;
+  background: #fff;
+  padding: 0 12px;
+}
+.pf-mailbox-toolbar strong {
+  color: #4f7b44;
+}
+.mailbox-sent-image {
+  width: 96px;
+  aspect-ratio: 1;
+  object-fit: cover;
+  border-radius: 14px;
+  margin-top: 8px;
+}
+.mailbox-sent-audio {
+  width: min(260px, 100%);
+  margin-top: 8px;
+}
+.mailbox-image-preview {
+  grid-column: 1 / -1;
+  margin: 0;
+  display: grid;
+  gap: 8px;
+}
+.mailbox-image-preview img {
+  width: min(240px, 100%);
+  aspect-ratio: 4 / 3;
+  object-fit: cover;
+  border-radius: 16px;
+}
+.mailbox-image-preview figcaption,
+.mailbox-media-loading,
+.mailbox-media-error {
+  color: #6c725f;
+  font-size: .82rem;
+}
+.mailbox-form-dialog,
+.special-day-form-dialog {
+  max-height: min(92dvh, 760px);
+  display: flex;
+  flex-direction: column;
+}
+.mailbox-form-dialog > header,
+.special-day-form-dialog > header {
+  flex: 0 0 auto;
+}
+.mailbox-form-dialog > form,
+.special-day-form-dialog > form {
+  overflow-y: auto;
+  padding-bottom: calc(88px + env(safe-area-inset-bottom));
+}
+.mailbox-form-dialog footer,
+.special-day-form-dialog footer {
+  position: sticky;
+  bottom: 0;
+  z-index: 5;
+  padding-bottom: calc(12px + env(safe-area-inset-bottom));
+  background: linear-gradient(180deg, rgba(255,255,255,.86), #fff 35%);
+}
+.mailbox-form-dialog footer button,
+.special-day-form-dialog footer button {
+  min-height: 52px;
+  pointer-events: auto;
+}
 .pf-messages article { display: grid; grid-template-columns: 43px 1fr auto; align-items: center; gap: 10px; border: 1px solid var(--pf-line); border-radius: 15px; background: var(--pf-cream); padding: 10px; margin-top: 8px; }
 .pf-messages p { display: flex; align-items: center; gap: 7px; margin: 0 0 5px; }
 .pf-messages i { border-radius: 999px; background: white; padding: 4px 7px; color: var(--pf-dark); font-size: 8px; font-style: normal; }

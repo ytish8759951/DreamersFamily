@@ -8,6 +8,7 @@ import { dataMode, dataModeBadgeLabel, dataModeLabel, dataRepository } from '../
 import { useDreamCoverMigration } from '../../lib/dreamCoverMigration';
 import { captureFirstSelectedFile } from '../../lib/fileInput';
 import { compressImageFile } from '../../lib/imageCompression';
+import { ImageUploadPipelineError, prepareImageFileForUpload, uploadStageMessage } from '../../lib/imageUploadPipeline';
 import { mailboxRepository, type MailboxRecordingDraft } from '../../lib/mailboxRepository';
 import { memoryRepository } from '../../lib/memoryRepository';
 import { shareRepository } from '../../lib/shareRepository';
@@ -24,6 +25,7 @@ import type {
   ShareWithMedia
 } from '../../lib/localTypes';
 import { useLocalDataState } from '../../lib/useLocalData';
+import { useSubmitLock } from '../../lib/useSubmitLock';
 
 type Tone = 'blue' | 'green' | 'pink' | 'yellow';
 
@@ -1261,7 +1263,12 @@ type MailboxRecordedAudio = {
 export function ParentMailboxPage() {
   const state = useLocalDataState();
   const activeChildren = state.children.filter((child) => child.status === 'active');
+  const defaultChildId = state.active_child_id ?? activeChildren[0]?.id ?? '';
+  const { acquire, release, isLocked } = useSubmitLock();
+  const [selectedChildId, setSelectedChildId] = useState(defaultChildId);
+  const [sendResult, setSendResult] = useState('');
   const messages = state.encouragement_cards
+    .filter((message) => !selectedChildId || message.child_id === selectedChildId)
     .slice()
     .sort((a, b) => b.created_at.localeCompare(a.created_at));
   const [showForm, setShowForm] = useState(false);
@@ -1272,38 +1279,51 @@ export function ParentMailboxPage() {
   const timerRef = useRef<number | null>(null);
   const recordingTokenRef = useRef(0);
   const [form, setForm] = useState({
-    child_id: 'all',
+    child_id: defaultChildId,
     type: 'text' as LocalMailboxMessage['card_type'],
     title: '',
     message: '',
     file: null as File | null,
+    file_preview_url: null as string | null,
     recording: null as MailboxRecordedAudio | null,
     recording_accepted: false,
     is_recording: false,
     recording_seconds: 0
   });
+  useEffect(() => {
+    if (!activeChildren.length) {
+      setSelectedChildId('');
+      return;
+    }
+    if (!selectedChildId || !activeChildren.some((child) => child.id === selectedChildId)) {
+      setSelectedChildId(defaultChildId);
+    }
+  }, [activeChildren, defaultChildId, selectedChildId]);
   const childName = (childId: string) =>
     state.children.find((child) => child.id === childId)?.display_name ?? '已封存孩子';
   const openForm = (type: LocalMailboxMessage['card_type']) => {
     stopActiveRecording(false);
     setForm({
-      child_id: state.active_child_id ?? activeChildren[0]?.id ?? 'all',
+      child_id: selectedChildId || defaultChildId,
       type,
       title: '',
       message: '',
       file: null,
+      file_preview_url: null,
       recording: null,
       recording_accepted: false,
       is_recording: false,
       recording_seconds: 0
     });
     setFormError('');
+    setSendResult('');
     setShowForm(true);
   };
 
   const closeMailboxForm = () => {
     stopActiveRecording(false);
     mailboxRepository.releaseRecordingDraft(form.recording);
+    if (form.file_preview_url) URL.revokeObjectURL(form.file_preview_url);
     setShowForm(false);
   };
 
@@ -1417,43 +1437,61 @@ export function ParentMailboxPage() {
 
   const sendMessage = async (event: FormEvent) => {
     event.preventDefault();
+    const lockKey = `mailbox:send:${form.child_id}:${form.type}`;
+    if (!acquire(lockKey)) return;
     setFormError('');
-    const recipients =
-      form.child_id === 'all'
-        ? activeChildren
-        : activeChildren.filter((child) => child.id === form.child_id);
+    setSendResult('');
+    const recipients = activeChildren.filter((child) => child.id === form.child_id);
     if (!recipients.length) {
       setFormError('請先建立或選擇孩子');
+      release(lockKey);
       return;
     }
+    const uploadedMediaIds: string[] = [];
     try {
       if (form.type === 'audio' && (!form.recording || !form.recording_accepted)) {
         setFormError('請先錄音，再使用這段錄音送出。');
+        release(lockKey);
         return;
       }
       if (form.type === 'image' && !form.file) {
         setFormError('請選擇本機檔案');
+        release(lockKey);
         return;
       }
       for (const child of recipients) {
+        const messageId = createLocalMediaId();
+        const clientRequestId = `mailbox:parent:${messageId}`;
         let media: { media_id: string; mime_type: string; file_name?: string } | null = null;
         if (form.type === 'audio' && form.recording) {
-          const mediaId = await mailboxRepository.saveMailboxRecording({ ownerId: 'mailbox-audio', childId: child.id, recording: form.recording });
+          const mediaId = await mailboxRepository.saveMailboxRecording({ ownerId: messageId, childId: child.id, recording: form.recording });
+          uploadedMediaIds.push(mediaId);
           media = {
             media_id: mediaId,
             mime_type: form.recording.mime_type,
             file_name: form.recording.file_name
           };
         } else if (form.type === 'image' && form.file) {
-          const mediaId = await mailboxRepository.saveMailboxMediaFile({
-            ownerId: 'mailbox-image',
+          const prepared = await prepareImageFileForUpload(form.file, {
+            fallbackBaseName: 'mailbox-image',
+            ownerType: 'mailbox',
+            ownerId: messageId,
+            childId: child.id
+          });
+          const mediaId = await mailboxRepository.saveMailboxMedia({
+            ownerId: messageId,
             childId: child.id,
             cardType: form.type,
-            file: form.file
+            mimeType: prepared.mimeType,
+            fileName: prepared.normalizedFileName,
+            blob: prepared.blob
           });
-          media = { media_id: mediaId, mime_type: form.file.type || mailboxDefaultMimeType(form.type), file_name: form.file.name };
+          uploadedMediaIds.push(mediaId);
+          media = { media_id: mediaId, mime_type: prepared.mimeType, file_name: prepared.normalizedFileName };
         }
         mailboxRepository.createMailboxMessage({
+          id: messageId,
+          client_request_id: clientRequestId,
           child_id: child.id,
           title: form.title || mailboxDefaultTitle(form.type),
           message: form.message || (form.type === 'card' ? '你今天很棒，繼續加油！' : null),
@@ -1462,14 +1500,30 @@ export function ParentMailboxPage() {
           media
         });
       }
+      setSelectedChildId(recipients[0].id);
+      setSendResult('已送給孩子');
       closeMailboxForm();
     } catch (caught) {
-      setFormError(caught instanceof Error ? caught.message : '發送訊息失敗');
+      await Promise.allSettled(uploadedMediaIds.map((mediaId) => mailboxRepository.deleteMailboxMedia(mediaId)));
+      setFormError(formatMailboxSendError(caught));
+    } finally {
+      release(lockKey);
     }
   };
 
+  const isSending = isLocked(`mailbox:send:${form.child_id}:${form.type}`);
+
   return <div className="pf-page pf-mailbox">
-    <Header icon="💌" title="信箱管理" subtitle="管理給孩子的鼓勵與訊息" action="新增訊息" onAction={() => openForm('text')} />
+    <Header icon="💌" title="寫給孩子" subtitle="用正式信箱把文字、鼓勵卡、圖片與語音送到孩子裝置" action="新增訊息" onAction={() => openForm('text')} />
+    <section className="pf-mailbox-toolbar">
+      <label>
+        收件孩子
+        <select value={selectedChildId} onChange={(event) => setSelectedChildId(event.target.value)}>
+          {activeChildren.map((child) => <option value={child.id} key={child.id}>{child.display_name}</option>)}
+        </select>
+      </label>
+      {sendResult ? <strong>{sendResult}</strong> : null}
+    </section>
     <Stats items={[
       { label: '💌 已寄出信件', value: String(messages.length), tone: 'green' },
       { label: '💗 鼓勵卡', value: String(messages.filter((message) => message.card_type === 'card').length), tone: 'pink' },
@@ -1480,13 +1534,13 @@ export function ParentMailboxPage() {
       {[
         ['💬', '文字訊息', '送上一句溫暖的話', 'green', 'text'],
         ['💗', '鼓勵卡', '用小卡鼓勵孩子', 'pink', 'card'],
-        ['🎤', '語音訊息', '選擇本機音檔', 'yellow', 'audio'],
+        ['🎤', '語音訊息', '錄音後送給孩子', 'yellow', 'audio'],
         ['🖼', '圖片訊息', '選擇本機圖片', 'blue', 'image']
       ].map((item) => <button className={`is-${item[3]}`} key={item[1]} onClick={() => openForm(item[4] as LocalMailboxMessage['card_type'])}><span>{item[0]}</span><p><strong>{item[1]}</strong><small>{item[2]}</small></p></button>)}
     </Panel>
     <section className="pf-mail-middle">
-      <Panel title="最近寄出訊息" action={`查看全部 ${messages.length} 則`} className="pf-messages">
-        {messages.length ? messages.map((message, i) => <article key={message.id}><span className={`pf-avatar is-${kids[i % kids.length].tone}`}>👦</span><div><p><strong>{childName(message.child_id)}</strong><i>{mailboxTypeIcon(message.card_type)} {mailboxTypeLabel(message.card_type)}</i></p><b>{message.title || message.message || mailboxTypeLabel(message.card_type)}</b><small>{message.status === 'opened' ? '已讀' : '未讀'}</small></div><time>{formatDate(message.sent_at ?? message.created_at)}</time></article>) : <TaskEmpty text="尚未寄出訊息" />}
+      <Panel title="已送出的訊息" action={`查看全部 ${messages.length} 則`} className="pf-messages">
+        {messages.length ? messages.map((message, i) => <article key={message.id}><span className={`pf-avatar is-${kids[i % kids.length].tone}`}>{mailboxTypeIcon(message.card_type)}</span><div><p><strong>{childName(message.child_id)}</strong><i>{mailboxTypeLabel(message.card_type)}</i></p><b>{message.title || message.message || mailboxTypeLabel(message.card_type)}</b><small>{message.status === 'opened' ? '已讀' : '未讀'} · {message.message ? message.message.slice(0, 36) : '含附件'}</small><ParentMailboxMediaPreview message={message} /></div><time>{formatDate(message.sent_at ?? message.created_at)}</time></article>) : <TaskEmpty text="尚未寄出訊息" />}
       </Panel>
       <Panel title="訊息範本" action="常用快速訊息" className="pf-templates">{['💗 好棒喔！', '🌟 繼續加油！', '🎉 我為你感到驕傲！', '🌈 今天也很努力呢！'].map((item, i) => <button className={`is-${(['pink', 'yellow', 'blue', 'green'] as Tone[])[i]}`} key={item} onClick={() => setForm((current) => ({ ...current, message: item.replace(/^[^ ]+ /, '') }))}>{item}</button>)}</Panel>
     </section>
@@ -1506,7 +1560,6 @@ export function ParentMailboxPage() {
             <label>
               收件孩子
               <select value={form.child_id} onChange={(event) => setForm({ ...form, child_id: event.target.value })}>
-                <option value="all">全部孩子</option>
                 {activeChildren.map((child) => <option value={child.id} key={child.id}>{child.display_name}</option>)}
               </select>
             </label>
@@ -1518,6 +1571,7 @@ export function ParentMailboxPage() {
                   ...form,
                   type: event.target.value as LocalMailboxMessage['card_type'],
                   file: null,
+                  file_preview_url: null,
                   recording: null,
                   recording_accepted: false,
                   is_recording: false,
@@ -1545,19 +1599,68 @@ export function ParentMailboxPage() {
               />
             ) : null}
             {form.type === 'image' ? (
-              <label className="is-full">本機檔案<input required type="file" accept={mailboxAccept(form.type)} onChange={(event) => {
+              <label className="is-full">圖片拍照／圖庫選取<input required type="file" accept={mailboxAccept(form.type)} onChange={(event) => {
                 const input = event.currentTarget;
                 const file = captureFirstSelectedFile(input);
-                setForm({ ...form, file });
+                const previousUrl = form.file_preview_url;
+                if (previousUrl) URL.revokeObjectURL(previousUrl);
+                setForm({ ...form, file, file_preview_url: file ? URL.createObjectURL(file) : null });
               }} /></label>
             ) : null}
+            {form.file_preview_url ? <figure className="mailbox-image-preview"><img src={form.file_preview_url} alt="已選圖片預覽" /><figcaption>{form.file?.name} · {form.file ? formatBytes(form.file.size) : ''}</figcaption></figure> : null}
             {formError ? <p className="local-form-error">{formError}</p> : null}
-            <footer><button type="button" onClick={closeMailboxForm}>取消</button><button className="ds-primary-button" type="submit">發送訊息</button></footer>
+            <footer><button type="button" onClick={closeMailboxForm} disabled={isSending}>取消</button><button className="ds-primary-button" type="submit" disabled={isSending}>{isSending ? '傳送中' : '送給孩子'}</button></footer>
           </form>
         </section>
       </div>
     ) : null}
   </div>;
+}
+
+function ParentMailboxMediaPreview({ message }: { message: LocalMailboxMessage }) {
+  const mediaId = message.media_id ?? message.media_path;
+  const [url, setUrl] = useState<string | null>(null);
+  const [error, setError] = useState('');
+
+  useEffect(() => {
+    if (!mediaId) return;
+    let cancelled = false;
+    setUrl(null);
+    setError('');
+    void mailboxRepository.getMailboxMediaUrl(mediaId).then((value) => {
+      if (cancelled) {
+        mailboxRepository.releaseMailboxMediaUrl(mediaId);
+        return;
+      }
+      setUrl(value);
+    }).catch(() => {
+      if (!cancelled) setError('附件載入失敗，請重新整理後再試。');
+    });
+    return () => {
+      cancelled = true;
+      mailboxRepository.releaseMailboxMediaUrl(mediaId);
+    };
+  }, [mediaId]);
+
+  if (!mediaId) return null;
+  if (error) return <small className="mailbox-media-error">{error}</small>;
+  if (!url) return <small className="mailbox-media-loading">附件載入中</small>;
+  if (message.card_type === 'audio') return <audio className="mailbox-sent-audio" src={url} controls />;
+  if (message.card_type === 'image') return <img className="mailbox-sent-image" src={url} alt={message.title ?? '信箱圖片'} />;
+  return null;
+}
+
+function formatMailboxSendError(caught: unknown) {
+  if (caught instanceof ImageUploadPipelineError) return caught.userMessage || uploadStageMessage(caught.stage);
+  if (caught instanceof Error) return caught.message || '訊息傳送失敗';
+  return '訊息傳送失敗';
+}
+
+function formatBytes(bytes: number) {
+  if (!Number.isFinite(bytes) || bytes <= 0) return '0 B';
+  if (bytes < 1024) return `${bytes} B`;
+  if (bytes < 1024 * 1024) return `${Math.round(bytes / 1024)} KB`;
+  return `${(bytes / 1024 / 1024).toFixed(1)} MB`;
 }
 
 function MailboxAudioRecorder({

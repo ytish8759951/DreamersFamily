@@ -716,6 +716,8 @@ export interface CreateShareInput {
 }
 
 export interface CreateMailboxMessageInput {
+  id?: UUID;
+  client_request_id?: string | null;
   child_id: UUID;
   sender_role?: 'parent' | 'child' | 'system';
   title?: string | null;
@@ -745,6 +747,8 @@ export interface AwardBadgeInput {
 }
 
 export interface CreateSpecialDayInput {
+  id?: UUID;
+  client_request_id?: string | null;
   child_id?: UUID | null;
   title: string;
   date: string;
@@ -757,6 +761,7 @@ export interface CreateSpecialDayInput {
 }
 
 export interface UpdateSpecialDayInput {
+  client_request_id?: string | null;
   child_id?: UUID | null;
   title?: string;
   date?: string;
@@ -2262,10 +2267,20 @@ export class LocalDataService implements LocalDataRepository {
       if (!input.message?.trim() && !input.media) {
         throw new LocalDataError('Mailbox messages require text or media', 'VALIDATION_ERROR');
       }
+      const clientRequestId = input.client_request_id ?? id();
+      if (clientRequestId) {
+        const existing = state.encouragement_cards.find(
+          (item) =>
+            item.family_id === state.family_id &&
+            item.child_id === input.child_id &&
+            item.client_request_id === clientRequestId
+        );
+        if (existing) return existing;
+      }
       const timestamp = now();
       const isScheduled = Boolean(input.scheduled_at);
       const message: LocalMailboxMessage = {
-        id: id(),
+        id: input.id ?? id(),
         family_id: state.family_id,
         child_id: input.child_id,
         sender_user_id: state.current_user_id,
@@ -2284,7 +2299,7 @@ export class LocalDataService implements LocalDataRepository {
         sent_at: isScheduled ? null : timestamp,
         opened_at: null,
         archived_at: null,
-        client_request_id: id(),
+        client_request_id: clientRequestId,
         created_at: timestamp,
         updated_at: timestamp
       };
@@ -2425,7 +2440,15 @@ export class LocalDataService implements LocalDataRepository {
     return this.db.transaction((state) => {
       const childId = resolveRequiredChildId(state, input.child_id);
       const timestamp = now();
-      const specialDayId = id();
+      const specialDayId = input.id ?? id();
+      const clientRequestId = input.client_request_id ?? `special-day:create:${specialDayId}`;
+      const existing = state.special_days.find(
+        (item) =>
+          item.family_id === state.family_id &&
+          item.child_id === childId &&
+          item.client_request_id === clientRequestId
+      );
+      if (existing) return existing;
       const specialDay: LocalSpecialDay = {
         id: specialDayId,
         family_id: state.family_id,
@@ -2443,7 +2466,7 @@ export class LocalDataService implements LocalDataRepository {
         created_at: timestamp,
         updated_at: timestamp,
         deleted_at: null,
-        client_request_id: `special-day:create:${specialDayId}`
+        client_request_id: clientRequestId
       };
       state.special_days.push(specialDay);
       pushNotification(state, {
@@ -2475,6 +2498,7 @@ export class LocalDataService implements LocalDataRepository {
       if (input.image_data_url !== undefined) specialDay.image_data_url = null;
       if (input.createdBy !== undefined) specialDay.createdBy = input.createdBy;
       if (input.source !== undefined) specialDay.source = input.source;
+      if (input.client_request_id !== undefined) specialDay.client_request_id = input.client_request_id;
       specialDay.updated_at = now();
       return specialDay;
     });

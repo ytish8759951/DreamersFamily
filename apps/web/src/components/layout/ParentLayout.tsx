@@ -2,8 +2,10 @@ import { useEffect, useLayoutEffect, useState } from 'react';
 import {
   Baby,
   Camera,
+  CalendarHeart,
   CheckSquare,
   Heart,
+  Mail,
   Menu,
   PiggyBank,
   Settings,
@@ -14,7 +16,7 @@ import { NavLink, Outlet, useLocation } from 'react-router-dom';
 import { syncAppShellMetadata } from '../../lib/appRuntime';
 import { useLocalDataState } from '../../lib/useLocalData';
 
-const navItems = [
+const legacyNavItems = [
   { label: '任務管理', href: '/parent/tasks', icon: CheckSquare },
   { label: '今日分享', href: '/parent/share', icon: Camera },
   { label: '撲滿 / 商品兌換', href: '/parent/dreams', icon: PiggyBank },
@@ -22,6 +24,18 @@ const navItems = [
   { label: '成長紀錄', href: '/parent/growth', icon: Heart },
   { label: '孩子管理', href: '/parent/children', icon: Baby },
   { label: '家長設定', href: '/parent/settings', icon: Settings }
+];
+
+const navItems = [
+  { label: '任務', href: '/parent/tasks', icon: CheckSquare },
+  { label: '今日分享', href: '/parent/share', icon: Camera },
+  { label: '撲滿 / 商品', href: '/parent/dreams', icon: PiggyBank },
+  { label: '平板時間', href: '/parent/screen-time', icon: Tablet },
+  { label: '重要日子', href: '/parent/special-days', icon: CalendarHeart },
+  { label: '成長紀錄', href: '/parent/growth', icon: Heart },
+  { label: '信箱', href: '/parent/mailbox', icon: Mail },
+  { label: '孩子管理', href: '/parent/children', icon: Baby },
+  { label: '設定', href: '/parent/settings', icon: Settings }
 ];
 
 export function ParentLayout() {

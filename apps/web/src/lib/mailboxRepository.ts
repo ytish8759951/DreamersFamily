@@ -19,6 +19,7 @@ export const mailboxRepository = {
   saveMailboxMedia,
   saveMailboxMediaFile,
   saveMailboxRecording,
+  deleteMailboxMedia,
   getMailboxMediaUrl,
   releaseMailboxMediaUrl
 };
@@ -83,6 +84,10 @@ function saveMailboxRecording(input: { ownerId: string; childId?: string | null;
     durationSeconds: input.recording.duration_seconds,
     blob: input.recording.blob
   });
+}
+
+function deleteMailboxMedia(mediaId: string) {
+  return mediaRepository.deleteMedia(mediaId);
 }
 
 function getMailboxMediaUrl(mediaId: string) {

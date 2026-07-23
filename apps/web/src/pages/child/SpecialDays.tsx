@@ -1,11 +1,12 @@
 import { useEffect, useMemo, useState, type FormEvent, type ReactNode } from 'react';
-import { CalendarHeart, Clock3, Gift, Plus, PartyPopper } from 'lucide-react';
+import { CalendarHeart, Clock3, Edit3, Gift, Plus, Trash2 } from 'lucide-react';
 import { resolveCurrentChildId } from '../../lib/childSession';
 import { dataModeBadgeLabel } from '../../lib/dataRepository';
 import { specialDayRepository } from '../../lib/specialDayRepository';
 import type { LocalSpecialDay, SpecialDayType } from '../../lib/localTypes';
 import { getBirthdaySpecialDays } from '../../lib/specialDays';
 import { useLocalDataState } from '../../lib/useLocalData';
+import { useSubmitLock } from '../../lib/useSubmitLock';
 
 type ChildSpecialDayItem = LocalSpecialDay & {
   source?: 'manual' | 'child_birthday';
@@ -30,16 +31,16 @@ const emptyForm: ChildSpecialDayForm = {
 
 const typeLabels: Record<SpecialDayType, { label: string; icon: string }> = {
   birthday: { label: '生日', icon: '🎂' },
-  anniversary: { label: '紀念日', icon: '💗' },
-  holiday: { label: '節日', icon: '🎄' },
-  family_event: { label: '家庭活動', icon: '🏕' },
-  other: { label: '其他', icon: '✨' }
+  anniversary: { label: '紀念日', icon: '💚' },
+  holiday: { label: '節日', icon: '🎉' },
+  family_event: { label: '家庭活動', icon: '🏡' },
+  other: { label: '其他', icon: '⭐' }
 };
 
-const manualTypeOptions: { value: ChildSpecialDayForm['type']; label: string; icon: string }[] = [
-  { value: 'anniversary', label: '紀念日', icon: '💗' },
-  { value: 'family_event', label: '家庭活動', icon: '🏕' },
-  { value: 'other', label: '其他', icon: '✨' }
+const manualTypeOptions: Array<{ value: ChildSpecialDayForm['type']; label: string; icon: string }> = [
+  { value: 'anniversary', label: '紀念日', icon: '💚' },
+  { value: 'family_event', label: '家庭活動', icon: '🏡' },
+  { value: 'other', label: '其他', icon: '⭐' }
 ];
 
 export function ChildSpecialDays() {
@@ -47,8 +48,10 @@ export function ChildSpecialDays() {
   const currentChildId = resolveCurrentChildId(state);
   const activeChild = state.children.find((child) => child.id === currentChildId && child.status === 'active') ?? null;
   const [showForm, setShowForm] = useState(false);
+  const [editingId, setEditingId] = useState<string | null>(null);
   const [formError, setFormError] = useState('');
   const [form, setForm] = useState<ChildSpecialDayForm>(emptyForm);
+  const { acquire, release, isLocked } = useSubmitLock();
 
   const birthdayDays = useMemo(() => {
     if (!activeChild) return [];
@@ -60,7 +63,7 @@ export function ChildSpecialDays() {
       title: day.title,
       date: day.date,
       type: 'birthday',
-      description: '來自孩子生日',
+      description: '生日由孩子資料自動產生',
       image_media_id: null,
       image_data_url: null,
       created_by: 'system',
@@ -92,130 +95,130 @@ export function ChildSpecialDays() {
   const history = days.filter((day) => daysUntil(day.date) < 0).sort((a, b) => b.date.localeCompare(a.date));
   const nextDays = upcoming.filter((day) => day.type !== 'birthday').slice(0, 2);
   const birthday = birthdayDays[0] ?? null;
+  const notifications = state.notifications.filter((notification) => notification.source_type === 'special_day' && notification.child_id === activeChild?.id).slice(0, 3);
 
   const openCreate = () => {
+    setEditingId(null);
     setForm(emptyForm);
     setFormError('');
     setShowForm(true);
   };
 
-  const saveDay = async (event: FormEvent) => {
+  const openEdit = (day: ChildSpecialDayItem) => {
+    if (day.createdBy !== 'child' || day.source === 'child_birthday') return;
+    setEditingId(day.id);
+    setForm({
+      title: day.title,
+      date: day.date,
+      type: day.type === 'birthday' ? 'anniversary' : day.type,
+      description: day.description ?? ''
+    });
+    setFormError('');
+    setShowForm(true);
+  };
+
+  const saveDay = (event: FormEvent) => {
     event.preventDefault();
+    const lockKey = `special-day:child:${editingId ?? 'create'}`;
+    if (!acquire(lockKey)) return;
     setFormError('');
     if (!activeChild) {
-      setFormError('請先選擇目前孩子');
+      setFormError('請先完成孩子登入');
+      release(lockKey);
       return;
     }
     try {
-      specialDayRepository.createSpecialDay({
+      const payload = {
         child_id: activeChild.id,
         title: form.title.trim(),
         date: form.date,
         type: form.type,
         description: form.description.trim() || null,
-        source: 'manual',
-        createdBy: 'child'
-      });
+        source: 'manual' as const,
+        createdBy: 'child' as const,
+        client_request_id: editingId ? `special-day:child:update:${editingId}:${Date.now()}` : `special-day:child:create:${crypto.randomUUID()}`
+      };
+      if (editingId) specialDayRepository.updateSpecialDay(editingId, payload);
+      else specialDayRepository.createSpecialDay({ ...payload, id: crypto.randomUUID() });
       setShowForm(false);
+      setEditingId(null);
       setForm(emptyForm);
     } catch (caught) {
-      setFormError(caught instanceof Error ? caught.message : '儲存重要日子失敗');
+      setFormError(caught instanceof Error ? caught.message : '重要日子儲存失敗');
+    } finally {
+      release(lockKey);
     }
   };
 
-  const specialDayText = activeChild
-    ? `${activeChild.display_name}的重要日子`
-    : '重要日子';
+  const deleteDay = (day: ChildSpecialDayItem) => {
+    if (day.createdBy !== 'child' || day.source === 'child_birthday') return;
+    if (window.confirm(`確定刪除「${day.title}」？`)) specialDayRepository.deleteSpecialDay(day.id);
+  };
+
+  const isSaving = isLocked(`special-day:child:${editingId ?? 'create'}`);
+  const specialDayText = activeChild ? `${activeChild.display_name}的重要日子` : '重要日子';
 
   return (
     <div className="child-special-page">
       <header className="child-special-hero">
         <div>
           <span><CalendarHeart size={30} /></span>
-          <small>特殊日子</small>
+          <small>重要日子</small>
           <h1>{specialDayText}</h1>
-          <p>只顯示目前孩子自己的生日與重要日子。</p>
+          <p>記錄生日、表演日、家庭活動和你自己想記住的日子。</p>
         </div>
-        <PartyPopper size={58} />
       </header>
 
       <section className="child-special-topbar">
         <button className="ds-primary-button" onClick={openCreate} disabled={!activeChild}>
           <Plus size={18} /> 新增我的日子
         </button>
-        {!activeChild ? <p className="child-special-empty-note">請先選擇目前孩子。</p> : null}
+        {!activeChild ? <p className="child-special-empty-note">請先完成孩子登入</p> : null}
       </section>
 
       <section className="child-special-countdowns">
-        <CountdownCard title="生日倒數" day={birthday} fallback="還沒有生日資料" icon={<Gift />} />
-        <CountdownCard title="最近重要日子" day={nextDays[0] ?? null} fallback="還沒有重要日子" icon={<CalendarHeart />} />
-        <CountdownCard title="下一個提醒" day={nextDays[1] ?? nextDays[0] ?? null} fallback="還沒有更多日子" icon={<Clock3 />} />
+        <CountdownCard title="生日倒數" day={birthday} fallback="尚未設定生日" icon={<Gift />} />
+        <CountdownCard title="下一個重要日子" day={nextDays[0] ?? null} fallback="還沒有重要日子" icon={<CalendarHeart />} />
+        <CountdownCard title="下一個提醒" day={nextDays[1] ?? nextDays[0] ?? null} fallback="目前沒有提醒" icon={<Clock3 />} />
       </section>
+
+      {notifications.length ? (
+        <section className="child-special-panel">
+          <header><h2>站內通知</h2><small>{notifications.length} 則</small></header>
+          {notifications.map((notification) => <section key={notification.id}><span>🔔</span><div><small>通知</small><strong>{notification.title}</strong><p>{notification.body}</p><time>{notification.created_at.slice(0, 10)}</time></div></section>)}
+        </section>
+      ) : null}
 
       <section className="child-special-grid">
         <article className="child-special-panel">
-          <header><h2>即將到來</h2><small>{upcoming.length} 件</small></header>
-          {upcoming.length ? upcoming.map((day) => <SpecialDayItem key={day.id} day={day} />) : <Empty text="目前沒有可顯示的重要日子" />}
+          <header><h2>即將到來</h2><small>{upcoming.length} 筆</small></header>
+          {upcoming.length ? upcoming.map((day) => <SpecialDayItem key={day.id} day={day} onEdit={() => openEdit(day)} onDelete={() => deleteDay(day)} />) : <Empty text="目前沒有即將到來的重要日子" />}
         </article>
         <article className="child-special-panel">
-          <header><h2>歷史回顧</h2><small>{history.length} 件</small></header>
-          {history.length ? history.map((day) => <SpecialDayItem key={day.id} day={day} />) : <Empty text="過去的重要日子會保留在這裡" />}
+          <header><h2>歷史回顧</h2><small>{history.length} 筆</small></header>
+          {history.length ? history.map((day) => <SpecialDayItem key={day.id} day={day} onEdit={() => openEdit(day)} onDelete={() => deleteDay(day)} />) : <Empty text="目前沒有歷史重要日子" />}
         </article>
       </section>
 
       {showForm ? (
-        <div className="local-form-backdrop" role="presentation" onMouseDown={() => setShowForm(false)}>
-          <section className="local-form-dialog" role="dialog" aria-modal="true" onMouseDown={(event) => event.stopPropagation()}>
+        <div className="local-form-backdrop" role="presentation" onMouseDown={() => !isSaving && setShowForm(false)}>
+          <section className="local-form-dialog special-day-form-dialog" role="dialog" aria-modal="true" onMouseDown={(event) => event.stopPropagation()}>
             <header>
               <div>
                 <small>{dataModeBadgeLabel}</small>
-                <h2>新增我的日子</h2>
+                <h2>{editingId ? '修改我的日子' : '新增我的日子'}</h2>
               </div>
-              <button type="button" aria-label="關閉" onClick={() => setShowForm(false)}>×</button>
+              <button type="button" aria-label="關閉" disabled={isSaving} onClick={() => setShowForm(false)}>×</button>
             </header>
             <form onSubmit={saveDay}>
-              <label className="is-full">
-                類型
-                <select value={form.type} onChange={(event) => setForm({ ...form, type: event.target.value as ChildSpecialDayForm['type'] })}>
-                  {manualTypeOptions.map((type) => (
-                    <option value={type.value} key={type.value}>{type.icon} {type.label}</option>
-                  ))}
-                </select>
-              </label>
-              <label className="is-full">
-                標題
-                <input
-                  autoFocus
-                  required
-                  maxLength={60}
-                  value={form.title}
-                  onChange={(event) => setForm({ ...form, title: event.target.value })}
-                  placeholder="例如：幼稚園表演"
-                />
-              </label>
-              <label>
-                日期
-                <input
-                  type="date"
-                  required
-                  value={form.date}
-                  onChange={(event) => setForm({ ...form, date: event.target.value })}
-                />
-              </label>
-              <label className="is-full">
-                描述
-                <textarea
-                  rows={3}
-                  maxLength={220}
-                  value={form.description}
-                  onChange={(event) => setForm({ ...form, description: event.target.value })}
-                  placeholder="寫下提醒或回憶內容"
-                />
-              </label>
+              <label className="is-full">類型<select value={form.type} onChange={(event) => setForm({ ...form, type: event.target.value as ChildSpecialDayForm['type'] })}>{manualTypeOptions.map((type) => <option value={type.value} key={type.value}>{type.icon} {type.label}</option>)}</select></label>
+              <label className="is-full">標題<input autoFocus required maxLength={60} value={form.title} onChange={(event) => setForm({ ...form, title: event.target.value })} placeholder="例如：我的表演日" /></label>
+              <label>日期<input type="date" required value={form.date} onChange={(event) => setForm({ ...form, date: event.target.value })} /></label>
+              <label className="is-full">備註<textarea rows={3} maxLength={220} value={form.description} onChange={(event) => setForm({ ...form, description: event.target.value })} placeholder="寫下想記住的事情" /></label>
               {formError ? <p className="local-form-error">{formError}</p> : null}
               <footer>
-                <button type="button" onClick={() => setShowForm(false)}>取消</button>
-                <button className="ds-primary-button" type="submit">建立日子</button>
+                <button type="button" disabled={isSaving} onClick={() => setShowForm(false)}>取消</button>
+                <button className="ds-primary-button" type="submit" disabled={isSaving}>{isSaving ? '處理中' : '儲存'}</button>
               </footer>
             </form>
           </section>
@@ -230,26 +233,28 @@ function CountdownCard({ title, day, fallback, icon }: { title: string; day: Chi
     <article>
       <span>{icon}</span>
       <small>{title}</small>
-      <strong>{day ? `${daysUntil(day.date)} 天` : '-'}</strong>
+      <strong>{day ? `${Math.max(daysUntil(day.date), 0)} 天` : '-'}</strong>
       <p>{day ? day.title : fallback}</p>
     </article>
   );
 }
 
-function SpecialDayItem({ day }: { day: ChildSpecialDayItem }) {
+function SpecialDayItem({ day, onEdit, onDelete }: { day: ChildSpecialDayItem; onEdit: () => void; onDelete: () => void }) {
   const type = typeLabels[day.type];
   const remaining = daysUntil(day.date);
   const origin = day.source === 'child_birthday' ? '生日自動產生' : day.createdBy === 'child' ? '孩子新增' : '家長新增';
+  const canEdit = day.createdBy === 'child' && day.source !== 'child_birthday';
   return (
     <section>
       {day.image_media_id ? <MediaImage mediaId={day.image_media_id} alt={day.title} /> : <span>{type.icon}</span>}
       <div>
         <small>{type.label} · {origin}</small>
         <strong>{day.title}</strong>
-        <p>{day.source === 'child_birthday' ? '來自孩子生日' : day.description || '家人一起記住的重要日子。'}</p>
+        <p>{day.source === 'child_birthday' ? '生日' : day.description || '沒有備註'}</p>
         <time>{day.date}</time>
+        {canEdit ? <footer><button type="button" onClick={onEdit}><Edit3 size={15} /> 修改</button><button type="button" onClick={onDelete}><Trash2 size={15} /> 刪除</button></footer> : null}
       </div>
-      <b>{remaining >= 0 ? `${remaining} 天` : '已結束'}</b>
+      <b>{remaining >= 0 ? `${remaining} 天` : '已過'}</b>
     </section>
   );
 }

@@ -92,4 +92,33 @@ describe('iPad production regression hardening', () => {
     expect(shareRepository).toContain('media_asset_id: mediaId');
     expect(localData).toContain('media_asset_id: item.media_asset_id ?? mediaId');
   });
+
+  it('exposes parent mailbox and special-day production sync entry points', () => {
+    const parentLayout = readRepoFile('apps/web/src/components/layout/ParentLayout.tsx');
+    const mailboxPage = readRepoFile('apps/web/src/pages/parent/ParentFeaturePages.tsx');
+    const specialDayMigration = readRepoFile('supabase/migrations/040_mailbox_special_day_notifications.sql');
+    const supabaseData = readRepoFile('apps/web/src/lib/supabaseData.ts');
+
+    expect(parentLayout).toContain("href: '/parent/mailbox'");
+    expect(parentLayout).toContain("href: '/parent/special-days'");
+    expect(mailboxPage).toContain("title=\"寫給孩子\"");
+    expect(mailboxPage).toContain('ownerId: messageId');
+    expect(mailboxPage).toContain('client_request_id: clientRequestId');
+    expect(mailboxPage).toContain('prepareImageFileForUpload');
+    expect(mailboxPage).toContain('deleteMailboxMedia');
+    expect(specialDayMigration).toContain("'notifications'");
+    expect(specialDayMigration).toContain('encouragement_card_received');
+    expect(specialDayMigration).toContain('special_day_reminder');
+    expect(supabaseData).toContain('fromSupabaseNotification');
+    expect(supabaseData).toContain("table: 'notifications'");
+  });
+
+  it('keeps mailbox and special-day client_request_id idempotency in local cache', () => {
+    const localData = readRepoFile('apps/web/src/lib/localData.ts');
+
+    expect(localData).toContain('input.client_request_id ?? id()');
+    expect(localData).toContain('item.client_request_id === clientRequestId');
+    expect(localData).toContain('input.client_request_id ?? `special-day:create:${specialDayId}`');
+    expect(localData).toContain('specialDay.client_request_id = input.client_request_id');
+  });
 });

@@ -62,6 +62,7 @@ import type {
   LocalFamilySettings,
   LocalGrowthRecord,
   LocalMailboxMessage,
+  LocalNotification,
   LocalPiggyBankLog,
   LocalPiggyIncome,
   LocalPiggyProduct,
@@ -81,6 +82,7 @@ import type {
   WeeklyScreenTimeDay,
   MemoryPack,
   LocalTask,
+  NotificationType,
   UUID
 } from './localTypes';
 
@@ -532,6 +534,26 @@ interface SupabaseSpecialDayRow {
   image_media_id?: UUID | null;
 }
 
+interface SupabaseNotificationRow {
+  id: UUID;
+  family_id: UUID;
+  recipient_user_id: UUID | null;
+  recipient_child_id: UUID | null;
+  notification_type: string;
+  title: string;
+  body: string | null;
+  entity_type: string | null;
+  entity_id: UUID | null;
+  payload: { child_id?: UUID | null } | null;
+  channel: string | null;
+  status: string | null;
+  scheduled_at: string | null;
+  sent_at: string | null;
+  read_at: string | null;
+  created_at: string;
+  dedupe_key?: string | null;
+}
+
 interface SupabaseGrowthRecordRow {
   id: UUID;
   family_id: UUID;
@@ -619,6 +641,7 @@ interface ChildScopedRepositorySnapshot {
   share_media?: SupabaseShareMediaRow[];
   encouragement_cards?: SupabaseMailboxRow[];
   special_days?: SupabaseSpecialDayRow[];
+  notifications?: SupabaseNotificationRow[];
   growth_records?: SupabaseGrowthRecordRow[];
   tablet_time?: SupabaseTabletTimeRow[];
   badges?: SupabaseBadgeRow[];
@@ -3262,6 +3285,7 @@ export class SupabaseDataRepository implements LocalDataRepository {
       shareMediaResult,
       mailboxResult,
       specialDayResult,
+      notificationResult,
       growthResult,
       tabletTimeResult,
       badgeResult,
@@ -3288,6 +3312,7 @@ export class SupabaseDataRepository implements LocalDataRepository {
       this.client.from('share_media').select('*').eq('family_id', SUPABASE_FAMILY_ID).order('created_at', { ascending: false }),
       this.client.from('encouragement_cards').select('*').eq('family_id', SUPABASE_FAMILY_ID).order('updated_at', { ascending: false }),
       this.client.from('special_days').select('*').eq('family_id', SUPABASE_FAMILY_ID).order('updated_at', { ascending: false }),
+      this.client.from('notifications').select('*').eq('family_id', SUPABASE_FAMILY_ID).order('created_at', { ascending: false }),
       this.client.from('growth_records').select('*').eq('family_id', SUPABASE_FAMILY_ID).order('updated_at', { ascending: false }),
       this.client.from('tablet_time').select('*').eq('family_id', SUPABASE_FAMILY_ID).order('updated_at', { ascending: false }),
       this.client.from('badges').select('*').eq('family_id', SUPABASE_FAMILY_ID).order('created_at', { ascending: false }),
@@ -3309,6 +3334,7 @@ export class SupabaseDataRepository implements LocalDataRepository {
     if (shareMediaResult.error) throw shareMediaResult.error;
     if (mailboxResult.error) throw mailboxResult.error;
     if (specialDayResult.error) throw specialDayResult.error;
+    if (notificationResult.error) throw notificationResult.error;
     if (growthResult.error) throw growthResult.error;
     if (tabletTimeResult.error) throw tabletTimeResult.error;
     if (badgeResult.error) throw badgeResult.error;
@@ -3366,6 +3392,11 @@ export class SupabaseDataRepository implements LocalDataRepository {
       ((specialDayResult.data ?? []) as SupabaseSpecialDayRow[]).map(fromSupabaseSpecialDay),
       (day) => day.updated_at
     ).sort((first, second) => first.date.localeCompare(second.date));
+    const remoteNotifications = mergeById(
+      baseState.notifications,
+      ((notificationResult.data ?? []) as SupabaseNotificationRow[]).map(fromSupabaseNotification),
+      (notification) => notification.created_at
+    ).sort((first, second) => second.created_at.localeCompare(first.created_at));
     const remoteGrowthRecords = mergeById(
       baseState.growth_records,
       ((growthResult.data ?? []) as SupabaseGrowthRecordRow[]).map((row) =>
@@ -3411,6 +3442,7 @@ export class SupabaseDataRepository implements LocalDataRepository {
       ...remoteShareMedia.map((media) => media.created_at),
       ...remoteMailbox.map((message) => message.updated_at),
       ...remoteSpecialDays.map((day) => day.updated_at),
+      ...remoteNotifications.map((notification) => notification.created_at),
       ...remoteGrowthRecords.map((record) => record.updated_at),
       ...tabletTimeState.screen_time_logs.map((log) => log.created_at),
       ...tabletTimeState.screen_time_requests.map((request) => request.updated_at),
@@ -3443,6 +3475,7 @@ export class SupabaseDataRepository implements LocalDataRepository {
       share_media: remoteShareMedia,
       encouragement_cards: remoteMailbox,
       special_days: remoteSpecialDays,
+      notifications: remoteNotifications,
       family_settings: remoteFamilySettings,
       screen_time_schedules: tabletTimeState.screen_time_schedules,
       screen_time_requests: tabletTimeState.screen_time_requests,
@@ -3868,6 +3901,11 @@ export class SupabaseDataRepository implements LocalDataRepository {
       )
       .on(
         'postgres_changes',
+        { event: '*', schema: 'public', table: 'notifications', filter: `family_id=eq.${SUPABASE_FAMILY_ID}` },
+        () => this.hydrateFromSupabase()
+      )
+      .on(
+        'postgres_changes',
         { event: '*', schema: 'public', table: 'growth_records', filter: `family_id=eq.${SUPABASE_FAMILY_ID}` },
         () => this.hydrateFromSupabase()
       )
@@ -3911,6 +3949,7 @@ export class SupabaseDataRepository implements LocalDataRepository {
       .on('postgres_changes', { event: '*', schema: 'public', table: 'share_media', filter: childFilter }, () => this.hydrateFromSupabase())
       .on('postgres_changes', { event: '*', schema: 'public', table: 'encouragement_cards', filter: childFilter }, () => this.hydrateFromSupabase())
       .on('postgres_changes', { event: '*', schema: 'public', table: 'special_days', filter: childFilter }, () => this.hydrateFromSupabase())
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'notifications', filter: `recipient_child_id=eq.${session.childId}` }, () => this.hydrateFromSupabase())
       .on('postgres_changes', { event: '*', schema: 'public', table: 'growth_records', filter: childFilter }, () => this.hydrateFromSupabase())
       .on('postgres_changes', { event: '*', schema: 'public', table: 'tablet_time', filter: childFilter }, () => this.hydrateFromSupabase())
       .on('postgres_changes', { event: '*', schema: 'public', table: 'child_badges', filter: childFilter }, () => this.hydrateFromSupabase())
@@ -4357,6 +4396,7 @@ function fromChildScopedSupabaseSnapshot(
     share_media: mergeById(baseState.share_media, (snapshot.share_media ?? []).map(fromSupabaseShareMedia), (media) => media.created_at),
     encouragement_cards: mergeById(baseState.encouragement_cards, (snapshot.encouragement_cards ?? []).map(fromSupabaseMailbox), (message) => message.updated_at),
     special_days: mergeById(baseState.special_days, (snapshot.special_days ?? []).map(fromSupabaseSpecialDay), (day) => day.updated_at),
+    notifications: mergeById(baseState.notifications, (snapshot.notifications ?? []).map(fromSupabaseNotification), (notification) => notification.created_at),
     growth_records: mergeById(
       baseState.growth_records,
       (snapshot.growth_records ?? []).map((row) =>
@@ -4874,6 +4914,8 @@ function toSupabaseSpecialDay(day: LocalSpecialDay): SupabaseSpecialDayRow {
 
 function fromSupabaseSpecialDay(row: SupabaseSpecialDayRow): LocalSpecialDay {
   const type = fromSupabaseSpecialDayType(row.event_type);
+  const createdBy =
+    row.client_request_id?.includes(':child:') ? 'child' : row.client_request_id?.includes(':system:') ? 'system' : 'parent';
   return {
     id: row.id,
     family_id: SUPABASE_FAMILY_ID,
@@ -4886,7 +4928,7 @@ function fromSupabaseSpecialDay(row: SupabaseSpecialDayRow): LocalSpecialDay {
     image_media_id: row.image_media_id ?? row.cover_path,
     image_data_url: null,
     created_by: row.created_by,
-    createdBy: 'parent',
+    createdBy,
     source: type === 'birthday' ? 'child_birthday' : 'manual',
     created_at: row.created_at,
     updated_at: row.updated_at,
@@ -5115,6 +5157,32 @@ function fromSupabaseBadge(row: SupabaseBadgeRow): LocalBadge {
     updated_at: row.updated_at ?? row.created_at,
     deleted_at: row.deleted_at ?? null
   };
+}
+
+function fromSupabaseNotification(row: SupabaseNotificationRow): LocalNotification {
+  const childId = row.recipient_child_id ?? row.payload?.child_id ?? '';
+  return {
+    id: row.id,
+    family_id: row.family_id,
+    child_id: childId,
+    type: fromSupabaseNotificationType(row.notification_type),
+    title: row.title,
+    body: row.body,
+    audience: row.recipient_child_id ? 'child' : 'parent',
+    source_type: row.entity_type,
+    source_id: row.entity_id,
+    read_at: row.read_at,
+    created_at: row.created_at
+  };
+}
+
+function fromSupabaseNotificationType(type: string): NotificationType {
+  if (type === 'encouragement_card_received') return 'mailbox_new_message';
+  if (type === 'task_assigned') return 'new_task';
+  if (type === 'screen_time_low') return 'screen_time_review';
+  return type === 'special_day_reminder' || type === 'task_approved' || type === 'stars_awarded'
+    ? type
+    : 'special_day_reminder';
 }
 
 function toSupabaseScreenTimeRequestPayload(request: LocalScreenTimeRequest) {
