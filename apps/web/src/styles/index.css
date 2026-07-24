@@ -7096,6 +7096,7 @@ button.ds-primary-button {
 }
 
 .ds-bottom-nav a {
+  position: relative;
   display: flex;
   min-height: 4.5rem;
   flex-direction: column;
@@ -7107,6 +7108,40 @@ button.ds-primary-button {
   font-weight: 500;
   gap: 0.25rem;
   text-decoration: none;
+}
+
+.ds-bottom-nav-icon {
+  position: relative;
+  display: inline-grid;
+  width: 2rem;
+  height: 2rem;
+  place-items: center;
+  flex: 0 0 auto;
+}
+
+.child-nav-badge {
+  position: absolute;
+  top: -0.42rem;
+  right: -0.62rem;
+  display: inline-flex;
+  min-width: 1.15rem;
+  height: 1.15rem;
+  align-items: center;
+  justify-content: center;
+  border: 2px solid rgba(255, 255, 255, 0.96);
+  border-radius: 999px;
+  background: #e53935;
+  color: #fff;
+  font-size: 0.68rem;
+  font-weight: 800;
+  line-height: 1;
+  padding: 0 0.22rem;
+  pointer-events: none;
+  box-shadow: 0 4px 10px rgba(229, 57, 53, 0.28);
+}
+
+.ds-bottom-nav a.is-active .child-nav-badge {
+  border-color: var(--primary);
 }
 
 .ds-bottom-nav a.is-active {

@@ -5179,6 +5179,10 @@ function fromSupabaseNotification(row: SupabaseNotificationRow): LocalNotificati
 function fromSupabaseNotificationType(type: string): NotificationType {
   if (type === 'encouragement_card_received') return 'mailbox_new_message';
   if (type === 'task_assigned') return 'new_task';
+  if (type === 'task_updated') return 'task_updated';
+  if (type === 'task_stars_awarded') return 'stars_awarded';
+  if (type === 'share_encouraged' || type === 'share_stars_awarded') return 'share_encouraged';
+  if (type.startsWith('piggy_')) return 'piggy_updated';
   if (type === 'screen_time_low') return 'screen_time_review';
   return type === 'special_day_reminder' || type === 'task_approved' || type === 'stars_awarded'
     ? type

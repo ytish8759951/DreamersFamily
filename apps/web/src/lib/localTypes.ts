@@ -11,8 +11,11 @@ export type SpecialDayType = 'birthday' | 'anniversary' | 'holiday' | 'family_ev
 export type ScreenTimeRequestStatus = 'pending' | 'approved' | 'rejected' | 'cancelled';
 export type NotificationType =
   | 'new_task'
+  | 'task_updated'
   | 'task_approved'
   | 'stars_awarded'
+  | 'share_encouraged'
+  | 'piggy_updated'
   | 'mailbox_new_message'
   | 'special_day_reminder'
   | 'screen_time_review';

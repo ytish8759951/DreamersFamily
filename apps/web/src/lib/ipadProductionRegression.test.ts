@@ -157,4 +157,31 @@ describe('iPad production regression hardening', () => {
     expect(styles).toContain('padding-bottom: calc(112px + env(safe-area-inset-bottom))');
     expect(styles).toContain('@media (max-width: 360px)');
   });
+
+  it('backs child unread bottom-nav badges with formal Supabase notifications', () => {
+    const layout = readRepoFile('apps/web/src/components/layout/ChildLayout.tsx');
+    const unread = readRepoFile('apps/web/src/lib/childUnreadNotifications.ts');
+    const repository = readRepoFile('apps/web/src/lib/notificationRepository.ts');
+    const migration = readRepoFile('supabase/migrations/042_child_interaction_unread_notifications.sql');
+    const styles = readRepoFile('apps/web/src/styles/index.css');
+
+    expect(layout).toContain('getChildUnreadCounts(localState, childId)');
+    expect(layout).toContain('aria-label={ariaLabel}');
+    expect(layout).toContain('child-nav-badge');
+    expect(layout).toContain("'/child/tasks': 'task'");
+    expect(layout).toContain("'/child/share': 'share'");
+    expect(layout).toContain("'/child/dreams': 'piggy'");
+    expect(layout).not.toContain("markChildInteractionNotificationsRead(childId, 'mailbox'");
+    expect(unread).toContain('counts.mailbox = state.encouragement_cards.filter');
+    expect(unread).toContain("message.status !== 'opened'");
+    expect(repository).toContain("rpc('mark_child_notifications_read'");
+    expect(migration).toContain('create trigger trg_notify_child_task_interaction');
+    expect(migration).toContain('create trigger trg_notify_child_star_interaction');
+    expect(migration).toContain('create trigger trg_notify_child_piggy_record_interaction');
+    expect(migration).toContain('create trigger trg_notify_child_store_item_interaction');
+    expect(migration).toContain('create trigger trg_notify_child_purchase_interaction');
+    expect(migration).toContain('dedupe_key');
+    expect(styles).toContain('.child-nav-badge');
+    expect(styles).toContain('pointer-events: none');
+  });
 });
