@@ -9,15 +9,16 @@ function readRepoFile(relativePath: string) {
 describe('bootstrap chunk recovery', () => {
   it('keeps missing hashed assets out of the SPA fallback', () => {
     const redirects = readRepoFile('apps/web/public/_redirects');
-    const assetJsRule = redirects.indexOf('/assets/:file.js /asset-not-found.js 404');
-    const assetCssRule = redirects.indexOf('/assets/:file.css /asset-not-found.css 404');
-    const spaRule = redirects.indexOf('/* /index.html 200');
+    const middleware = readRepoFile('apps/web/functions/_middleware.js');
 
-    expect(assetJsRule).toBeGreaterThanOrEqual(0);
-    expect(assetCssRule).toBeGreaterThanOrEqual(0);
-    expect(spaRule).toBeGreaterThan(assetJsRule);
-    expect(spaRule).toBeGreaterThan(assetCssRule);
-    expect(readRepoFile('apps/web/public/asset-not-found.js')).toContain('asset chunk is no longer available');
+    expect(redirects).toContain('/* /index.html 200');
+    expect(middleware).toContain("url.pathname.startsWith('/assets/')");
+    expect(middleware).toContain("contentType.toLowerCase().includes('text/html')");
+    expect(middleware).toContain('status: 404');
+    expect(middleware).toContain('application/javascript');
+    expect(middleware).toContain('text/css');
+    expect(middleware).toContain('X-Dreamers-Asset-Missing');
+    expect(middleware).toContain('no-cache, no-store, must-revalidate');
   });
 
   it('recovers module import and chunk failures without clearing persistent user data', () => {
