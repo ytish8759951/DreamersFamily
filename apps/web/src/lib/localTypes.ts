@@ -212,8 +212,8 @@ export interface LocalShare {
   child_id: UUID;
   title: string | null;
   caption: string | null;
-  share_type: 'text' | 'photo' | 'audio' | 'video' | 'mixed';
-  type?: 'text' | 'photo' | 'audio' | 'video' | 'mixed';
+  share_type: 'text' | 'photo' | 'audio' | 'video' | 'drawing' | 'mixed';
+  type?: 'text' | 'photo' | 'audio' | 'video' | 'drawing' | 'mixed';
   mediaUrl?: string | null;
   source_type: 'child_device' | 'parent' | 'system';
   status: ShareStatus;

@@ -93,6 +93,7 @@ function shareTitle(share: ShareWithMedia) {
     photo: '照片分享',
     audio: '語音分享',
     video: '影片分享',
+    drawing: '畫作分享',
     mixed: '混合分享'
   } as const)[share.share_type];
 }

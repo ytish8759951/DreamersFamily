@@ -710,8 +710,10 @@ export interface CreateShareInput {
   child_id: UUID;
   title?: string | null;
   caption?: string | null;
+  share_type?: LocalShare['share_type'];
   source_type?: LocalShare['source_type'];
   status?: LocalShare['status'];
+  client_request_id?: string | null;
   media?: ShareMediaInput[];
 }
 
@@ -2109,11 +2111,12 @@ export class LocalDataService implements LocalDataRepository {
       const media = input.media ?? [];
       const mediaTypes = [...new Set(media.map((item) => item.media_type))];
       const shareType: LocalShare['share_type'] =
-        mediaTypes.length === 0
+        input.share_type ??
+        (mediaTypes.length === 0
           ? 'text'
           : mediaTypes.length === 1
             ? mediaTypes[0]
-            : 'mixed';
+            : 'mixed');
       if (shareType === 'text' && !input.caption?.trim()) {
         throw new LocalDataError('Text shares require a caption', 'VALIDATION_ERROR');
       }
@@ -2141,7 +2144,7 @@ export class LocalDataService implements LocalDataRepository {
         created_at: timestamp,
         updated_at: timestamp,
         deleted_at: null,
-        client_request_id: `share:create:${input.id ?? timestamp}`
+        client_request_id: input.client_request_id ?? `share:create:${input.id ?? timestamp}`
       };
       state.shares.push(share);
 

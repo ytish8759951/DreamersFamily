@@ -23,6 +23,7 @@ import {
   Video
 } from 'lucide-react';
 import { Link } from 'react-router-dom';
+import { ChildDrawingBoard, type DrawingSubmitPayload } from '../../components/ChildDrawingBoard';
 import { LocalDreamCover, useLocalDreamCoverUrl } from '../../components/LocalDreamCover';
 import { LocalShareAlbum } from '../../components/LocalShareAlbum';
 import { LocalShareMedia as LocalShareMediaView } from '../../components/LocalShareMedia';
@@ -561,8 +562,9 @@ function sortTodayTasks(tasks: LocalTask[]) {
   });
 }
 
-type ShareFormMode = LocalShareMedia['media_type'];
-type ChildShareFilter = 'all' | ShareFormMode;
+type MediaShareFormMode = LocalShareMedia['media_type'];
+type ShareFormMode = MediaShareFormMode | 'drawing';
+type ChildShareFilter = 'all' | LocalShare['share_type'];
 
 type ChildRecordedMedia = ShareRecordedMedia;
 
@@ -637,7 +639,8 @@ function SharePage() {
     { value: 'all' as const, label: '全部', count: childShares.length },
     { value: 'photo' as const, label: '照片', count: childShares.filter((share) => share.share_type === 'photo').length },
     { value: 'audio' as const, label: '語音', count: childShares.filter((share) => share.share_type === 'audio').length },
-    { value: 'video' as const, label: '影片', count: childShares.filter((share) => share.share_type === 'video').length }
+    { value: 'video' as const, label: '影片', count: childShares.filter((share) => share.share_type === 'video').length },
+    { value: 'drawing' as const, label: '畫作', count: childShares.filter((share) => share.share_type === 'drawing').length }
   ];
   const redeemAmount = Math.max(0, Number(redeemStars) || 0);
   const redeemMinutes = redeemAmount;
@@ -707,6 +710,60 @@ function SharePage() {
     setShareUploadProgress('');
     setFormMode(null);
     setFormError('');
+  };
+  const submitDrawingShare = async (payload: DrawingSubmitPayload) => {
+    if (!selectedChild) throw new Error('找不到目前登入的孩子，請重新登入後再試。');
+    const shareId = createLocalMediaId();
+    const mediaId = createLocalMediaId();
+    const uploadedMedia = await shareRepository.saveShareMedia({
+      id: mediaId,
+      shareId,
+      childId: selectedChild.id,
+      mediaType: 'photo',
+      mimeType: 'image/png',
+      fileName: `drawing-${shareId}.png`,
+      fileSizeBytes: payload.blob.size,
+      width: payload.width,
+      height: payload.height,
+      skipImageCompression: true,
+      blob: payload.blob
+    });
+    if ((uploadedMedia.file_size_bytes ?? 0) <= 0) {
+      await shareRepository.deleteShareMedia(uploadedMedia.id);
+      throw new Error('畫作上傳失敗：Storage 檔案大小為 0。');
+    }
+    try {
+      shareRepository.createShare({
+        id: shareId,
+        child_id: selectedChild.id,
+        title: payload.title || null,
+        caption: payload.caption || null,
+        share_type: 'drawing',
+        source_type: 'child_device',
+        status: 'approved',
+        client_request_id: payload.clientRequestId,
+        media: [{
+          id: uploadedMedia.id,
+          media_asset_id: uploadedMedia.id,
+          media_type: 'photo',
+          bucket: uploadedMedia.bucket as LocalShareMedia['bucket'],
+          storage_path: uploadedMedia.storage_path,
+          thumbnail_path: uploadedMedia.thumbnail_path,
+          mime_type: 'image/png',
+          file_name: `drawing-${shareId}.png`,
+          file_size_bytes: uploadedMedia.file_size_bytes,
+          width: payload.width,
+          height: payload.height,
+          duration_seconds: null
+        }]
+      });
+      setFormMode(null);
+      setShareFilter('drawing');
+      setSharePageIndex(1);
+    } catch (caught) {
+      await shareRepository.deleteShareMedia(uploadedMedia.id);
+      throw caught;
+    }
   };
   const clearRecordingTimer = () => {
     if (timerRef.current !== null) {
@@ -888,6 +945,7 @@ function SharePage() {
   const createShare = async (event: FormEvent) => {
     event.preventDefault();
     if (!selectedChild || !formMode) return;
+    if (formMode === 'drawing') return;
     setFormError('');
     const validationError = getShareFormValidationError(formMode, shareForm);
     if (validationError) {
@@ -903,7 +961,7 @@ function SharePage() {
       const mediaInputs: Array<{
         id: string;
         media_asset_id?: string | null;
-        media_type: ShareFormMode;
+        media_type: MediaShareFormMode;
         bucket: LocalShareMedia['bucket'];
         storage_path: string;
         thumbnail_path?: string | null;
@@ -1120,6 +1178,14 @@ function SharePage() {
     void processSelectedVideo(file, 'library');
   };
 
+  if (formMode === 'drawing' && selectedChild) {
+    return (
+      <div className="v1-page v2-share-page">
+        <ChildDrawingBoard childId={selectedChild.id} onBack={closeShareForm} onSubmit={submitDrawingShare} />
+      </div>
+    );
+  }
+
   return (
     <div className="v1-page v2-share-page">
       <ChildPageHeader emoji="📷" title="分享" accent="✦" subtitle="記錄每一次的冒險時刻" />
@@ -1130,6 +1196,7 @@ function SharePage() {
             <ShareAction art="📷" title="照片分享" subtitle="選擇本機照片" tone="blue" onClick={() => openShareForm('photo')} />
             <ShareAction art="🎤" title="語音分享" subtitle="直接錄音分享" tone="green" onClick={() => openShareForm('audio')} />
             <ShareAction art="🎬" title="影片分享" subtitle="選擇本機影片" tone="yellow" onClick={() => openShareForm('video')} />
+            <ShareAction art="🎨" title="畫板分享" subtitle="自由畫畫、蓋印章並分享作品" tone="pink" onClick={() => openShareForm('drawing')} />
           </div>
         </section>
 
@@ -1149,7 +1216,7 @@ function SharePage() {
             ))}
           </div>
           <div className="v2-share-grid">
-            {visibleShares.length ? visibleShares.map((share) => <ShareGridCard key={share.id} share={share} encouragementStars={shareRewards.get(share.id) ?? 0} />) : <ChildTaskEmpty text={shareFilter === 'all' ? '還沒有分享紀錄，先新增照片、語音或影片分享' : '這個分類目前沒有分享'} />}
+            {visibleShares.length ? visibleShares.map((share) => <ShareGridCard key={share.id} share={share} encouragementStars={shareRewards.get(share.id) ?? 0} />) : <ChildTaskEmpty text={shareFilter === 'all' ? '還沒有分享紀錄，先新增照片、語音、影片或畫作分享' : '這個分類目前沒有分享'} />}
           </div>
           <div ref={galleryPagerRef} className="v2-share-pagination">
             <button type="button" onClick={() => setSharePageIndex((value) => Math.max(1, value - 1))} disabled={safePageIndex === 1}>上一頁</button>
@@ -1530,11 +1597,11 @@ function buildChildShares(state: LocalDatabaseState): ShareWithMedia[] {
 }
 
 function childShareTypeLabel(type: LocalShare['share_type']) {
-  return ({ text: '文字', photo: '照片', audio: '語音', video: '影片', mixed: '混合' } as const)[type];
+  return ({ text: '文字', photo: '照片', audio: '語音', video: '影片', drawing: '畫作', mixed: '混合' } as const)[type];
 }
 
 function childShareTypeIcon(type: LocalShare['share_type']) {
-  return ({ text: '✎', photo: '📷', audio: '🎤', video: '▶', mixed: '▣' } as const)[type];
+  return ({ text: '✎', photo: '📷', audio: '🎤', video: '▶', drawing: '🎨', mixed: '▣' } as const)[type];
 }
 
 function childShareStatusLabel(status: LocalShare['status']) {
@@ -1547,15 +1614,15 @@ function legacyChildShareStatusLabel(status: LocalShare['status']) {
 }
 
 function childMediaTypeLabel(type: ShareFormMode) {
-  return ({ photo: '照片', audio: '語音', video: '影片' } as const)[type];
+  return ({ photo: '照片', audio: '語音', video: '影片', drawing: '畫板' } as const)[type];
 }
 
 function shareAccept(type: ShareFormMode) {
-  return ({ photo: 'image/*', audio: 'audio/*', video: 'video/*' } as const)[type];
+  return ({ photo: 'image/*', audio: 'audio/*', video: 'video/*', drawing: 'image/png' } as const)[type];
 }
 
 function defaultMimeType(type: ShareFormMode) {
-  return ({ photo: 'image/jpeg', audio: 'audio/mpeg', video: 'video/mp4' } as const)[type];
+  return ({ photo: 'image/jpeg', audio: 'audio/mpeg', video: 'video/mp4', drawing: 'image/png' } as const)[type];
 }
 
 function shareUploadStatusLabel(formMode: ShareFormMode | null, status: 'idle' | 'preparing' | 'uploading' | 'success' | 'error') {

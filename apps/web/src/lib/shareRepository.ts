@@ -26,6 +26,7 @@ type SaveShareMediaInput = {
   width?: number | null;
   height?: number | null;
   durationSeconds?: number | null;
+  skipImageCompression?: boolean;
   blob: Blob;
 };
 
@@ -90,6 +91,7 @@ async function saveShareMedia(input: SaveShareMediaInput) {
     mimeType: input.mimeType,
     fileName: input.fileName,
     duration: input.durationSeconds,
+    skipImageCompression: input.skipImageCompression,
     blob: input.blob
   } satisfies SaveMediaInput);
   if (savedMedia.bucket === 'family-media' && savedMedia.storagePath) {

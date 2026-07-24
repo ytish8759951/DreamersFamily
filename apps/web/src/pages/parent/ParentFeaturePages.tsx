@@ -540,7 +540,7 @@ function formatTaskTime(value: string) {
 
 function ParentShareManagementPage() {
   const state = useLocalDataState();
-  const [filter, setFilter] = useState<'全部' | '照片' | '語音' | '影片'>('全部');
+  const [filter, setFilter] = useState<'全部' | '照片' | '語音' | '影片' | '畫作'>('全部');
   const [selectedChildId, setSelectedChildId] = useState('');
   const [sharePage, setSharePage] = useState(1);
   const [notice, setNotice] = useState('');
@@ -566,6 +566,7 @@ function ParentShareManagementPage() {
     if (filter === '照片') return share.share_type === 'photo';
     if (filter === '語音') return share.share_type === 'audio';
     if (filter === '影片') return share.share_type === 'video';
+    if (filter === '畫作') return share.share_type === 'drawing';
     return true;
   });
   const filteredShares = typeFilteredShares.filter((share) => !selectedChildId || share.child_id === selectedChildId);
@@ -577,6 +578,7 @@ function ParentShareManagementPage() {
     photo: shares.filter((share) => share.share_type === 'photo').length,
     audio: shares.filter((share) => share.share_type === 'audio').length,
     video: shares.filter((share) => share.share_type === 'video').length,
+    drawing: shares.filter((share) => share.share_type === 'drawing').length,
     total: shares.length
   };
   const childName = (childId: string) =>
@@ -642,14 +644,14 @@ function ParentShareManagementPage() {
   };
 
   return <div className="pf-page pf-share">
-    <Header icon="📷" title="分享管理" subtitle="查看孩子分享的照片、語音與影片" />
+    <Header icon="📷" title="分享管理" subtitle="查看孩子分享的照片、語音、影片與畫作" />
     <Stats items={[
       { label: '照片', value: String(counts.photo), tone: 'blue' },
       { label: '語音', value: String(counts.audio), tone: 'green' },
       { label: '影片', value: String(counts.video), tone: 'yellow' },
-      { label: '全部分享', value: String(counts.total), tone: 'pink' }
+      { label: '畫作', value: String(counts.drawing), tone: 'pink' }
     ]} />
-    <div className="pf-filters"><strong>分享類型</strong>{(['全部', '照片', '語音', '影片'] as const).map((item) => <button className={filter === item ? 'is-active' : ''} onClick={() => setFilter(item)} key={item}>{item}</button>)}</div>
+    <div className="pf-filters"><strong>分享類型</strong>{(['全部', '照片', '語音', '影片', '畫作'] as const).map((item) => <button className={filter === item ? 'is-active' : ''} onClick={() => setFilter(item)} key={item}>{item}</button>)}</div>
     <section className="pf-share-grid">
       <Panel title="孩子分享紀錄" action={`${filteredShares.length} 筆`} className="pf-share-list">
         <div className="pf-child-share-tabs" role="tablist" aria-label="選擇孩子分享">
@@ -871,11 +873,11 @@ function buildSharesWithMedia(state: ReturnType<typeof dataRepository.getState>)
 }
 
 function shareTypeLabel(type: LocalShare['share_type']) {
-  return ({ text: '文字', photo: '照片', audio: '語音', video: '影片', mixed: '混合' } as const)[type];
+  return ({ text: '文字', photo: '照片', audio: '語音', video: '影片', mixed: '混合', drawing: '畫作' } as const)[type];
 }
 
 function shareTypeIcon(type: LocalShare['share_type']) {
-  return ({ text: '✎', photo: '📷', audio: '🎤', video: '▶', mixed: '▣' } as const)[type];
+  return ({ text: '✎', photo: '📷', audio: '🎤', video: '▶', mixed: '▣', drawing: '🎨' } as const)[type];
 }
 
 function shareStatusLabel(status: LocalShare['status']) {

@@ -534,11 +534,11 @@ function buildChildShares(state: LocalDatabaseState): ShareWithMedia[] {
 }
 
 function childShareTypeLabel(type: LocalShare['share_type']) {
-  return ({ text: '文字', photo: '照片', audio: '語音', video: '影片', mixed: '混合' } as const)[type];
+  return ({ text: '文字', photo: '照片', audio: '語音', video: '影片', drawing: '畫作', mixed: '混合' } as const)[type];
 }
 
 function childShareTypeIcon(type: LocalShare['share_type']) {
-  return ({ text: '✉', photo: '📷', audio: '🎙', video: '▶', mixed: '✨' } as const)[type];
+  return ({ text: '✉', photo: '📷', audio: '🎙', video: '▶', drawing: '🎨', mixed: '✨' } as const)[type];
 }
 
 function childShareStatusLabel(status: LocalShare['status']) {
